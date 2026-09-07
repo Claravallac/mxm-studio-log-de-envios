@@ -1,0 +1,81 @@
+{
+  "manifest_version": 3,
+  "name": "MXM Studio - Log de Envios",
+  "version": "3.4.26",
+  "description": "Registra data/hora de cada envio no MXM Studio, com missão (inclusive manual), duração da faixa, painel de log (foto do curator, atividade por dia/mês), aba Reward (USD+BRL), Diff Check, captura opcional da letra, temas do Tabs V3 (beta), backup completo em .json, importar/exportar, tela de boas-vindas com termos de uso e tour inicial. PT/EN/EL.",
+  "author": "nero",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "mxm-studio-log-envios@nero",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
+    }
+  },
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "MXM Studio - Log de Envios",
+    "default_icon": {
+      "48": "icons/icon-48.png",
+      "96": "icons/icon-96.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "permissions": [
+    "storage",
+    "menus",
+    "downloads",
+    "identity"
+  ],
+  "host_permissions": [
+    "https://curators.musixmatch.com/*",
+    "https://curators-beta.musixmatch.com/*",
+    "https://economia.awesomeapi.com.br/*",
+    "https://addons.mozilla.org/*",
+    "https://identitytoolkit.googleapis.com/*",
+    "https://securetoken.googleapis.com/*",
+    "https://firestore.googleapis.com/*",
+    "https://is.gd/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://curators.musixmatch.com/*",
+        "https://curators-beta.musixmatch.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "injected.js",
+        "sounds/erro.wav",
+        "sounds/atualizacao.wav",
+        "sounds/resumo-musica.mp3"
+      ],
+      "matches": [
+        "https://curators.musixmatch.com/*",
+        "https://curators-beta.musixmatch.com/*"
+      ]
+    }
+  ]
+}
