@@ -1,18 +1,15 @@
 name: Sync versão da AMO pro GitHub Releases
-
-# Roda sozinho a cada 6 horas, verificando se saiu uma versão nova na
+# Roda sozinho a cada hora, verificando se saiu uma versão nova na
 # Mozilla (AMO). Se sim, baixa o .xpi publicado lá e cria uma Release
 # aqui no GitHub com ele. Também pode ser disparado manualmente pela
 # aba "Actions" do repositório (botão "Run workflow").
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 * * * *'
   workflow_dispatch: {}
-
 # Necessário pra esse robô poder criar Releases neste repositório.
 permissions:
   contents: write
-
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -26,46 +23,36 @@ jobs:
           # com espera crescente (backoff) antes de desistir.
           TENTATIVAS=5
           ESPERA=10  # segundos; dobra a cada nova tentativa
-
           for i in $(seq 1 "$TENTATIVAS"); do
             RESPOSTA=$(curl -sS \
               -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
               -H "Accept: application/json" \
               -w "\n%{http_code}" \
               "https://addons.mozilla.org/api/v5/addons/addon/mxm-studio-log/")
-
             STATUS=$(echo "$RESPOSTA" | tail -n1)
             DADOS=$(echo "$RESPOSTA" | sed '$d')
-
             if [ "$STATUS" = "200" ]; then
               break
             fi
-
             echo "Tentativa $i/$TENTATIVAS: a AMO respondeu com status $STATUS (esperado 200)."
-
             if [ "$i" -eq "$TENTATIVAS" ]; then
               echo "Esgotei as tentativas. Corpo da última resposta:"
               echo "$DADOS"
               exit 1
             fi
-
             echo "Aguardando ${ESPERA}s antes de tentar de novo..."
             sleep "$ESPERA"
             ESPERA=$((ESPERA * 2))
           done
-
           VERSAO=$(echo "$DADOS" | jq -r '.current_version.version')
           URL_ARQUIVO=$(echo "$DADOS" | jq -r '.current_version.file.url')
-
           if [ -z "$VERSAO" ] || [ "$VERSAO" = "null" ]; then
             echo "Não consegui ler a versão atual na resposta da AMO. Corpo da resposta:"
             echo "$DADOS"
             exit 1
           fi
-
           echo "versao=$VERSAO" >> "$GITHUB_OUTPUT"
           echo "url_arquivo=$URL_ARQUIVO" >> "$GITHUB_OUTPUT"
-
       - name: Verificar se essa versão já tem Release aqui
         id: checar
         env:
@@ -76,14 +63,12 @@ jobs:
           else
             echo "ja_existe=false" >> "$GITHUB_OUTPUT"
           fi
-
       - name: Baixar o .xpi da AMO
         if: steps.checar.outputs.ja_existe == 'false'
         run: |
           curl -L --retry 3 --retry-delay 5 --retry-all-errors \
             -o "mxm-studio-log-${{ steps.amo.outputs.versao }}.xpi" \
             "${{ steps.amo.outputs.url_arquivo }}"
-
       - name: Criar a Release no GitHub
         if: steps.checar.outputs.ja_existe == 'false'
         env:
