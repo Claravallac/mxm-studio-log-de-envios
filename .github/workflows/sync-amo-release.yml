@@ -1,11 +1,12 @@
 name: Sync versão da AMO pro GitHub Releases
-# Roda sozinho a cada hora, verificando se saiu uma versão nova na
-# Mozilla (AMO). Se sim, baixa o .xpi publicado lá e cria uma Release
+# Roda sozinho a cada 15 minutos (deslocado do :00 pra evitar o horário
+# de maior fila do GitHub Actions), verificando se saiu uma versão nova
+# na Mozilla (AMO). Se sim, baixa o .xpi publicado lá e cria uma Release
 # aqui no GitHub com ele. Também pode ser disparado manualmente pela
 # aba "Actions" do repositório (botão "Run workflow").
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '7-59/15 * * * *'
   workflow_dispatch: {}
 # Necessário pra esse robô poder criar Releases neste repositório.
 permissions:
@@ -51,8 +52,24 @@ jobs:
             echo "$DADOS"
             exit 1
           fi
+          # As "release notes" que você preenche na AMO ao publicar a versão
+          # ficam em current_version.release_notes, um objeto por idioma
+          # (ex.: {"pt-BR": "...", "en-US": "..."}). Prioriza pt-BR, cai pra
+          # en-US, e por último pega o primeiro idioma disponível — se o
+          # campo não foi preenchido nessa versão, fica vazio mesmo.
+          NOTAS=$(echo "$DADOS" | jq -r '
+            .current_version.release_notes as $rn
+            | if $rn == null then ""
+              else ($rn["pt-BR"] // $rn["en-US"] // ([$rn[]][0]) // "")
+              end
+          ')
           echo "versao=$VERSAO" >> "$GITHUB_OUTPUT"
           echo "url_arquivo=$URL_ARQUIVO" >> "$GITHUB_OUTPUT"
+          {
+            echo "notas_release<<EOF_NOTAS_AMO"
+            echo "$NOTAS"
+            echo "EOF_NOTAS_AMO"
+          } >> "$GITHUB_OUTPUT"
       - name: Verificar se essa versão já tem Release aqui
         id: checar
         env:
@@ -73,9 +90,19 @@ jobs:
         if: steps.checar.outputs.ja_existe == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTAS_AMO: ${{ steps.amo.outputs.notas_release }}
         run: |
+          # Monta as notas da Release: usa as "release notes" da AMO como
+          # corpo principal (quando existirem) e sempre acrescenta a linha
+          # padrão de rodapé indicando a origem automática.
+          RODAPE="Publicado automaticamente a partir da versão ${{ steps.amo.outputs.versao }} disponível na Mozilla Add-ons (addons.mozilla.org)."
+          if [ -n "$NOTAS_AMO" ]; then
+            NOTAS_FINAIS=$(printf '%s\n\n---\n%s' "$NOTAS_AMO" "$RODAPE")
+          else
+            NOTAS_FINAIS="$RODAPE"
+          fi
           gh release create "v${{ steps.amo.outputs.versao }}" \
             "mxm-studio-log-${{ steps.amo.outputs.versao }}.xpi" \
             --repo "${{ github.repository }}" \
             --title "v${{ steps.amo.outputs.versao }}" \
-            --notes "Publicado automaticamente a partir da versão ${{ steps.amo.outputs.versao }} disponível na Mozilla Add-ons (addons.mozilla.org)."
+            --notes "$NOTAS_FINAIS"
