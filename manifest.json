@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MXM Studio - Log de Envios",
-  "version": "3.4.26",
+  "version": "3.4.51",
   "description": "Registra data/hora de cada envio no MXM Studio, com missão (inclusive manual), duração da faixa, painel de log (foto do curator, atividade por dia/mês), aba Reward (USD+BRL), Diff Check, captura opcional da letra, temas do Tabs V3 (beta), backup completo em .json, importar/exportar, tela de boas-vindas com termos de uso e tour inicial. PT/EN/EL.",
   "author": "nero",
   "browser_specific_settings": {
@@ -47,6 +47,7 @@
     "https://curators-beta.musixmatch.com/*",
     "https://economia.awesomeapi.com.br/*",
     "https://addons.mozilla.org/*",
+    "https://api.github.com/*",
     "https://identitytoolkit.googleapis.com/*",
     "https://securetoken.googleapis.com/*",
     "https://firestore.googleapis.com/*",
