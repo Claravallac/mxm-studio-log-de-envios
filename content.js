@@ -179,6 +179,15 @@ browser.storage.onChanged.addListener((changes, area) => {
   const STORAGE_FIREBASE_REFRESH_TOKEN_KEY = 'mxm_log_firebase_refresh_token';
   const STORAGE_FIREBASE_UID_KEY = 'mxm_log_firebase_uid';
   const STORAGE_ULTIMO_BACKUP_NUVEM_KEY = 'mxm_log_ultimo_backup_nuvem';
+  // timestamp (ms) da última limpeza automática de diffs compartilhados
+  // expirados na coleção `diffs_compartilhados` do Firestore — usado só
+  // pra não repetir a limpeza toda vez que a página carrega, e sim no
+  // máximo 1x por dia (ver mxmLimparDiffsCompartilhadosExpirados). Existe
+  // porque o TTL nativo do Firestore exige o plano pago (Blaze) do
+  // projeto, e a extensão roda no plano gratuito (Spark) — então a
+  // expiração dos 30 dias é feita "na mão" por aqui em vez de depender do
+  // Google apagar sozinho.
+  const STORAGE_ULTIMA_LIMPEZA_DIFFS_KEY = 'mxm_log_ultima_limpeza_diffs_compartilhados';
   // idioma da interface ('pt' ou 'en').
   const STORAGE_LANG_KEY = 'mxm_log_idioma';
   // layout escolhido pro resumo do dia ('lado_a_lado' | 'chip' | 'tipografia').
@@ -241,6 +250,64 @@ browser.storage.onChanged.addListener((changes, area) => {
   let resumoDiaIntervalId = null;
 
   const AMO_PAGE_URL = 'https://addons.mozilla.org/pt-BR/firefox/addon/mxm-studio-log/';
+
+  // Repositório GitHub que espelha as releases da AMO em .xpi (ver workflow
+  // "Sync versão da AMO pro GitHub Releases", que roda periodicamente e
+  // publica um Release com o .xpi assim que percebe versão nova na AMO).
+  // O botão "Atualizar agora" nunca conseguia aplicar nada de verdade via
+  // Firefox — browser.runtime.requestUpdateCheck não existe lá (ver
+  // verificarEinstalarAtualizacao em background.js, sempre cai no motivo
+  // 'sem_forcar_checagem') — então em vez de fingir uma tentativa que
+  // sempre falha, o botão passou a buscar o .xpi dessa mesma versão direto
+  // no GitHub e abrir o download. Como o workflow do GitHub só roda de
+  // tempos em tempos, pode existir uma janela em que a AMO já tem a versão
+  // nova mas o Release no GitHub ainda não foi criado — nesse caso
+  // buscarXpiGithub devolve 'sem_release_github', motivo retryable (mesmo
+  // mecanismo de espera crescente já usado aqui) antes de desistir e
+  // apontar pra página de Releases como saída manual.
+  const GITHUB_REPO_OWNER = 'Claravallac';
+  const GITHUB_REPO_NAME = 'mxm-studio-log-de-envios';
+  const GITHUB_RELEASES_PAGE_URL = `https://github.com/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/releases`;
+
+  async function buscarXpiGithub(versao) {
+    const tag = `v${versao}`;
+    const url = `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/releases/tags/${encodeURIComponent(
+      tag
+    )}`;
+    try {
+      const res = await fetch(url, { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+      if (res.status === 404) return { ok: false, motivo: 'sem_release_github' };
+      if (!res.ok) return { ok: false, motivo: 'erro_github' };
+      const dados = await res.json();
+      const asset = (dados.assets || []).find(
+        (a) => a && typeof a.name === 'string' && a.name.toLowerCase().endsWith('.xpi')
+      );
+      if (!asset) return { ok: false, motivo: 'sem_release_github' };
+      return { ok: true, url: asset.browser_download_url };
+    } catch (erro) {
+      return { ok: false, motivo: 'erro_github' };
+    }
+  }
+
+  // Contrato compatível com criarRetryAtualizacao (e com o antigo
+  // aplicarAtualizacaoAgora): devolve { aplicada: true } quando conseguiu
+  // abrir o .xpi, ou { aplicada: false, motivo } quando ainda não achou —
+  // aí quem chamou decide se tenta de novo sozinho.
+  function tentarAtualizarViaGithub(callback) {
+    const versao = getUpdateDisponivel();
+    if (!versao) {
+      callback({ ok: true, aplicada: false, motivo: 'sem_release_github' });
+      return;
+    }
+    buscarXpiGithub(versao).then((resultado) => {
+      if (resultado.ok) {
+        window.open(resultado.url, '_blank', 'noopener');
+        callback({ ok: true, aplicada: true });
+      } else {
+        callback({ ok: true, aplicada: false, motivo: resultado.motivo });
+      }
+    });
+  }
 
   // página do addon "Musixmatch Studio - Total USD + BRL" no AMO (Firefox) —
   // usada no aviso da aba Reward pra dar um link direto de instalação
@@ -855,6 +922,8 @@ browser.storage.onChanged.addListener((changes, area) => {
     calendar:
       '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
     trendingUp: '<polyline points="3 17 9 11 13 15 21 6"/><polyline points="14 6 21 6 21 13"/>',
+    trendingDown: '<polyline points="3 7 9 13 13 9 21 18"/><polyline points="14 18 21 18 21 11"/>',
+    minus: '<line x1="5" y1="12" x2="19" y2="12"/>',
     image:
       '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
     hash:
@@ -873,6 +942,18 @@ browser.storage.onChanged.addListener((changes, area) => {
     menu: '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
     settings:
       '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    // botão "Personalizar" do painel Log Detalhado — abre a janela de
+    // escolher/reordenar as seções exibidas ali.
+    sliders:
+      '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
+    // alça de arrastar (6 pontinhos) usada pra reordenar a lista de
+    // seções na janela de personalização do Log Detalhado.
+    gripVertical:
+      '<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>',
+    // olho riscado — estado "oculto" do interruptor de cada seção na
+    // mesma janela de personalização (par do ícone "eye" já existente).
+    eyeOff:
+      '<path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a21.8 21.8 0 0 1 5.06-6.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a21.8 21.8 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>',
     // caixa de seleção usada no modo "selecionar várias" da lista.
     checkSquare:
       '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 12l3 3 5-6"/>',
@@ -884,6 +965,12 @@ browser.storage.onChanged.addListener((changes, area) => {
       '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
     refresh:
       '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+    // arco de spinner (não uma seta) — usado no lugar de rodar um ícone
+    // "de verdade" (como o de download) enquanto algo está carregando.
+    // Girar um ícone com ponta/direção própria (seta, download) fica
+    // estranho — um arco sem começo/fim marcado é o desenho certo pra
+    // girar (ver iconeGirando).
+    loader: '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
     // usado na aba "Reward".
     dollar: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
     alertTriangle:
@@ -1265,7 +1352,37 @@ browser.storage.onChanged.addListener((changes, area) => {
       instrumentalTag: 'Instrumental',
       instrumentalTagTooltip: 'Clique pra uma curiosidade sobre instrumentais',
       manualTag: 'Manual',
-      // tooltip do botão de alternar tema claro/escuro no cabeçalho.
+      semDetalhesTitulo: 'Sem detalhes',
+      semDetalhesTag: 'Sem detalhes',
+      semDetalhesTagTooltip: 'Não deu pra identificar o título/artista deste envio. Clique pra completar manualmente.',
+      envioSemDetalhesToast: 'Envio registrado sem título/artista. Clique na música no log pra completar.',
+      editarDetalhesTitulo: 'Completar detalhes do envio',
+      editarDetalhesTituloMensagem: 'Qual é o título da música?',
+      editarDetalhesTituloPlaceholder: 'Título da música',
+      editarDetalhesArtistaMensagem: 'E o artista?',
+      editarDetalhesArtistaPlaceholder: 'Artista (opcional)',
+      detalhesAdicionadosToast: 'Detalhes adicionados ao envio.',
+      // V3.4.34: edição manual de data/hora de um envio, clicando
+      // diretamente na hora mostrada na linha do log principal.
+      editarDataHoraTitulo: 'Alterar data e hora',
+      editarDataHoraMensagem: 'Ajuste quando este envio foi registrado.',
+      editarDataHoraDataLabel: 'Data',
+      editarDataHoraHoraLabel: 'Hora',
+      editarDataHoraToast: 'Data e hora atualizadas.',
+      editarDataHoraErro: 'Preencha uma data e hora válidas.',
+      // V3.4.35: painel único da música, aberto ao clicar em qualquer
+      // área da linha no log principal (alvo grande — sem precisar
+      // acertar um ícone pequeno). Reúne letra, data/hora, duração e
+      // missão num só lugar, com data/hora e missão editáveis ali mesmo.
+      painelMusicaDataHoraLabel: 'Data e hora',
+      painelMusicaEditarDataHoraTitulo: 'Alterar',
+      painelMusicaDuracaoLabel: 'Duração',
+      painelMusicaDuracaoIndisponivel: 'Não disponível',
+      painelMusicaMissaoLabel: 'Missão',
+      painelMusicaEditarMissaoTitulo: 'Alterar',
+      painelMusicaLetraLabel: 'Letra',
+      painelMusicaVerLetra: 'Ver letra completa',
+      painelMusicaSemLetra: 'Nenhuma letra capturada neste envio.',
       ativarTemaClaro: 'Ativar tema claro',
       voltarTemaEscuro: 'Voltar ao tema escuro',
       // rótulo do interruptor de tema claro nas Configurações.
@@ -1368,6 +1485,35 @@ browser.storage.onChanged.addListener((changes, area) => {
       nenhumaFaixaComDuracao:
         'Nenhuma faixa com duração registrada ainda (só vale pros próximos envios a partir de agora).',
       horarioDePico: 'Horário de pico (por hora do dia)',
+      // V3.5.0: sequência de dias seguidos enviando algo, distribuição
+      // por dia da semana, ritmo entre envios numa sessão e evolução da
+      // duração média das faixas — 4 métricas novas do painel Detalhado.
+      sequenciaTitulo: 'Sequência de envios',
+      sequenciaAtualLabel: 'Atual',
+      sequenciaRecordeLabel: 'Recorde',
+      progressoSequenciaRecorde: 'Progresso até o recorde',
+      distribuicaoDiaSemanaTitulo: 'Distribuição por dia da semana',
+      ritmoEnvioTitulo: 'Ritmo entre envios (mesma sessão)',
+      ritmoDadosInsuficientes: 'Ainda não há envios suficientes numa mesma sessão pra calcular o ritmo.',
+      ritmoBaseadoEm: 'com base em {n} intervalos, em {sessoes} sessões de trabalho',
+      evolucaoDuracaoTitulo: 'Evolução da duração média das faixas',
+      evolucaoDuracaoDadosInsuficientes: 'Ainda não há duração suficiente registrada nesse período pra comparar.',
+      evolucaoDuracaoEstavel: 'Duração média estável nos últimos meses',
+      evolucaoDuracaoMaisCurtas: 'Faixas {tempo} mais curtas, em média, do que em {mes}',
+      evolucaoDuracaoMaisLongas: 'Faixas {tempo} mais longas, em média, do que em {mes}',
+      // janela de personalizar seções do painel Log Detalhado (mostrar/
+      // ocultar e reordenar cada métrica arrastando).
+      personalizarPainelDetalhado: 'Personalizar seções',
+      personalizarPainelDetalhadoTitulo: 'Personalizar painel',
+      personalizarPainelDetalhadoDescricao: 'Escolha o que aparece aqui e arraste pelo ícone ⠿ pra mudar a ordem.',
+      personalizarSecaoMostrar: 'Mostrar seção',
+      personalizarSecaoOcultar: 'Ocultar seção',
+      personalizarRestaurarPadrao: 'Restaurar padrão',
+      personalizarConcluido: 'Concluído',
+      personalizarTodasOcultas: 'Todas as seções foram ocultadas — ative pelo menos uma pra ver alguma coisa aqui.',
+      arrastarParaReordenar: 'Arraste pra reordenar',
+      moverParaCima: 'Mover pra cima',
+      moverParaBaixo: 'Mover pra baixo',
       // aviso no rodapé do painel detalhado — deixa claro que os
       // números vêm só do log local da extensão, não da Musixmatch.
       avisoDadosLocais:
@@ -1489,6 +1635,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       debugSimuladorAtivadoToast: 'Data simulada aplicada — a extensão agora lê essa data como "agora".',
       debugSimuladorDesativadoToast: 'Simulação desligada — voltando à data/hora real.',
       debugSimuladorSelecioneData: 'Escolha uma data e hora antes de aplicar.',
+      debugForcarSemDetalhes: 'Forçar entrada "Sem detalhes" no log (teste)',
       duracaoLabel: 'Duração',
       missaoLabel: 'Missão',
       tentativasLabel: 'tentativas',
@@ -1592,16 +1739,27 @@ browser.storage.onChanged.addListener((changes, area) => {
       atualizacaoInstalacaoTemporaria: 'Essa instalação é temporária (modo desenvolvedor) — o Firefox não gerencia atualização automática pra ela. Baixe a versão nova pela página da extensão.',
       atualizacaoSemForcarChecagem: 'O Firefox não deixa forçar essa verificação por aqui — mas já está escutando em segundo plano e aplica sozinho assim que o Firefox achar a versão nova (por conta própria ou se você clicar em "Verificar atualizações" no about:addons).',
       abrirPaginaExtensao: 'Abrir página da extensão',
+      abrirReleasesGithub: 'Ver Releases no GitHub',
       copiarAboutAddons: 'Copiar "about:addons"',
       aboutAddonsCopiado: 'Copiado! Cole na barra de endereço e aperte Enter.',
+      buscandoXpiGithub: 'Buscando .xpi no GitHub...',
+      atualizacaoAindaNaoSincronizadaGithub: 'O GitHub ainda não sincronizou essa versão (a sincronização roda periodicamente).',
+      erroConsultarGithub: 'Não deu pra consultar o GitHub agora.',
       erroVerificarAtualizacao: 'Não foi possível verificar agora. Tente de novo mais tarde.',
       versaoInstalada: 'Versão instalada',
+      versaoTabsV3: 'Versão do Tabs V3',
       notificarAtualizacaoAuto: 'Avisar sobre atualizações automaticamente',
       opcoesNotificacoes: 'Notificações',
       notifDicasAtivar: 'Dicas de uso no sino de notificações',
       notifDicasAtivarDesc: 'Mostra dicas de uso de vez em quando no sino de notificações.',
       extensaoAtualizada: 'Extensão atualizada',
       verNotasVersao: 'Ver página da extensão',
+      // interruptor de "esperar a janela de confirmação antes de
+      // registrar o envio" — ligado por padrão (ver
+      // STORAGE_CONFIRMAR_ENVIO_KEY).
+      confirmarEnvioAtivar: 'Confirmar envio antes de registrar',
+      confirmarEnvioDesc:
+        'Espera a janela verde de sucesso aparecer antes de registrar no log (mais seguro, mas pode demorar um pouco). Desligue pra registrar assim que clicar em "Enviar", como era antes.',
       // interruptor do sistema de conquistas — desligado por
       // padrão (ver STORAGE_CONQUISTAS_ATIVAS_KEY).
       sistemaConquistas: 'Sistema de conquistas',
@@ -1833,6 +1991,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       diffExportado: 'Diff exportado!',
       diffCompartilharLink: 'Compartilhar link',
       diffLinkCopiado: 'Link copiado! Cole pra compartilhar.',
+      diffLinkCopiadoNuvem: 'Link curto copiado! Expira sozinho em 30 dias.',
       diffLinkCopiadoCurto: 'Link curto copiado! Cole pra compartilhar.',
       diffLinkCopiadoGrande: 'Link copiado! (é longo — se algum app cortar, envie por outro meio)',
       diffLinkErro: 'Não foi possível gerar o link. Tente de novo.',
@@ -1969,6 +2128,31 @@ browser.storage.onChanged.addListener((changes, area) => {
       instrumentalTag: 'Instrumental',
       instrumentalTagTooltip: 'Click for a fun fact about instrumentals',
       manualTag: 'Manual',
+      semDetalhesTitulo: 'No details',
+      semDetalhesTag: 'No details',
+      semDetalhesTagTooltip: "Couldn't identify this submission's title/artist. Click to fill it in manually.",
+      envioSemDetalhesToast: 'Submission logged without title/artist. Click the track in the log to complete it.',
+      editarDetalhesTitulo: 'Complete submission details',
+      editarDetalhesTituloMensagem: "What's the track title?",
+      editarDetalhesTituloPlaceholder: 'Track title',
+      editarDetalhesArtistaMensagem: 'And the artist?',
+      editarDetalhesArtistaPlaceholder: 'Artist (optional)',
+      detalhesAdicionadosToast: 'Details added to the submission.',
+      editarDataHoraTitulo: 'Change date and time',
+      editarDataHoraMensagem: 'Adjust when this submission was logged.',
+      editarDataHoraDataLabel: 'Date',
+      editarDataHoraHoraLabel: 'Time',
+      editarDataHoraToast: 'Date and time updated.',
+      editarDataHoraErro: 'Enter a valid date and time.',
+      painelMusicaDataHoraLabel: 'Date and time',
+      painelMusicaEditarDataHoraTitulo: 'Change',
+      painelMusicaDuracaoLabel: 'Duration',
+      painelMusicaDuracaoIndisponivel: 'Not available',
+      painelMusicaMissaoLabel: 'Mission',
+      painelMusicaEditarMissaoTitulo: 'Change',
+      painelMusicaLetraLabel: 'Lyrics',
+      painelMusicaVerLetra: 'View full lyrics',
+      painelMusicaSemLetra: 'No lyrics captured for this submission.',
       ativarTemaClaro: 'Switch to light theme',
       voltarTemaEscuro: 'Switch back to dark theme',
       temaClaro: 'Light theme',
@@ -2060,6 +2244,32 @@ browser.storage.onChanged.addListener((changes, area) => {
       maisLonga: 'Longest',
       nenhumaFaixaComDuracao: 'No track with a recorded duration yet (only counts for submissions from now on).',
       horarioDePico: 'Peak hours (by time of day)',
+      sequenciaTitulo: 'Submission streak',
+      sequenciaAtualLabel: 'Current',
+      sequenciaRecordeLabel: 'Record',
+      progressoSequenciaRecorde: 'Progress towards the record',
+      distribuicaoDiaSemanaTitulo: 'Distribution by day of week',
+      ritmoEnvioTitulo: 'Pace between submissions (same session)',
+      ritmoDadosInsuficientes: 'Not enough submissions in the same session yet to calculate pace.',
+      ritmoBaseadoEm: 'based on {n} intervals, across {sessoes} work sessions',
+      evolucaoDuracaoTitulo: 'Average track duration over time',
+      evolucaoDuracaoDadosInsuficientes: 'Not enough duration data in this period to compare yet.',
+      evolucaoDuracaoEstavel: 'Average duration stable over the last few months',
+      evolucaoDuracaoMaisCurtas: 'Tracks {tempo} shorter, on average, than in {mes}',
+      evolucaoDuracaoMaisLongas: 'Tracks {tempo} longer, on average, than in {mes}',
+      // customize sections window for the Detailed Log panel (show/hide
+      // and reorder each metric by dragging).
+      personalizarPainelDetalhado: 'Customize sections',
+      personalizarPainelDetalhadoTitulo: 'Customize panel',
+      personalizarPainelDetalhadoDescricao: 'Choose what shows up here and drag the ⠿ icon to reorder.',
+      personalizarSecaoMostrar: 'Show section',
+      personalizarSecaoOcultar: 'Hide section',
+      personalizarRestaurarPadrao: 'Restore default',
+      personalizarConcluido: 'Done',
+      personalizarTodasOcultas: 'All sections are hidden — turn on at least one to see anything here.',
+      arrastarParaReordenar: 'Drag to reorder',
+      moverParaCima: 'Move up',
+      moverParaBaixo: 'Move down',
       avisoDadosLocais:
         "All the data on this page is estimated from this extension's own locally captured log — it does not come from MXM's servers, protected APIs, or partners. Some numbers may be inaccurate; treat this as a reference, not as absolute truth.",
       atividadePorDia: 'Weekly activity',
@@ -2175,6 +2385,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       debugSimuladorAtivadoToast: 'Simulated date applied — the extension now reads this as "now".',
       debugSimuladorDesativadoToast: 'Simulation turned off — back to the real date/time.',
       debugSimuladorSelecioneData: 'Pick a date and time before applying.',
+      debugForcarSemDetalhes: 'Force a "No details" log entry (test)',
       duracaoLabel: 'Duration',
       missaoLabel: 'Mission',
       tentativasLabel: 'attempts',
@@ -2272,16 +2483,24 @@ browser.storage.onChanged.addListener((changes, area) => {
       atualizacaoInstalacaoTemporaria: "This install is temporary (developer mode) — Firefox doesn't manage automatic updates for it. Download the new version from the extension's page.",
       atualizacaoSemForcarChecagem: "Firefox doesn't allow forcing this check from here — but it's already listening in the background and will apply on its own as soon as Firefox finds the new version (on its own, or if you click \"Check for Updates\" in about:addons).",
       abrirPaginaExtensao: "Open extension page",
+      abrirReleasesGithub: 'View Releases on GitHub',
       copiarAboutAddons: 'Copy "about:addons"',
       aboutAddonsCopiado: 'Copied! Paste it in the address bar and press Enter.',
+      buscandoXpiGithub: 'Looking for the .xpi on GitHub...',
+      atualizacaoAindaNaoSincronizadaGithub: "GitHub hasn't synced this version yet (sync runs periodically).",
+      erroConsultarGithub: "Couldn't reach GitHub right now.",
       erroVerificarAtualizacao: "Couldn't check right now. Try again later.",
       versaoInstalada: 'Installed version',
+      versaoTabsV3: 'Tabs V3 version',
       notificarAtualizacaoAuto: 'Automatically notify about updates',
       opcoesNotificacoes: 'Notifications',
       notifDicasAtivar: 'Usage tips in the notification bell',
       notifDicasAtivarDesc: 'Shows usage tips every now and then in the notification bell.',
       extensaoAtualizada: 'Extension updated',
       verNotasVersao: 'View extension page',
+      confirmarEnvioAtivar: 'Confirm submission before logging',
+      confirmarEnvioDesc:
+        'Waits for the green success window to appear before logging (safer, but can take a bit longer). Turn off to log as soon as you click "Submit", like before.',
       sistemaConquistas: 'Achievement system',
       sistemaConquistasDesc: 'Badges for milestones like song count, day streaks, and saved diffs.',
       ferramentasUteis: 'Useful tools',
@@ -2481,6 +2700,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       diffExportado: 'Diff exported!',
       diffCompartilharLink: 'Share link',
       diffLinkCopiado: 'Link copied! Paste it to share.',
+      diffLinkCopiadoNuvem: 'Short link copied! It expires on its own after 30 days.',
       diffLinkCopiadoCurto: 'Short link copied! Paste it to share.',
       diffLinkCopiadoGrande: "Link copied! (it's long — if some app cuts it off, send it another way)",
       diffLinkErro: 'Could not generate the link. Try again.',
@@ -2570,7 +2790,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       conquistaNuvemTitulo: 'Cloud backup',
       conquistaNuvemDesc: 'Send a full backup to the cloud for the first time.',
     },
-    // grego, mesmas chaves de pt/en.
+    // grego, adicionado a pedido do usuário — mesmas chaves de pt/en.
     el: {
       envioRegistrado: 'Η υποβολή καταγράφηκε',
       reenvioRegistrado: 'Η επανυποβολή καταγράφηκε',
@@ -2607,6 +2827,31 @@ browser.storage.onChanged.addListener((changes, area) => {
       instrumentalTag: 'Ορχηστρικό',
       instrumentalTagTooltip: 'Κλικ για μια περιέργεια σχετικά με τα ορχηστρικά',
       manualTag: 'Χειροκίνητο',
+      semDetalhesTitulo: 'Χωρίς λεπτομέρειες',
+      semDetalhesTag: 'Χωρίς λεπτομέρειες',
+      semDetalhesTagTooltip: 'Δεν ήταν δυνατός ο εντοπισμός τίτλου/καλλιτέχνη αυτής της υποβολής. Κάντε κλικ για να το συμπληρώσετε χειροκίνητα.',
+      envioSemDetalhesToast: 'Η υποβολή καταγράφηκε χωρίς τίτλο/καλλιτέχνη. Κάντε κλικ στο τραγούδι στο log για να το συμπληρώσετε.',
+      editarDetalhesTitulo: 'Συμπλήρωση στοιχείων υποβολής',
+      editarDetalhesTituloMensagem: 'Ποιος είναι ο τίτλος του τραγουδιού;',
+      editarDetalhesTituloPlaceholder: 'Τίτλος τραγουδιού',
+      editarDetalhesArtistaMensagem: 'Και ο καλλιτέχνης;',
+      editarDetalhesArtistaPlaceholder: 'Καλλιτέχνης (προαιρετικό)',
+      detalhesAdicionadosToast: 'Τα στοιχεία προστέθηκαν στην υποβολή.',
+      editarDataHoraTitulo: 'Αλλαγή ημερομηνίας και ώρας',
+      editarDataHoraMensagem: 'Προσαρμόστε πότε καταγράφηκε αυτή η υποβολή.',
+      editarDataHoraDataLabel: 'Ημερομηνία',
+      editarDataHoraHoraLabel: 'Ώρα',
+      editarDataHoraToast: 'Η ημερομηνία και ώρα ενημερώθηκαν.',
+      editarDataHoraErro: 'Συμπληρώστε έγκυρη ημερομηνία και ώρα.',
+      painelMusicaDataHoraLabel: 'Ημερομηνία και ώρα',
+      painelMusicaEditarDataHoraTitulo: 'Αλλαγή',
+      painelMusicaDuracaoLabel: 'Διάρκεια',
+      painelMusicaDuracaoIndisponivel: 'Μη διαθέσιμο',
+      painelMusicaMissaoLabel: 'Αποστολή',
+      painelMusicaEditarMissaoTitulo: 'Αλλαγή',
+      painelMusicaLetraLabel: 'Στίχοι',
+      painelMusicaVerLetra: 'Προβολή πλήρων στίχων',
+      painelMusicaSemLetra: 'Δεν έχουν καταγραφεί στίχοι για αυτήν την υποβολή.',
       ativarTemaClaro: 'Ενεργοποίηση φωτεινού θέματος',
       voltarTemaEscuro: 'Επιστροφή στο σκοτεινό θέμα',
       temaClaro: 'Φωτεινό θέμα',
@@ -2699,6 +2944,32 @@ browser.storage.onChanged.addListener((changes, area) => {
       nenhumaFaixaComDuracao:
         'Δεν υπάρχει ακόμα κομμάτι με καταγεγραμμένη διάρκεια (ισχύει μόνο για υποβολές από τώρα και μετά).',
       horarioDePico: 'Ώρες αιχμής (ανά ώρα της ημέρας)',
+      sequenciaTitulo: 'Σερί υποβολών',
+      sequenciaAtualLabel: 'Τρέχον',
+      sequenciaRecordeLabel: 'Ρεκόρ',
+      progressoSequenciaRecorde: 'Πρόοδος προς το ρεκόρ',
+      distribuicaoDiaSemanaTitulo: 'Κατανομή ανά ημέρα εβδομάδας',
+      ritmoEnvioTitulo: 'Ρυθμός μεταξύ υποβολών (ίδια συνεδρία)',
+      ritmoDadosInsuficientes: 'Δεν υπάρχουν ακόμα αρκετές υποβολές στην ίδια συνεδρία για να υπολογιστεί ο ρυθμός.',
+      ritmoBaseadoEm: 'με βάση {n} διαστήματα, σε {sessoes} συνεδρίες εργασίας',
+      evolucaoDuracaoTitulo: 'Εξέλιξη μέσης διάρκειας τραγουδιών',
+      evolucaoDuracaoDadosInsuficientes: 'Δεν υπάρχουν ακόμα αρκετά δεδομένα διάρκειας σε αυτή την περίοδο για σύγκριση.',
+      evolucaoDuracaoEstavel: 'Σταθερή μέση διάρκεια τους τελευταίους μήνες',
+      evolucaoDuracaoMaisCurtas: 'Τραγούδια κατά {tempo} πιο σύντομα, κατά μέσο όρο, σε σχέση με {mes}',
+      evolucaoDuracaoMaisLongas: 'Τραγούδια κατά {tempo} πιο μακρά, κατά μέσο όρο, σε σχέση με {mes}',
+      // παράθυρο προσαρμογής ενοτήτων του πίνακα Λεπτομερούς Αρχείου
+      // (εμφάνιση/απόκρυψη και αναδιάταξη κάθε μετρικής με μεταφορά).
+      personalizarPainelDetalhado: 'Προσαρμογή ενοτήτων',
+      personalizarPainelDetalhadoTitulo: 'Προσαρμογή πίνακα',
+      personalizarPainelDetalhadoDescricao: 'Επιλέξτε τι εμφανίζεται εδώ και σύρετε το εικονίδιο ⠿ για αλλαγή σειράς.',
+      personalizarSecaoMostrar: 'Εμφάνιση ενότητας',
+      personalizarSecaoOcultar: 'Απόκρυψη ενότητας',
+      personalizarRestaurarPadrao: 'Επαναφορά προεπιλογής',
+      personalizarConcluido: 'Ολοκληρώθηκε',
+      personalizarTodasOcultas: 'Όλες οι ενότητες είναι κρυφές — ενεργοποιήστε τουλάχιστον μία για να δείτε κάτι εδώ.',
+      arrastarParaReordenar: 'Σύρετε για αναδιάταξη',
+      moverParaCima: 'Μετακίνηση επάνω',
+      moverParaBaixo: 'Μετακίνηση κάτω',
       avisoDadosLocais:
         'Όλα τα δεδομένα σε αυτή τη σελίδα εκτιμώνται από το αρχείο που καταγράφεται τοπικά από αυτή την επέκταση — δεν προέρχονται από τους διακομιστές του MXM, τα προστατευμένα API του ή συνεργάτες. Ορισμένοι αριθμοί μπορεί να είναι ανακριβείς· χρησιμοποιήστε τα ως αναφορά, όχι ως απόλυτη αλήθεια.',
       atividadePorDia: 'Εβδομαδιαία δραστηριότητα',
@@ -2814,6 +3085,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       debugSimuladorAtivadoToast: 'Η προσομοιωμένη ημερομηνία εφαρμόστηκε — η επέκταση τη διαβάζει πλέον ως "τώρα".',
       debugSimuladorDesativadoToast: 'Η προσομοίωση απενεργοποιήθηκε — επιστροφή στην πραγματική ημερομηνία/ώρα.',
       debugSimuladorSelecioneData: 'Επιλέξτε ημερομηνία και ώρα πριν εφαρμόσετε.',
+      debugForcarSemDetalhes: 'Εξαναγκασμός εγγραφής "Χωρίς λεπτομέρειες" στο log (δοκιμή)',
       duracaoLabel: 'Διάρκεια',
       missaoLabel: 'Αποστολή',
       tentativasLabel: 'προσπάθειες',
@@ -2913,16 +3185,24 @@ browser.storage.onChanged.addListener((changes, area) => {
       atualizacaoInstalacaoTemporaria: 'Αυτή η εγκατάσταση είναι προσωρινή (λειτουργία προγραμματιστή) — το Firefox δεν διαχειρίζεται αυτόματες ενημερώσεις για αυτήν. Κατεβάστε τη νέα έκδοση από τη σελίδα της επέκτασης.',
       atualizacaoSemForcarChecagem: 'Το Firefox δεν επιτρέπει να αναγκάσετε αυτόν τον έλεγχο από εδώ — αλλά ήδη παρακολουθεί στο παρασκήνιο και θα εφαρμόσει μόνο του μόλις το Firefox βρει τη νέα έκδοση (μόνο του, ή αν πατήσετε "Έλεγχος για ενημερώσεις" στο about:addons).',
       abrirPaginaExtensao: 'Άνοιγμα σελίδας επέκτασης',
+      abrirReleasesGithub: 'Δείτε τα Releases στο GitHub',
       copiarAboutAddons: 'Αντιγραφή "about:addons"',
       aboutAddonsCopiado: 'Αντιγράφηκε! Επικολλήστε το στη γραμμή διευθύνσεων και πατήστε Enter.',
+      buscandoXpiGithub: 'Αναζήτηση του .xpi στο GitHub...',
+      atualizacaoAindaNaoSincronizadaGithub: 'Το GitHub δεν έχει συγχρονίσει ακόμα αυτήν την έκδοση (ο συγχρονισμός τρέχει περιοδικά).',
+      erroConsultarGithub: 'Δεν ήταν δυνατή η επικοινωνία με το GitHub αυτή τη στιγμή.',
       erroVerificarAtualizacao: 'Δεν ήταν δυνατός ο έλεγχος αυτή τη στιγμή. Δοκιμάστε ξανά αργότερα.',
       versaoInstalada: 'Εγκατεστημένη έκδοση',
+      versaoTabsV3: 'Έκδοση Tabs V3',
       notificarAtualizacaoAuto: 'Αυτόματη ειδοποίηση για ενημερώσεις',
       opcoesNotificacoes: 'Ειδοποιήσεις',
       notifDicasAtivar: 'Συμβουλές χρήσης στο κουδούνι ειδοποιήσεων',
       notifDicasAtivarDesc: 'Εμφανίζει συμβουλές χρήσης κατά καιρούς στο κουδούνι ειδοποιήσεων.',
       extensaoAtualizada: 'Η επέκταση ενημερώθηκε',
       verNotasVersao: 'Δείτε τη σελίδα της επέκτασης',
+      confirmarEnvioAtivar: 'Επιβεβαίωση υποβολής πριν την καταγραφή',
+      confirmarEnvioDesc:
+        'Περιμένει να εμφανιστεί το πράσινο παράθυρο επιτυχίας πριν καταγράψει (πιο ασφαλές, αλλά μπορεί να καθυστερήσει λίγο). Απενεργοποιήστε για καταγραφή αμέσως μόλις κάνετε κλικ στο "Υποβολή", όπως πριν.',
       sistemaConquistas: 'Σύστημα επιτευγμάτων',
       sistemaConquistasDesc: 'Παράσημα για ορόσημα όπως αριθμός τραγουδιών, συνεχόμενες ημέρες και αποθηκευμένα diffs.',
       ferramentasUteis: 'Χρήσιμα εργαλεία',
@@ -3112,6 +3392,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       diffExportado: 'Το diff εξήχθη!',
       diffCompartilharLink: 'Κοινοποίηση συνδέσμου',
       diffLinkCopiado: 'Ο σύνδεσμος αντιγράφηκε! Επικολλήστε τον για κοινή χρήση.',
+      diffLinkCopiadoNuvem: 'Ο σύντομος σύνδεσμος αντιγράφηκε! Λήγει μόνος του σε 30 ημέρες.',
       diffLinkCopiadoCurto: 'Ο σύντομος σύνδεσμος αντιγράφηκε! Επικολλήστε τον για κοινή χρήση.',
       diffLinkCopiadoGrande: 'Ο σύνδεσμος αντιγράφηκε! (είναι μεγάλος — αν κάποια εφαρμογή τον κόψει, στείλτε τον αλλιώς)',
       diffLinkErro: 'Δεν ήταν δυνατή η δημιουργία του συνδέσμου. Δοκιμάστε ξανά.',
@@ -3644,10 +3925,10 @@ browser.storage.onChanged.addListener((changes, area) => {
           }`,
           acaoLabel: t('atualizarAgora'),
           onAcao: () =>
-            aplicarAtualizacaoAgora((resultado) => {
-              // 'aplicada:true' recarrega a extensão sozinha; nos outros
-              // casos (ainda não pronto/throttled/erro) cai pro fallback
-              // manual de sempre, abrindo a página da AMO.
+            tentarAtualizarViaGithub((resultado) => {
+              // 'aplicada:true' já abriu o .xpi do GitHub; se ainda não
+              // achou o Release dessa versão (nem no primeiro erro), cai
+              // pro fallback manual de sempre, abrindo a página da AMO.
               if (!resultado || !resultado.aplicada) window.open(AMO_PAGE_URL, '_blank', 'noopener');
             }),
         });
@@ -4051,6 +4332,53 @@ browser.storage.onChanged.addListener((changes, area) => {
     };
   }
 
+  // Fecha popups flutuantes sozinhos depois de um tempo parado na tela —
+  // evita que fiquem "grudados" no topo atrapalhando a visão, mas dá uma
+  // pausa generosa pra ler (e pausa de vez enquanto o mouse está em cima,
+  // retomando a contagem de onde parou ao tirar o mouse). cancelar() é
+  // usado quando o usuário já interagiu com uma ação que precisa manter o
+  // popup visível até terminar (ex.: clicou em "Atualizar agora").
+  function criarAutoFechamentoPopup(popupEl, aoExpirar, duracaoMs) {
+    let restanteMs = duracaoMs;
+    let inicioEm = null;
+    let timerId = null;
+    let cancelado = false;
+
+    function parar() {
+      if (timerId) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+    }
+    function iniciar() {
+      if (cancelado || timerId) return;
+      inicioEm = Date.now();
+      timerId = setTimeout(() => {
+        timerId = null;
+        aoExpirar();
+      }, restanteMs);
+    }
+    function pausar() {
+      if (!timerId) return;
+      restanteMs -= Date.now() - inicioEm;
+      parar();
+    }
+
+    popupEl.addEventListener('mouseenter', pausar);
+    popupEl.addEventListener('mouseleave', iniciar);
+    iniciar();
+
+    return {
+      cancelar() {
+        cancelado = true;
+        parar();
+      },
+    };
+  }
+
+  const AUTO_FECHAR_POPUP_UPDATE_DISPONIVEL_MS = 6000; // 6s parado na tela, sem contar pausas de hover
+  const AUTO_FECHAR_POPUP_UPDATE_INSTALADA_MS = 12000;
+
   // Popup de notificação (mesmo estilo visual do showPopup de envios) usado
   // quando a checagem automática silenciosa encontra uma versão mais nova.
   function mostrarPopupAtualizacaoDisponivel(versaoRemota, notas) {
@@ -4107,10 +4435,10 @@ browser.storage.onChanged.addListener((changes, area) => {
                 'externalLink',
                 11
               )}${t('abrirPaginaExtensao')}</a>
-              <button id="mxm-log-update-popup-aviso-copiar" type="button" style="display:inline-flex; align-items:center; gap:4px; border:none; background:transparent; padding:0; margin:0; cursor:pointer; text-decoration:none; color:var(--md-sys-color-tertiary); font-weight:600; font-size:11px; font-family:inherit;">${icone(
-                'copy',
+              <a id="mxm-log-update-popup-aviso-github" href="${GITHUB_RELEASES_PAGE_URL}" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:4px; text-decoration:none; color:var(--md-sys-color-tertiary); font-weight:600; font-size:11px;">${icone(
+                'externalLink',
                 11
-              )}${t('copiarAboutAddons')}</button>
+              )}${t('abrirReleasesGithub')}</a>
             </div>
           </div>
         </div>
@@ -4143,56 +4471,52 @@ browser.storage.onChanged.addListener((changes, area) => {
         popup.remove();
       }
     };
-    popup.querySelector('#mxm-log-update-popup-close').addEventListener('click', fechar);
+    const autoFechar = criarAutoFechamentoPopup(popup, fechar, AUTO_FECHAR_POPUP_UPDATE_DISPONIVEL_MS);
+    popup.querySelector('#mxm-log-update-popup-close').addEventListener('click', () => {
+      autoFechar.cancelar();
+      fechar();
+    });
 
     const botaoAtualizar = popup.querySelector('#mxm-log-update-popup-btn');
     const iconeBotaoAtualizar = popup.querySelector('#mxm-log-update-popup-btn-icone');
     const labelBotaoAtualizar = popup.querySelector('#mxm-log-update-popup-btn-label');
     const avisoEl = popup.querySelector('#mxm-log-update-popup-aviso');
     const avisoTextoEl = popup.querySelector('#mxm-log-update-popup-aviso-texto');
-    // Firefox bloqueia extensão de abrir about:addons direto (é uma URL
-    // "privilegiada" — browser.tabs.create com ela sempre falha com
-    // "Illegal URL", não tem workaround); então o melhor que dá pra fazer
-    // é deixar o endereço prontinho na área de transferência.
-    popup.querySelector('#mxm-log-update-popup-aviso-copiar')?.addEventListener('click', () => {
-      navigator.clipboard
-        .writeText('about:addons')
-        .then(() => mostrarToastSimples(t('aboutAddonsCopiado')))
-        .catch(() => {});
-    });
 
     function textoMotivo(motivo) {
-      if (motivo === 'throttled') return t('atualizacaoLimitada');
-      if (motivo === 'instalacao_temporaria') return t('atualizacaoInstalacaoTemporaria');
-      if (motivo === 'sem_forcar_checagem') return t('atualizacaoSemForcarChecagem');
-      return t('atualizacaoAindaNaoPronta');
+      if (motivo === 'sem_release_github') return t('atualizacaoAindaNaoSincronizadaGithub');
+      if (motivo === 'erro_github') return t('erroConsultarGithub');
+      return t('atualizacaoAindaNaoSincronizadaGithub');
     }
 
-    // mostra o aviso (a caixinha já tem seu próprio fundo/borda e o link
-    // pra AMO fixo dentro dela — só o texto de cima muda).
+    // mostra o aviso (a caixinha já tem seu próprio fundo/borda e os links
+    // pra AMO/GitHub fixos dentro dela — só o texto de cima muda).
     function mostrarAviso(texto) {
       avisoTextoEl.textContent = texto;
       avisoEl.style.display = 'block';
     }
 
-    // enquanto aplica (ou espera a contagem do retry) o botão fica
-    // "ocupado"; volta a ficar clicável só quando desiste de vez.
+    // enquanto busca o .xpi no GitHub (ou espera a contagem do retry) o
+    // botão fica "ocupado"; volta a ficar clicável só quando desiste de vez.
+    // V3.4.40: o ícone de carregamento passou de "download" girando (uma
+    // seta girando parece quebrada, sem cara de "carregando" de verdade)
+    // pro ícone dedicado de spinner (arco sem ponta, ver ICONS.loader).
     function marcarBotaoOcupado(texto) {
       botaoAtualizar.disabled = true;
       botaoAtualizar.style.opacity = '0.7';
       botaoAtualizar.style.cursor = 'default';
-      iconeBotaoAtualizar.innerHTML = iconeGirando('download', 13);
+      iconeBotaoAtualizar.innerHTML = iconeGirando('loader', 13);
       labelBotaoAtualizar.textContent = texto;
     }
 
     const retry = criarRetryAtualizacao({
       tentar(callback) {
-        marcarBotaoOcupado(t('aplicandoAtualizacao'));
+        marcarBotaoOcupado(t('buscandoXpiGithub'));
         avisoEl.style.display = 'none';
-        aplicarAtualizacaoAgora(callback);
+        tentarAtualizarViaGithub(callback);
       },
       aoContar(motivo, segundosRestantes, tentativaAtual, totalTentativas) {
-        marcarBotaoOcupado(t('aplicandoAtualizacao'));
+        marcarBotaoOcupado(t('buscandoXpiGithub'));
         const contagemTexto = t('retryAtualizacaoContagem')
           .replace('{s}', segundosRestantes)
           .replace('{n}', tentativaAtual)
@@ -4215,6 +4539,10 @@ browser.storage.onChanged.addListener((changes, area) => {
     // (sem precisar esperar o resto do timer); clicar no estado normal
     // começa o ciclo do zero.
     botaoAtualizar.addEventListener('click', () => {
+      // a partir daqui o usuário já interagiu de propósito — o popup para
+      // de sumir sozinho até o processo terminar (aplicado, ou desistiu
+      // depois de esgotar as tentativas de retry).
+      autoFechar.cancelar();
       if (retry.emContagem) {
         retry.tentarAgora();
         return;
@@ -4298,7 +4626,11 @@ browser.storage.onChanged.addListener((changes, area) => {
         popup.remove();
       }
     };
-    popup.querySelector('#mxm-log-update-popup-close').addEventListener('click', fechar);
+    const autoFechar = criarAutoFechamentoPopup(popup, fechar, AUTO_FECHAR_POPUP_UPDATE_INSTALADA_MS);
+    popup.querySelector('#mxm-log-update-popup-close').addEventListener('click', () => {
+      autoFechar.cancelar();
+      fechar();
+    });
   }
 
   // ---------- mensagem única de reinauguração ----------
@@ -4914,7 +5246,7 @@ browser.storage.onChanged.addListener((changes, area) => {
   // ---------- Config: ligar/desligar aviso de recarregar antes do Diff Check ----------
 
   function isAvisoRecarregarDiffCheckAtivo() {
-    // mudado o padrão pra DESLIGADO — quem
+    // mudado o padrão pra DESLIGADO a pedido do usuário — quem
     // quiser o aviso de volta liga explicitamente aqui.
     return localStorage.getItem(STORAGE_AVISO_RECARREGAR_DIFFCHECK_KEY) === '1';
   }
@@ -4974,8 +5306,8 @@ browser.storage.onChanged.addListener((changes, area) => {
   // ---------- Comparação exata: agora é o único comportamento do diff — o
   // texto é comparado exatamente como foi colado/capturado, sem normalizar
   // espaços/tabs/reticências antes. Existiu por um tempo como opção
-  // desligada por padrão (com botão pra ligar), mas virou
-  // o padrão fixo e o botão saiu — normalizarLinhaLetra() não é
+  // desligada por padrão (com botão pra ligar), mas o usuário pediu pra
+  // virar o padrão fixo e tirar o botão — normalizarLinhaLetra() não é
   // mais usada em calcularDiffLinhas. ----------
   function isDiffComparacaoExataAtiva() {
     return true;
@@ -4992,6 +5324,69 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   function setModoCapturaDiffCheck(valor) {
     localStorage.setItem(STORAGE_DIFF_MODO_CAPTURA_KEY, MODOS_CAPTURA_DIFF_VALIDOS.includes(valor) ? valor : 'rede');
+  }
+
+  // ---------- personalização (mostrar/ocultar + ordem) das seções do painel Log Detalhado ----------
+  // Lista de referência com TODAS as seções que existem hoje no painel —
+  // usada tanto pra montar a janela de personalização quanto pra saber
+  // qual é a ordem "de fábrica" e filtrar ids inválidos/antigos vindos do
+  // localStorage (ex.: de uma versão anterior que tinha uma seção a menos).
+  const SECOES_LOG_DETALHADO_DEFINICAO = [
+    { id: 'hojeVsRecorde', tituloChave: 'hojeVsRecorde', icone: 'flame' },
+    { id: 'proximoCiclo', tituloChave: 'proximoCicloTitulo', icone: 'clock' },
+    { id: 'musicasPorMissao', tituloChave: 'musicasPorMissao', icone: 'target' },
+    { id: 'duracaoDasFaixas', tituloChave: 'duracaoDasFaixas', icone: 'clock' },
+    { id: 'horarioDePico', tituloChave: 'horarioDePico', icone: 'trendingUp' },
+    { id: 'atividadePorDia', tituloChave: 'atividadePorDia', icone: 'calendar' },
+    { id: 'atividadePorMes', tituloChave: 'atividadePorMes', icone: 'barChart' },
+    { id: 'comparativoPeriodo', tituloChave: 'comparativoPeriodo', icone: 'trendingUp' },
+    { id: 'diaVsDiaEquivalente', tituloChave: 'diaVsDiaEquivalente', icone: 'trendingUp' },
+    { id: 'sequencia', tituloChave: 'sequenciaTitulo', icone: 'calendar' },
+    { id: 'distribuicaoDiaSemana', tituloChave: 'distribuicaoDiaSemanaTitulo', icone: 'barChart' },
+    { id: 'ritmoEnvio', tituloChave: 'ritmoEnvioTitulo', icone: 'clock' },
+    { id: 'evolucaoDuracao', tituloChave: 'evolucaoDuracaoTitulo', icone: 'trendingUp' },
+  ];
+  const ORDEM_PADRAO_SECOES_DETALHADO = SECOES_LOG_DETALHADO_DEFINICAO.map((s) => s.id);
+  const STORAGE_SECOES_DETALHADO_KEY = 'mxm_log_secoes_detalhado_config';
+
+  // Lê a config salva e "sane-tiza" ela contra a lista de referência
+  // acima: ids que não existem mais somem sem quebrar nada, e ids novos
+  // (de uma seção adicionada numa atualização futura, ainda não vista por
+  // quem já personalizou antes) entram automaticamente no fim da ordem,
+  // visíveis por padrão — nunca desaparecem só por já existir uma config
+  // salva mais antiga.
+  function getConfigSecoesDetalhado() {
+    let ordem = ORDEM_PADRAO_SECOES_DETALHADO.slice();
+    let ocultas = [];
+    try {
+      const bruto = localStorage.getItem(STORAGE_SECOES_DETALHADO_KEY);
+      if (bruto) {
+        const salvo = JSON.parse(bruto);
+        if (salvo && Array.isArray(salvo.ordem)) {
+          const validos = salvo.ordem.filter((id) => ORDEM_PADRAO_SECOES_DETALHADO.includes(id));
+          const faltando = ORDEM_PADRAO_SECOES_DETALHADO.filter((id) => !validos.includes(id));
+          ordem = validos.concat(faltando);
+        }
+        if (salvo && Array.isArray(salvo.ocultas)) {
+          ocultas = salvo.ocultas.filter((id) => ORDEM_PADRAO_SECOES_DETALHADO.includes(id));
+        }
+      }
+    } catch (erro) {
+      // config corrompida — segue com o padrão de fábrica.
+    }
+    return { ordem, ocultas: new Set(ocultas) };
+  }
+
+  function setConfigSecoesDetalhado(ordem, ocultasSet) {
+    try {
+      localStorage.setItem(
+        STORAGE_SECOES_DETALHADO_KEY,
+        JSON.stringify({ ordem, ocultas: Array.from(ocultasSet) })
+      );
+    } catch (erro) {
+      // localStorage indisponível/cheio — a personalização simplesmente
+      // não persiste dessa vez, sem quebrar o painel.
+    }
   }
 
   // ---------- filtro Total/Ciclo atual da lista "Músicas por missão" ----------
@@ -7316,6 +7711,53 @@ browser.storage.onChanged.addListener((changes, area) => {
   let modoSelecaoAtivo = false;
   const itensSelecionados = new Set();
 
+  // ---------- recolher/expandir grupos (datas/missão/etc.) da lista principal ----------
+  // Guarda só as CHAVES de grupo recolhidas (não os dados em si), então
+  // sobrevive a um re-render completo da lista (nova busca, ordenação,
+  // novo envio) sem perder o estado — só é limpo ao fechar o painel
+  // principal ou trocar de curador/perfil.
+  const gruposRecolhidos = new Set();
+
+  // Anima a transição de altura de um grupo específico sem precisar
+  // re-renderizar a lista inteira (o que perderia a própria animação).
+  // Usa a técnica de grid-template-rows 1fr↔0fr: funciona com altura de
+  // conteúdo variável (sem medir scrollHeight) e permite opacity junto.
+  function alternarRecolhimentoGrupo(chaveGrupo, corpoEl) {
+    const recolhido = gruposRecolhidos.has(chaveGrupo);
+    if (recolhido) {
+      gruposRecolhidos.delete(chaveGrupo);
+    } else {
+      gruposRecolhidos.add(chaveGrupo);
+    }
+    const chevron = document.querySelector(
+      `.mxm-log-data-header[data-grupo-key="${cssEscapeSeguro(encodeURIComponent(chaveGrupo))}"] .mxm-log-grupo-chevron`
+    );
+    // com Animações desligadas nas Configurações, aplica o estado direto
+    // (sem transição) em vez de deixar a transição CSS padrão rodar.
+    const semAnimacao = !isAnimacoesAtiva();
+    if (corpoEl && semAnimacao) corpoEl.style.transition = 'none';
+    if (chevron && semAnimacao) chevron.style.transition = 'none';
+    if (corpoEl) corpoEl.classList.toggle('mxm-grupo-recolhido', !recolhido);
+    if (chevron) chevron.classList.toggle('mxm-grupo-chevron-fechado', !recolhido);
+    if (semAnimacao) {
+      requestAnimationFrame(() => {
+        if (corpoEl) corpoEl.style.transition = '';
+        if (chevron) chevron.style.transition = '';
+      });
+    }
+  }
+
+  // CSS.escape com fallback simples — evita quebrar o seletor acima em
+  // navegadores/casos raros onde a chave de grupo tenha caracteres
+  // especiais (ex.: nomes de missão com aspas).
+  function cssEscapeSeguro(valor) {
+    try {
+      return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(valor) : valor.replace(/["\\]/g, '\\$&');
+    } catch (e) {
+      return valor.replace(/["\\]/g, '\\$&');
+    }
+  }
+
   function alternarModoSelecao(forcar) {
     modoSelecaoAtivo = forcar !== undefined ? forcar : !modoSelecaoAtivo;
     if (!modoSelecaoAtivo) itensSelecionados.clear();
@@ -7575,10 +8017,18 @@ browser.storage.onChanged.addListener((changes, area) => {
   // UI, bem mais confiável que pegar "o primeiro texto de cor primária da
   // página inteira" (que podia acertar um texto de outro componente sem
   // relação com a faixa atual).
-  function acharParTituloArtista() {
-    const secundarios = Array.from(document.querySelectorAll(SECONDARY_TEXT_SEL)).filter(
-      (el) => el.offsetParent !== null
-    );
+  // V3.4.29: recebe "exigirVisivel" pra poder rodar duas vezes — primeiro
+  // só com elementos visíveis (comportamento de sempre, evita pegar lixo
+  // escondido), e se isso não achar nada, uma segunda passada aceitando
+  // elementos escondidos também. Layouts responsivos/zoom podem deixar o
+  // par título/artista temporariamente com offsetParent null (colapsado)
+  // sem que isso signifique que ele não existe — antes, nesse caso, a
+  // captura desistia direto e o clique em Enviar não registrava nada.
+  function acharParTituloArtista(exigirVisivel = true) {
+    const todosSecundarios = Array.from(document.querySelectorAll(SECONDARY_TEXT_SEL));
+    const secundarios = exigirVisivel
+      ? todosSecundarios.filter((el) => el.offsetParent !== null)
+      : todosSecundarios;
 
     for (const secundario of secundarios) {
       const pai = secundario.parentElement;
@@ -7604,7 +8054,7 @@ browser.storage.onChanged.addListener((changes, area) => {
   function getTrackInfo() {
     // Estratégia 1 (principal): par título/artista como irmãos diretos —
     // ver acharParTituloArtista().
-    const par = acharParTituloArtista();
+    const par = acharParTituloArtista(true);
     if (par) return par;
 
     // Estratégia 2 (legado): contêiner com classe atômica r-16y2uox,
@@ -7628,6 +8078,13 @@ browser.storage.onChanged.addListener((changes, area) => {
         }
       }
     }
+
+    // Estratégia 3 (retaguarda nova, V3.4.29): mesma Estratégia 1, mas
+    // sem exigir visibilidade — cobre o caso de layout responsivo/zoom
+    // deixando o par momentaneamente escondido (offsetParent null) sem
+    // que ele deixe de existir de fato no DOM.
+    const parEscondido = acharParTituloArtista(false);
+    if (parEscondido) return parEscondido;
 
     return null;
   }
@@ -7827,6 +8284,14 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   // ---------- Registro do envio (núcleo compartilhado) ----------
 
+  // V3.4.30: gera uma chave única quando não há commontrackId nem
+  // título/artista confiáveis pra formar uma chave normal — evita que
+  // vários envios "sem detalhes" diferentes colidam na mesma chave (o que
+  // faria eles se misturarem em uma única entrada no log).
+  function chaveUnicaSemDetalhes() {
+    return `sem-detalhes:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
   function registrarNoLog({
     titulo,
     artista,
@@ -7838,17 +8303,38 @@ browser.storage.onChanged.addListener((changes, area) => {
     duracao,
     duracaoSegundos,
     letra,
+    // V3.4.30: true quando o chamador não conseguiu identificar
+    // título/artista (ver registrarEnvioSemDetalhes) — controla tanto a
+    // chave usada quanto se um título/artista já conhecido antes deve
+    // ser preservado em vez de sobrescrito pelo placeholder.
+    semDetalhes = false,
   }) {
     const now = mxmAgora();
     const { data: dataAgora, hora: horaAgora } = formatDateHora(now);
 
     // Chave por ID da faixa quando disponível — mais confiável que
     // título+artista, que pode vir errado se a extração pegar um elemento
-    // errado. Sem ID, cai de volta pro título+artista normalizado.
-    const key = commontrackId ? `id:${commontrackId}` : normalizeKey(titulo, artista);
+    // errado. Sem ID: se der pra identificar título/artista, cai pra
+    // normalizeKey; se nem isso, gera uma chave única (caso "sem
+    // detalhes" sem commontrack_id na URL) em vez de colidir com outras
+    // entradas incompletas.
+    const key = commontrackId
+      ? `id:${commontrackId}`
+      : semDetalhes
+      ? chaveUnicaSemDetalhes()
+      : normalizeKey(titulo, artista);
 
     const logs = getLogs();
     const existente = logs[key];
+
+    // Se essa MESMA faixa (por commontrackId) já tinha título/artista de
+    // verdade registrados antes, um envio que dessa vez não conseguiu
+    // detectar nada não deve apagar o que já se sabia — só conta como
+    // mais uma tentativa da mesma faixa, com os detalhes antigos mantidos.
+    const mantemDetalhesAntigos = semDetalhes && existente && !existente.semDetalhes;
+    const tituloFinal = mantemDetalhesAntigos ? existente.titulo : titulo;
+    const artistaFinal = mantemDetalhesAntigos ? existente.artista : artista;
+    const semDetalhesFinal = mantemDetalhesAntigos ? false : semDetalhes;
 
     const jaTemHoraSalva = Boolean(existente && existente.data && existente.hora);
     const data = jaTemHoraSalva ? existente.data : dataAgora;
@@ -7856,8 +8342,9 @@ browser.storage.onChanged.addListener((changes, area) => {
     const timestamp = jaTemHoraSalva && Number.isFinite(existente.timestamp) ? existente.timestamp : now.getTime();
 
     logs[key] = {
-      titulo,
-      artista,
+      titulo: tituloFinal,
+      artista: artistaFinal,
+      semDetalhes: semDetalhesFinal,
       imagemUrl: imagemUrl || (existente ? existente.imagemUrl : null) || null,
       commontrackId,
       data,
@@ -7884,8 +8371,8 @@ browser.storage.onChanged.addListener((changes, area) => {
     verificarNovasConquistas();
 
     showPopup({
-      titulo,
-      artista,
+      titulo: logs[key].titulo,
+      artista: logs[key].artista,
       imagemUrl: logs[key].imagemUrl,
       commontrackId,
       // o toast continua mostrando a hora REAL desta tentativa (o
@@ -7905,15 +8392,8 @@ browser.storage.onChanged.addListener((changes, area) => {
     return logs[key];
   }
 
-  function registrarEnvio(tipo = 'lyrics', letraCapturada = null) {
-    const info = getTrackInfo();
-    if (!info) {
-      console.warn('[Log de Envios] Não consegui identificar título/artista para registrar.');
-      return;
-    }
-
+  function registrarEnvioComInfo(info, tipo, letraCapturada) {
     const duracao = encontrarDuracaoDaFaixa();
-
     registrarNoLog({
       titulo: info.title,
       artista: info.artist,
@@ -7926,6 +8406,145 @@ browser.storage.onChanged.addListener((changes, area) => {
       duracaoSegundos: duracaoParaSegundos(duracao),
       letra: letraCapturada,
     });
+  }
+
+  // V3.4.30: quando nem a tentativa normal nem o retry acham
+  // título/artista, registra a entrada mesmo assim — com data, hora,
+  // missão e (quando disponível) commontrackId/duração — marcada como
+  // "sem detalhes", em vez de simplesmente não registrar nada. O usuário
+  // pode completar título/artista depois clicando na entrada no log (ver
+  // abrirEdicaoDetalhesEntrada).
+  function registrarEnvioSemDetalhes(tipo, letraCapturada) {
+    const duracao = encontrarDuracaoDaFaixa();
+    registrarNoLog({
+      titulo: t('semDetalhesTitulo'),
+      artista: '',
+      imagemUrl: null,
+      commontrackId: getCommontrackId(),
+      tipo,
+      origem: 'auto',
+      missao: getMissaoConhecida(),
+      duracao,
+      duracaoSegundos: duracaoParaSegundos(duracao),
+      letra: letraCapturada,
+      semDetalhes: true,
+    });
+    console.warn('[Log de Envios] Não consegui identificar título/artista — registrado como "sem detalhes" pra edição manual.');
+    mostrarToastSimples(t('envioSemDetalhesToast'), 'erro');
+  }
+
+  // V3.4.29: se a primeira tentativa não achar título/artista, tenta mais
+  // uma vez ~300ms depois antes de desistir de vez. Cobre o caso de o
+  // clique acontecer bem no instante em que a tela ainda está se
+  // reajustando (troca de layout, reflow), quando o par título/artista
+  // pode estar momentaneamente ausente/incompleto no DOM.
+  function registrarEnvio(tipo = 'lyrics', letraCapturada = null) {
+    const info = getTrackInfo();
+    if (info) {
+      registrarEnvioComInfo(info, tipo, letraCapturada);
+      return;
+    }
+
+    setTimeout(() => {
+      const infoRetry = getTrackInfo();
+      if (infoRetry) {
+        registrarEnvioComInfo(infoRetry, tipo, letraCapturada);
+      } else {
+        registrarEnvioSemDetalhes(tipo, letraCapturada);
+      }
+    }, 300);
+  }
+
+  // V3.4.38: depois do clique em "Enviar"/"Marcar como instrumental", o
+  // site pode responder de duas formas bem diferentes — e nenhuma delas é
+  // instantânea, já que depende de uma chamada de rede: (1) a janela real
+  // de sucesso ("Agradecemos a sua contribuição!"), sempre com o mesmo
+  // ícone verde (--mxm-systemGreen100); ou (2) uma entre VÁRIAS janelas
+  // possíveis de aviso/erro (limite de faixas, sessão expirada, falha de
+  // sincronização — ex.: "Falha ao salvar" / Error Code: sv_sync — e
+  // outras), todas com o mesmo ícone vermelho (--mxm-systemRed100), mas
+  // com textos diferentes entre si. Antes disso, o registro no log
+  // acontecia só com um pequeno atraso fixo (setTimeout) depois do
+  // clique, sem checar qual das duas aconteceu de verdade — então um
+  // envio que na verdade falhou (qualquer uma das janelas vermelhas) era
+  // registrado no log exatamente como um envio bem-sucedido. Os dois
+  // ícones são a única coisa comum e estável entre todos os idiomas da
+  // interface (PT/EN/EL...), então são usados aqui em vez de comparar
+  // texto.
+  const SELETOR_ICONE_SUCESSO_ENVIO = 'svg[fill="var(--mxm-systemGreen100)"]';
+  const SELETOR_ICONE_ERRO_ENVIO = 'svg[fill="var(--mxm-systemRed100)"]';
+
+  // Tempo máximo esperando a confirmação depois do clique. Passado esse
+  // tempo sem nenhum dos dois ícones aparecer, desiste sem registrar —
+  // evita deixar um MutationObserver pendurado pra sempre se o usuário
+  // sair da tela (ou trocar de faixa) no meio do processo. V3.4.39:
+  // aumentado de 20s pra 45s — relato de que a janela de sucesso às
+  // vezes demora mais que isso pra aparecer, o que fazia o envio nem
+  // sequer ser registrado (nem como sucesso, nem como "sem detalhes").
+  const TIMEOUT_CONFIRMACAO_ENVIO_MS = 45000;
+
+  // ---------- Config: quando registrar o envio no log — só depois da janela verde de confirmação (padrão desde a v3.4.38), ou direto no clique em "Enviar" (como era antes) ----------
+  //
+  // V3.4.39: a espera pela janela de confirmação (ver
+  // aguardarConfirmacaoDeEnvio) é mais confiável — evita registrar envios
+  // que na verdade falharam — mas depende da janela aparecer a tempo, e
+  // ela às vezes demora. Pra quem prefere o comportamento antigo
+  // (registro imediato ao clicar, sem esperar nada, aceitando o risco de
+  // registrar um envio que falhe), esse interruptor permite voltar pra
+  // esse modo.
+  const STORAGE_CONFIRMAR_ENVIO_KEY = 'mxm_log_confirmar_envio';
+
+  function isConfirmarEnvioAtivo() {
+    // padrão: ligado — é o comportamento atual (v3.4.38), mais seguro.
+    return localStorage.getItem(STORAGE_CONFIRMAR_ENVIO_KEY) !== '0';
+  }
+
+  function setConfirmarEnvioAtivo(value) {
+    localStorage.setItem(STORAGE_CONFIRMAR_ENVIO_KEY, value ? '1' : '0');
+  }
+
+  // aoDetectarErro é opcional e pode ser chamado mais de uma vez — cada
+  // janela vermelha que aparecer antes do sucesso (ou do timeout) dispara
+  // uma chamada, sem interromper a espera: o usuário pode fechar o aviso
+  // e tentar de novo, e a confirmação real pode vir logo em seguida.
+  function aguardarConfirmacaoDeEnvio(aoConfirmarSucesso, aoDetectarErro) {
+    let resolvido = false;
+
+    const finalizar = () => {
+      if (resolvido) return;
+      resolvido = true;
+      observer.disconnect();
+      clearTimeout(timeoutId);
+    };
+
+    const contemIcone = (node, seletor) => {
+      if (!(node instanceof Element)) return false;
+      if (node.matches && node.matches(seletor)) return true;
+      return !!(node.querySelector && node.querySelector(seletor));
+    };
+
+    const verificarNode = (node) => {
+      if (resolvido) return;
+      if (contemIcone(node, SELETOR_ICONE_SUCESSO_ENVIO)) {
+        finalizar();
+        aoConfirmarSucesso();
+        return;
+      }
+      if (contemIcone(node, SELETOR_ICONE_ERRO_ENVIO)) {
+        try {
+          aoDetectarErro && aoDetectarErro();
+        } catch (e) {
+          console.warn('[Log de Envios] Erro ao tratar callback de aviso/erro de envio.', e);
+        }
+      }
+    };
+
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => mutation.addedNodes.forEach(verificarNode));
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+    const timeoutId = setTimeout(finalizar, TIMEOUT_CONFIRMACAO_ENVIO_MS);
   }
 
   // V1.7: fluxo manual — clique numa linha da lista com o modo ativo
@@ -8038,12 +8657,13 @@ browser.storage.onChanged.addListener((changes, area) => {
     return Array.from(conhecidas).sort((a, b) => a.localeCompare(b));
   }
 
-  function definirMissaoEntrada(key, missao) {
+  function definirMissaoEntrada(key, missao, aoAtualizar) {
     const logs = getLogs();
     if (!logs[key]) return;
     logs[key].missao = missao || null;
     saveLogs(logs);
     renderPainelLista();
+    if (typeof aoAtualizar === 'function') aoAtualizar();
   }
 
   function fecharMenuMissao() {
@@ -8055,7 +8675,7 @@ browser.storage.onChanged.addListener((changes, area) => {
   // pra digitar uma missão avulsa. Não usa o padrão de overlay escurecido
   // dos outros popups do script — aqui é só uma camada transparente que
   // fecha o menu ao clicar fora, no espírito de um menu de contexto comum.
-  function abrirMenuMissao(x, y, key) {
+  function abrirMenuMissao(x, y, key, aoAtualizar) {
     fecharMenuMissao();
 
     const entrada = getLogs()[key];
@@ -8169,11 +8789,11 @@ browser.storage.onChanged.addListener((changes, area) => {
             valorInicial: entrada.missao || '',
             aoConfirmar: (digitada) => {
               const limpa = digitada.trim();
-              if (limpa) definirMissaoEntrada(key, limpa);
+              if (limpa) definirMissaoEntrada(key, limpa, aoAtualizar);
             },
           });
         } else {
-          definirMissaoEntrada(key, valor || null);
+          definirMissaoEntrada(key, valor || null, aoAtualizar);
         }
       });
     });
@@ -9628,16 +10248,22 @@ browser.storage.onChanged.addListener((changes, area) => {
     baixarArquivoTexto(montarNomeArquivoExportado(tituloExport), documento, 'text/html;charset=utf-8');
   }
 
-  // ---------- Compartilhar diff como link (sem servidor/banco nenhum) ----------
-  // O HTML completo do diff (já autocontido, ver montarDocumentoHtmlDiff)
-  // é comprimido (gzip nativo do navegador) e vira a própria URL — quem
-  // abre o link decodifica no próprio navegador, sem nada guardado em
-  // lugar nenhum. Só existe uma dependência externa: a páginazinha
-  // estática de visualização (ver README-diff-viewer.md), que só lê o
-  // hash da URL e monta um iframe com o HTML decodificado.
-  //
-  // Troque esta constante pela URL real depois de publicar a página no
-  // GitHub Pages (ver README-diff-viewer.md).
+  // ---------- Compartilhar diff como link ----------
+  // v3.4.27: o link deixou de carregar o diff inteiro dentro dele (isso
+  // é que fazia o link ficar gigante). Agora o HTML comprimido vai pra
+  // um documento no mesmo Firestore já usado pelo backup na nuvem
+  // (projeto musixmatch-logs), autenticado com uma conta ANÔNIMA do
+  // Firebase (silenciosa, sem popup — diferente do login Google usado
+  // pro backup), e o link carrega só um ID curto sorteado (10
+  // caracteres) que aponta pra esse documento. Cada documento é criado
+  // já com `expiraEm` = agora + 30 dias, pra a política de TTL do
+  // Firestore apagar sozinho (ver README-diff-viewer.md pra ativar essa
+  // política uma única vez no Console — não dá pra configurar TTL via
+  // API REST). Se a escrita na nuvem falhar por qualquer motivo (sem
+  // internet, cota, etc.), cai de volta pro esquema antigo (link
+  // autocontido, com o diff inteiro dentro da URL + is.gd opcional) —
+  // ver compartilharDiffComoLinkAutocontido — pra nunca deixar o botão
+  // de compartilhar simplesmente não funcionar.
   const MXM_DIFF_VIEWER_URL_BASE = 'https://claravallac.github.io/mxm-diff-viewer/';
 
   // Base64 "URL-safe" (troca +/ por -_ e tira o padding =) — assim o
@@ -9692,34 +10318,50 @@ browser.storage.onChanged.addListener((changes, area) => {
     return texto;
   }
 
-  async function compartilharDiffComoLink(diffHtmlInterno, tituloExport) {
+  // Esquema antigo (v3.4.26 e anteriores), mantido como fallback: o
+  // diff inteiro comprimido vai dentro do próprio link (#d=...), com
+  // encurtamento opcional via is.gd. Continua 100% funcional sozinho,
+  // sem depender de nenhuma conta/nuvem — é o que roda quando a escrita
+  // no Firestore (esquema novo, abaixo) não é possível.
+  async function compartilharDiffComoLinkAutocontido(documento) {
+    const dadosBase64Url = await comprimirTextoParaBase64Url(documento);
+    const linkLongo = `${MXM_DIFF_VIEWER_URL_BASE}#d=${dadosBase64Url}`;
+
+    let linkFinal = linkLongo;
+    let encurtou = false;
     try {
-      const documento = montarDocumentoHtmlDiff(diffHtmlInterno, tituloExport);
-      const dadosBase64Url = await comprimirTextoParaBase64Url(documento);
-      const linkLongo = `${MXM_DIFF_VIEWER_URL_BASE}#d=${dadosBase64Url}`;
+      linkFinal = await encurtarLinkComIsGd(linkLongo);
+      encurtou = true;
+    } catch (erroEncurtar) {
+      // is.gd fora do ar, link grande demais pro limite dele, sem
+      // internet no momento do encurtamento etc. — o link longo
+      // original continua 100% funcional, só não fica curto.
+      console.warn('[Log de Envios] Não foi possível encurtar o link (usando o link longo original).', erroEncurtar);
+    }
 
-      let linkFinal = linkLongo;
-      let encurtou = false;
-      try {
-        linkFinal = await encurtarLinkComIsGd(linkLongo);
-        encurtou = true;
-      } catch (erroEncurtar) {
-        // is.gd fora do ar, link grande demais pro limite dele, sem
-        // internet no momento do encurtamento etc. — o link longo
-        // original continua 100% funcional, só não fica curto.
-        console.warn('[Log de Envios] Não foi possível encurtar o link (usando o link longo original).', erroEncurtar);
-      }
+    await navigator.clipboard.writeText(linkFinal);
+    // link muito longo pode ser truncado por alguns apps de mensagem
+    // mais antigos — aviso só informativo, o link em si continua válido.
+    mostrarToastSimples(
+      encurtou ? t('diffLinkCopiadoCurto') : linkFinal.length > 6000 ? t('diffLinkCopiadoGrande') : t('diffLinkCopiado'),
+      'sucesso'
+    );
+  }
 
+  async function compartilharDiffComoLink(diffHtmlInterno, tituloExport) {
+    const documento = montarDocumentoHtmlDiff(diffHtmlInterno, tituloExport);
+    try {
+      const linkFinal = await mxmCompartilharDiffViaNuvem(documento);
       await navigator.clipboard.writeText(linkFinal);
-      // link muito longo pode ser truncado por alguns apps de mensagem
-      // mais antigos — aviso só informativo, o link em si continua válido.
-      mostrarToastSimples(
-        encurtou ? t('diffLinkCopiadoCurto') : linkFinal.length > 6000 ? t('diffLinkCopiadoGrande') : t('diffLinkCopiado'),
-        'sucesso'
-      );
-    } catch (erro) {
-      console.warn('[Log de Envios] Falha ao gerar link compartilhável do diff.', erro);
-      mostrarToastSimples(t('diffLinkErro'), 'erro');
+      mostrarToastSimples(t('diffLinkCopiadoNuvem'), 'sucesso');
+    } catch (erroNuvem) {
+      console.warn('[Log de Envios] Não foi possível gerar link curto via nuvem, usando o esquema antigo (link autocontido).', erroNuvem);
+      try {
+        await compartilharDiffComoLinkAutocontido(documento);
+      } catch (erro) {
+        console.warn('[Log de Envios] Falha ao gerar link compartilhável do diff.', erro);
+        mostrarToastSimples(t('diffLinkErro'), 'erro');
+      }
     }
   }
 
@@ -11422,6 +12064,395 @@ browser.storage.onChanged.addListener((changes, area) => {
     document.getElementById('mxm-log-prompt-ok').addEventListener('click', confirmar);
   }
 
+  // V3.4.30: completa manualmente título/artista de uma entrada marcada
+  // como "sem detalhes" (envio automático que não conseguiu identificar a
+  // música na hora). Encadeia dois prompts (título, depois artista) —
+  // abrirPromptTexto só tem um campo, então reaproveita o mesmo
+  // componente duas vezes em vez de criar um diálogo novo.
+  function abrirEdicaoDetalhesEntrada(key) {
+    const entrada = getLogs()[key];
+    if (!entrada) return;
+
+    abrirPromptTexto({
+      titulo: t('editarDetalhesTitulo'),
+      mensagem: t('editarDetalhesTituloMensagem'),
+      valorInicial: entrada.semDetalhes ? '' : entrada.titulo,
+      placeholder: t('editarDetalhesTituloPlaceholder'),
+      textoConfirmar: t('confirmar'),
+      aoConfirmar: (tituloDigitado) => {
+        const tituloFinal = (tituloDigitado || '').trim();
+        // sem título não dá pra completar de verdade — deixa a entrada
+        // como estava em vez de salvar algo vazio.
+        if (!tituloFinal) return;
+
+        abrirPromptTexto({
+          titulo: t('editarDetalhesTitulo'),
+          mensagem: t('editarDetalhesArtistaMensagem'),
+          valorInicial: '',
+          placeholder: t('editarDetalhesArtistaPlaceholder'),
+          textoConfirmar: t('confirmar'),
+          aoConfirmar: (artistaDigitado) => {
+            const logsAtual = getLogs();
+            const entradaAtual = logsAtual[key];
+            if (!entradaAtual) return;
+            entradaAtual.titulo = tituloFinal;
+            entradaAtual.artista = (artistaDigitado || '').trim() || '(artista não identificado)';
+            entradaAtual.semDetalhes = false;
+            saveLogs(logsAtual);
+            renderPainelLista();
+            mostrarToastSimples(t('detalhesAdicionadosToast'));
+          },
+        });
+      },
+    });
+  }
+
+  // converte um timestamp (ms) nos valores que os inputs nativos
+  // type="date" (YYYY-MM-DD) e type="time" (HH:MM:SS) esperam, sempre no
+  // horário local — igual ao que formatDateHora já mostra na linha do log.
+  function timestampParaValoresInput(timestamp) {
+    const data = Number.isFinite(timestamp) ? new Date(timestamp) : new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const valorData = `${data.getFullYear()}-${pad(data.getMonth() + 1)}-${pad(data.getDate())}`;
+    const valorHora = `${pad(data.getHours())}:${pad(data.getMinutes())}:${pad(data.getSeconds())}`;
+    return { valorData, valorHora };
+  }
+
+  // V3.4.34: edição manual de data/hora de um envio — aberta ao clicar na
+  // hora mostrada na linha do log principal (ver renderPainelLista). Usa o
+  // mesmo padrão visual do abrirPromptTexto (overlay + cartão), mas com um
+  // par de inputs nativos de data/hora lado a lado em vez de um só campo de
+  // texto. Reescreve timestamp/data/hora da entrada — a linha pode mudar de
+  // grupo (dia) ou de posição na lista assim que o painel for re-renderizado.
+  function abrirEdicaoDataHoraEntrada(key, aoAtualizar) {
+    const entrada = getLogs()[key];
+    if (!entrada) return;
+
+    document.querySelectorAll('#mxm-log-datahora-overlay').forEach((el) => el.remove());
+
+    const { valorData, valorHora } = timestampParaValoresInput(entrada.timestamp);
+
+    const overlay = document.createElement('div');
+    overlay.id = 'mxm-log-datahora-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      background: 'color-mix(in srgb, var(--md-sys-color-scrim) 60%, transparent)',
+      zIndex: proximoZIndexFlutuante(),
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    });
+
+    const estiloInput =
+      'flex:1; min-width:0; box-sizing:border-box; padding:9px 10px; border-radius:var(--md-shape-sm); border:1px solid var(--md-sys-color-outline-variant); background:var(--md-sys-color-surface-container); color:var(--md-sys-color-on-surface); font-size:13px; font-family:sans-serif; outline:none; color-scheme: dark light;';
+
+    overlay.innerHTML = `
+      <div style="background:var(--md-sys-color-surface-container-low); color:var(--md-sys-color-on-surface); width:340px; max-width:90vw; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); font-family:sans-serif; overflow:hidden;">
+        <div style="padding:18px 18px 4px; display:flex; align-items:flex-start; gap:10px;">
+          <div style="width:34px; height:34px; border-radius:var(--md-shape-sm); background:var(--md-sys-color-primary-container); display:flex; align-items:center; justify-content:center; flex-shrink:0;" class="mxm-icone-pop">${icone(
+            'calendar',
+            16,
+            'var(--md-sys-color-on-primary-container)'
+          )}</div>
+          <div style="min-width:0;">
+            <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${t('editarDataHoraTitulo')}</div>
+            <div style="font-size:12.5px; color:var(--md-sys-color-on-surface-variant); line-height:1.5;">${t(
+              'editarDataHoraMensagem'
+            )}</div>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; padding:14px 18px 4px;">
+          <div style="flex:1; min-width:0;">
+            <label style="display:block; font-size:11px; font-weight:600; color:var(--md-sys-color-outline); margin-bottom:4px;">${t(
+              'editarDataHoraDataLabel'
+            )}</label>
+            <input id="mxm-log-datahora-data" type="date" value="${valorData}" style="${estiloInput}" />
+          </div>
+          <div style="flex:1; min-width:0;">
+            <label style="display:block; font-size:11px; font-weight:600; color:var(--md-sys-color-outline); margin-bottom:4px;">${t(
+              'editarDataHoraHoraLabel'
+            )}</label>
+            <input id="mxm-log-datahora-hora" type="time" step="1" value="${valorHora}" style="${estiloInput}" />
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; padding:16px 18px;">
+          <button id="mxm-log-datahora-cancelar" style="flex:1; padding:8px; border-radius:var(--md-shape-sm); border:1px solid var(--md-sys-color-outline-variant); background:transparent; color:var(--md-sys-color-on-surface-variant); font-size:13px; cursor:pointer;">${t(
+            'cancelar'
+          )}</button>
+          <button id="mxm-log-datahora-salvar" style="flex:1; padding:8px; border-radius:var(--md-shape-sm); border:none; background:var(--md-sys-color-primary); color:var(--md-sys-color-on-primary); font-size:13px; font-weight:600; cursor:pointer;">${t(
+            'confirmar'
+          )}</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    const cartao = overlay.firstElementChild;
+    animarEntradaCartao(cartao, { distancia: 8, duracao: 180 });
+
+    const inputData = document.getElementById('mxm-log-datahora-data');
+    const inputHora = document.getElementById('mxm-log-datahora-hora');
+    requestAnimationFrame(() => inputData.focus());
+
+    function fechar() {
+      document.removeEventListener('keydown', aoTeclar);
+      fecharOverlayAnimado(overlay, cartao, { distancia: 8, duracao: 180 });
+    }
+
+    function salvar() {
+      // "YYYY-MM-DD" + "HH:MM:SS" interpretados no horário local (não
+      // via Date.parse de string ISO com "T", que cairia em UTC).
+      const partesData = (inputData.value || '').split('-').map(Number);
+      const partesHora = (inputHora.value || '00:00:00').split(':').map(Number);
+      const [ano, mes, dia] = partesData;
+      const [h, min, seg] = [partesHora[0] || 0, partesHora[1] || 0, partesHora[2] || 0];
+
+      if (!ano || !mes || !dia) {
+        mostrarToastSimples(t('editarDataHoraErro'), 'erro');
+        return;
+      }
+
+      const novaData = new Date(ano, mes - 1, dia, h, min, seg);
+      if (Number.isNaN(novaData.getTime())) {
+        mostrarToastSimples(t('editarDataHoraErro'), 'erro');
+        return;
+      }
+
+      const logsAtual = getLogs();
+      const entradaAtual = logsAtual[key];
+      if (!entradaAtual) {
+        fechar();
+        return;
+      }
+
+      const { data, hora } = formatDateHora(novaData);
+      entradaAtual.timestamp = novaData.getTime();
+      entradaAtual.data = data;
+      entradaAtual.hora = hora;
+      saveLogs(logsAtual);
+      renderPainelLista();
+
+      fechar();
+      tocarSom('sucesso');
+      mostrarToastSimples(t('editarDataHoraToast'));
+      if (typeof aoAtualizar === 'function') aoAtualizar();
+    }
+
+    function aoTeclar(e) {
+      if (e.key === 'Escape') fechar();
+      else if (e.key === 'Enter') salvar();
+    }
+    document.addEventListener('keydown', aoTeclar);
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) fechar();
+    });
+    document.getElementById('mxm-log-datahora-cancelar').addEventListener('click', fechar);
+    document.getElementById('mxm-log-datahora-salvar').addEventListener('click', salvar);
+  }
+
+  // V3.4.35: painel único da música — aberto ao clicar em qualquer área da
+  // linha no log principal (ver renderPainelLista), em vez de exigir acertar
+  // um ícone pequeno pra cada ação. Reúne capa/título/artista, letra,
+  // data-hora, duração e missão num só lugar; data-hora e missão são
+  // editáveis ali mesmo (reaproveitando abrirEdicaoDataHoraEntrada e
+  // abrirMenuMissao, ambos já existentes, com um callback pra re-renderizar
+  // só o conteúdo do painel depois de salvar, sem fechar/reabrir o overlay).
+  function abrirPainelEntrada(key) {
+    document.querySelectorAll('#mxm-log-painel-entrada-overlay').forEach((el) => el.remove());
+
+    const overlay = document.createElement('div');
+    overlay.id = 'mxm-log-painel-entrada-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      background: 'color-mix(in srgb, var(--md-sys-color-scrim) 60%, transparent)',
+      zIndex: proximoZIndexFlutuante(),
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    });
+
+    const cartao = document.createElement('div');
+    Object.assign(cartao.style, {
+      background: 'var(--md-sys-color-surface-container-low)',
+      color: 'var(--md-sys-color-on-surface)',
+      width: '380px',
+      maxWidth: '90vw',
+      maxHeight: '85vh',
+      borderRadius: 'var(--md-shape-xl)',
+      boxShadow: 'var(--md-elevation-3)',
+      fontFamily: 'sans-serif',
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column',
+    });
+
+    overlay.appendChild(cartao);
+    document.body.appendChild(overlay);
+    animarEntradaCartao(cartao, { distancia: 8, duracao: 180 });
+
+    function fechar() {
+      document.removeEventListener('keydown', aoTeclar);
+      fecharOverlayAnimado(overlay, cartao, { distancia: 8, duracao: 180 });
+    }
+    function aoTeclar(e) {
+      if (e.key === 'Escape') fechar();
+    }
+    document.addEventListener('keydown', aoTeclar);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) fechar();
+    });
+
+    // botão-fantasma de tamanho fixo pra manter o cabeçalho alinhado
+    // quando a linha de tags (instrumental/manual/sem detalhes) some.
+    function linhaInfo({ nomeIcone, label, valor, corValor, acao, tituloAcao }) {
+      return `
+        <div style="display:flex; align-items:center; gap:10px; padding:9px 4px;">
+          <div style="width:30px; height:30px; border-radius:var(--md-shape-sm); background:var(--md-sys-color-surface-container-high); display:flex; align-items:center; justify-content:center; flex-shrink:0; color:var(--md-sys-color-on-surface-variant);">${icone(
+            nomeIcone,
+            15
+          )}</div>
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:10px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:var(--md-sys-color-outline);">${escapeHtml(
+              label
+            )}</div>
+            <div style="font-size:13px; font-weight:500; color:${
+              corValor || 'var(--md-sys-color-on-surface)'
+            }; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(valor)}</div>
+          </div>
+          ${
+            acao
+              ? `<button data-acao="${acao}" title="${escapeHtml(
+                  tituloAcao || ''
+                )}" style="flex-shrink:0; width:28px; height:28px; padding:0; border:none; border-radius:50%; background:transparent; color:var(--md-sys-color-primary); cursor:pointer; display:flex; align-items:center; justify-content:center;">${icone(
+                  'edit',
+                  13
+                )}</button>`
+              : ''
+          }
+        </div>
+      `;
+    }
+
+    function render() {
+      const entrada = getLogs()[key];
+      if (!entrada) {
+        fechar();
+        return;
+      }
+
+      const mostrarImg = isImgVisible();
+      const capaHtml = mostrarImg
+        ? entrada.imagemUrl
+          ? `<img src="${entrada.imagemUrl}" style="width:52px; height:52px; border-radius:var(--md-shape-sm); object-fit:cover; flex-shrink:0;">`
+          : renderCapaPlaceholder(`${entrada.titulo}|${entrada.artista}`, '52px', 22)
+        : '';
+
+      const dataHoraTexto = entrada.data && entrada.hora ? `${entrada.data} ${t('as')} ${entrada.hora}` : '—';
+      const duracaoTexto = entrada.duracao || t('painelMusicaDuracaoIndisponivel');
+      const missaoTexto = entrada.missao || t('semMissaoIdentificada');
+
+      cartao.innerHTML = `
+        <div style="padding:16px 18px; display:flex; align-items:flex-start; gap:12px; flex-shrink:0;">
+          ${capaHtml}
+          <div style="flex:1; min-width:0; padding-top:1px;">
+            <div style="font-size:14.5px; font-weight:700; color:var(--md-sys-color-on-surface); overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">${escapeHtml(
+              entrada.titulo
+            )}</div>
+            <div style="font-size:12.5px; color:var(--md-sys-color-outline); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(
+              entrada.artista || ''
+            )}</div>
+          </div>
+          <div id="mxm-log-painel-entrada-fechar" class="mxm-log-close-btn" style="cursor:pointer; color:var(--md-sys-color-outline); padding:9px; margin:-9px -9px 0 0; border-radius:50%; display:flex; flex-shrink:0; transition:background-color .15s ease, color .15s ease;">${icone(
+            'x',
+            16
+          )}</div>
+        </div>
+        <div style="padding:0 14px 6px; overflow-y:auto; flex:1;">
+          ${linhaInfo({
+            nomeIcone: 'calendar',
+            label: t('painelMusicaDataHoraLabel'),
+            valor: dataHoraTexto,
+            acao: 'data-hora',
+            tituloAcao: t('painelMusicaEditarDataHoraTitulo'),
+          })}
+          ${linhaInfo({
+            nomeIcone: 'clock',
+            label: t('painelMusicaDuracaoLabel'),
+            valor: duracaoTexto,
+          })}
+          ${linhaInfo({
+            nomeIcone: 'target',
+            label: t('painelMusicaMissaoLabel'),
+            valor: missaoTexto,
+            corValor: entrada.missao ? getMissionAccentColor(entrada.missao) : undefined,
+            acao: 'missao',
+            tituloAcao: t('painelMusicaEditarMissaoTitulo'),
+          })}
+        </div>
+        <div style="padding:12px 18px 18px; flex-shrink:0;">
+          ${
+            entrada.letra
+              ? `<button id="mxm-log-painel-entrada-letra" style="width:100%; box-sizing:border-box; display:flex; align-items:center; justify-content:center; gap:6px; padding:10px; border-radius:var(--md-shape-sm); border:none; background:var(--md-sys-color-primary); color:var(--md-sys-color-on-primary); font-size:13px; font-weight:600; cursor:pointer;">${icone(
+                  'fileText',
+                  14
+                )}${t('painelMusicaVerLetra')}</button>`
+              : `<div style="display:flex; align-items:center; gap:8px; padding:10px; border-radius:var(--md-shape-sm); background:var(--md-sys-color-surface-container-high); color:var(--md-sys-color-outline); font-size:12.5px;">${icone(
+                  'fileText',
+                  14,
+                  'var(--md-sys-color-outline)'
+                )}${t('painelMusicaSemLetra')}</div>`
+          }
+        </div>
+      `;
+
+      cartao.querySelector('#mxm-log-painel-entrada-fechar').addEventListener('click', fechar);
+
+      const btnLetra = cartao.querySelector('#mxm-log-painel-entrada-letra');
+      if (btnLetra) {
+        btnLetra.addEventListener('click', () => {
+          abrirVisualizadorLetra({
+            key,
+            titulo: entrada.titulo,
+            artista: entrada.artista,
+            letra: entrada.letra,
+          });
+        });
+      }
+
+      const btnDataHora = cartao.querySelector('[data-acao="data-hora"]');
+      if (btnDataHora) {
+        btnDataHora.addEventListener('mouseenter', () => {
+          btnDataHora.style.backgroundColor = 'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)';
+        });
+        btnDataHora.addEventListener('mouseleave', () => {
+          btnDataHora.style.backgroundColor = 'transparent';
+        });
+        btnDataHora.addEventListener('click', () => {
+          abrirEdicaoDataHoraEntrada(key, render);
+        });
+      }
+
+      const btnMissao = cartao.querySelector('[data-acao="missao"]');
+      if (btnMissao) {
+        btnMissao.addEventListener('mouseenter', () => {
+          btnMissao.style.backgroundColor = 'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)';
+        });
+        btnMissao.addEventListener('mouseleave', () => {
+          btnMissao.style.backgroundColor = 'transparent';
+        });
+        btnMissao.addEventListener('click', () => {
+          const retangulo = btnMissao.getBoundingClientRect();
+          abrirMenuMissao(retangulo.right - 220, retangulo.bottom + 4, key, render);
+        });
+      }
+    }
+
+    render();
+  }
+
   // visualizador da letra completa capturada (beta) — mesmo padrão
   // visual do cartão de confirmação (overlay + animação de entrada), mas
   // com o corpo rolável pra caber letras longas e um botão de copiar.
@@ -11768,8 +12799,14 @@ browser.storage.onChanged.addListener((changes, area) => {
 
     entradas.forEach((e, indice) => {
       if (e._grupoChave !== dataAnterior) {
-        if (dataAnterior !== null) html += `</div>`;
+        if (dataAnterior !== null) html += `</div></div></div>`;
         const corte = !!e._corteCiclo;
+        // codifica a chave real do grupo (pode conter \u0000 usado como
+        // separador interno em "sem-missão"/cortes de ciclo) pra um
+        // atributo HTML seguro, que sobrevive ida-e-volta pelo parser do
+        // navegador sem virar U+FFFD — decodifica de volta no clique.
+        const chaveGrupoAttr = encodeURIComponent(e._grupoChave);
+        const grupoRecolhido = gruposRecolhidos.has(e._grupoChave);
         html += `<div style="position:relative;">`;
         if (corte) {
           html += `
@@ -11787,23 +12824,31 @@ browser.storage.onChanged.addListener((changes, area) => {
           `;
         }
         html += `
-          <div class="mxm-log-data-header" style="position:sticky; top:0; z-index:2; margin:0; padding:20px 4px 10px; display:flex; align-items:center; justify-content:center; gap:6px; background:var(--md-sys-color-surface);">
-            <span style="display:inline-flex; align-items:center; gap:5px; padding:4px 12px; border-radius:var(--md-shape-full); background:var(--md-sys-color-surface-container-high); font-size:10.5px; font-weight:700; letter-spacing:0.4px; text-transform:uppercase; color:var(--md-sys-color-on-surface-variant);">
+          <div class="mxm-log-data-header" data-grupo-key="${chaveGrupoAttr}" style="position:sticky; top:0; z-index:2; margin:0; padding:20px 4px 10px; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; column-gap:6px; background:var(--md-sys-color-surface);">
+            <span class="mxm-log-grupo-chevron${
+              grupoRecolhido ? ' mxm-grupo-chevron-fechado' : ''
+            }" style="justify-self:end; display:inline-flex; color:var(--md-sys-color-outline); flex-shrink:0; pointer-events:none;">${icone('chevronDown', 13)}</span>
+            <button type="button" class="mxm-log-grupo-toggle" data-grupo-key="${chaveGrupoAttr}" style="justify-self:center; display:inline-flex; align-items:center; gap:5px; padding:4px 12px; border:none; border-radius:var(--md-shape-full); background:var(--md-sys-color-surface-container-high); font-size:10.5px; font-weight:700; letter-spacing:0.4px; text-transform:uppercase; color:var(--md-sys-color-on-surface-variant); font-family:inherit;">
               ${escapeHtml(e._grupoRotulo)}
-            </span>
-            ${
-              primeiroGrupo
-                ? `<button id="mxm-log-ordenar-btn" title="${t(
-                    'ordenarFiltrarTitulo'
-                  )}" style="display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; padding:0; border:none; border-radius:50%; background:var(--md-sys-color-surface-container-high); color:var(--md-sys-color-on-surface-variant); cursor:pointer; flex-shrink:0;">${icone(
-                    'filter',
-                    12
-                  )}</button>`
-                : ''
-            }
+            </button>
+            <div style="justify-self:start; display:flex; align-items:center;">
+              ${
+                primeiroGrupo
+                  ? `<button id="mxm-log-ordenar-btn" title="${t(
+                      'ordenarFiltrarTitulo'
+                    )}" style="display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; padding:0; border:none; border-radius:50%; background:var(--md-sys-color-surface-container-high); color:var(--md-sys-color-on-surface-variant); cursor:pointer; flex-shrink:0;">${icone(
+                      'filter',
+                      12
+                    )}</button>`
+                  : ''
+              }
+            </div>
             <div class="mxm-log-header-notch mxm-log-header-notch-l" aria-hidden="true"></div>
             <div class="mxm-log-header-notch mxm-log-header-notch-r" aria-hidden="true"></div>
           </div>
+          <div class="mxm-log-grupo-corpo${
+            grupoRecolhido ? ' mxm-grupo-recolhido' : ''
+          }" data-grupo-key="${chaveGrupoAttr}"><div>
         `;
         dataAnterior = e._grupoChave;
         primeiroGrupo = false;
@@ -11833,7 +12878,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       html += `
         <div data-row-key="${e.key}" class="mxm-log-row" style="display:flex; align-items:center; gap:10px; padding:9px 10px; margin:${margemBloco}; border-radius:${raioBloco}; background:${
         selecionada ? 'color-mix(in srgb, var(--md-sys-color-primary) 14%, var(--md-sys-color-surface-container-low))' : 'var(--md-sys-color-surface-container-low)'
-      }; ${modoSelecaoAtivo ? 'cursor:pointer;' : ''}">
+      }; cursor:pointer;">
           ${
             mostrarImg
               ? e.imagemUrl
@@ -11858,6 +12903,15 @@ browser.storage.onChanged.addListener((changes, area) => {
               'cursor',
               10
             )}${t('manualTag')}</span>`
+          : ''
+      }${
+        e.semDetalhes
+          ? `<span data-key="${e.key}" class="mxm-log-sem-detalhes-tag" title="${t(
+              'semDetalhesTagTooltip'
+            )}" style="display:inline-flex; flex-shrink:0; align-items:center; gap:3px; font-size:10px; font-weight:600; color:#ffb74d; background:rgba(255,183,77,0.15); border-radius:var(--md-shape-full); padding:1px 5px; cursor:pointer;">${icone(
+              'edit',
+              10
+            )}${t('semDetalhesTag')}</span>`
           : ''
       }${
         e.letra
@@ -11898,7 +12952,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       `;
     });
 
-    if (entradas.length > 0) html += `</div>`;
+    if (entradas.length > 0) html += `</div></div></div>`;
 
     lista.innerHTML = html;
 
@@ -11914,6 +12968,21 @@ browser.storage.onChanged.addListener((changes, area) => {
         abrirMenuOrdenacao(retangulo.left, retangulo.bottom + 4);
       });
     }
+
+    // clicar na "pílula" da data/missão/letra/ciclo (e só nela — o resto
+    // do cabeçalho, chevron e botão de ordenar incluídos, não reage a
+    // clique) recolhe/expande só as músicas daquele grupo, com animação
+    // suave — não mexe nos outros grupos nem re-renderiza a lista inteira.
+    lista.querySelectorAll('.mxm-log-grupo-toggle').forEach((botao) => {
+      botao.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        tocarSom('clique');
+        const chaveAttr = botao.getAttribute('data-grupo-key');
+        const chave = decodeURIComponent(chaveAttr);
+        const corpo = lista.querySelector(`.mxm-log-grupo-corpo[data-grupo-key="${cssEscapeSeguro(chaveAttr)}"]`);
+        alternarRecolhimentoGrupo(chave, corpo);
+      });
+    });
 
     // badge "Letra" — abre o visualizador da letra completa
     // capturada. Precisa de stopPropagation pra não disparar o clique da
@@ -11944,6 +13013,17 @@ browser.storage.onChanged.addListener((changes, area) => {
       });
     });
 
+    // V3.4.30: tag "Sem detalhes" — abre o mesmo fluxo de completar
+    // título/artista manualmente (ver abrirEdicaoDetalhesEntrada).
+    lista.querySelectorAll('.mxm-log-sem-detalhes-tag').forEach((el) => {
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        tocarSom('clique');
+        const key = el.getAttribute('data-key');
+        abrirEdicaoDetalhesEntrada(key);
+      });
+    });
+
     lista.querySelectorAll('[data-row-key]').forEach((row) => {
       row.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -11964,7 +13044,8 @@ browser.storage.onChanged.addListener((changes, area) => {
       lista.querySelectorAll('.mxm-log-del').forEach((el) => {
         el.addEventListener('mouseenter', () => (el.style.color = '#f2a5a5'));
         el.addEventListener('mouseleave', () => (el.style.color = 'var(--md-sys-color-outline)'));
-        el.addEventListener('click', () => {
+        el.addEventListener('click', (ev) => {
+          ev.stopPropagation();
           const key = el.getAttribute('data-key');
           abrirConfirmacao({
             titulo: t('confirmarExclusaoTitulo'),
@@ -11972,6 +13053,18 @@ browser.storage.onChanged.addListener((changes, area) => {
             textoConfirmar: t('excluir'),
             aoConfirmar: () => apagarEntrada(key),
           });
+        });
+      });
+
+      // V3.4.35: clicar em qualquer área da linha (fora dos elementos que
+      // já têm ação própria — excluir, tags de letra/instrumental/sem
+      // detalhes, que dão stopPropagation) abre o painel único da música,
+      // com letra/data-hora/título/duração/capa/missão juntos — alvo bem
+      // maior que qualquer ícone individual, mais fácil de acertar.
+      lista.querySelectorAll('[data-row-key]').forEach((row) => {
+        row.addEventListener('click', () => {
+          const key = row.getAttribute('data-row-key');
+          abrirPainelEntrada(key);
         });
       });
     }
@@ -12094,6 +13187,47 @@ browser.storage.onChanged.addListener((changes, area) => {
       if (atual > maior) maior = atual;
     }
     return maior;
+  }
+
+  // Sequência ATUAL (dias seguidos até agora) — diferente da maior
+  // sequência já feita (calcularMaiorSequenciaDias), essa conta a partir
+  // de hoje pra trás. Dá 1 dia de tolerância: se hoje ainda não teve
+  // nenhum envio mas ontem teve, a sequência ainda é considerada viva
+  // (o dia de hoje pode simplesmente não ter terminado ainda) — só
+  // quebra de verdade quando o "dia mais recente com envio" fica 2+ dias
+  // no passado.
+  function calcularSequenciaAtual(porData) {
+    const dias = new Set(
+      Object.keys(porData)
+        .map(diaNumeroBr)
+        .filter((n) => n !== null)
+    );
+    if (!dias.size) return 0;
+    const hojeNum = diaNumeroBr(formatDateHora(mxmAgora()).data);
+    let cursor = dias.has(hojeNum) ? hojeNum : hojeNum - 1;
+    if (!dias.has(cursor)) return 0;
+    let contagem = 0;
+    while (dias.has(cursor)) {
+      contagem++;
+      cursor--;
+    }
+    return contagem;
+  }
+
+  // Distribuição de envios por dia da semana (heatmap simples), reindexada
+  // pra começar na segunda (índice 0) e terminar no domingo (índice 6) —
+  // Date.getDay() nativo do JS começa no domingo (0), por isso o "+6 % 7".
+  function calcularDistribuicaoPorDiaSemana(porData) {
+    const porDiaSemana = new Array(7).fill(0);
+    Object.entries(porData).forEach(([data, qtd]) => {
+      const partes = (data || '').split('/').map(Number);
+      if (partes.length !== 3 || partes.some((n) => Number.isNaN(n))) return;
+      const [d, m, a] = partes;
+      const diaSemanaJs = new Date(a, m - 1, d).getDay();
+      const idx = (diaSemanaJs + 6) % 7;
+      porDiaSemana[idx] += qtd;
+    });
+    return porDiaSemana;
   }
 
   // ---------- sistema de conquistas ----------
@@ -12417,6 +13551,30 @@ browser.storage.onChanged.addListener((changes, area) => {
     return `${nome}/${(anoStr || '').slice(2)}`;
   }
 
+  // nomes curtos de dia da semana (seg→dom), pro heatmap de distribuição
+  // semanal — mesmo esquema do MESES_ABREV acima, sem depender de
+  // Intl/locale do navegador.
+  const DIAS_SEMANA_ABREV = {
+    pt: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'],
+    en: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    el: ['Δευ', 'Τρί', 'Τετ', 'Πέμ', 'Παρ', 'Σάβ', 'Κυρ'],
+  };
+
+  function rotulosDiaSemana() {
+    return DIAS_SEMANA_ABREV[getIdioma()] || DIAS_SEMANA_ABREV.pt;
+  }
+
+  // "1 dia" vs "{n} dias" nos 3 idiomas — mesmo padrão inline já usado em
+  // formatarDiasEstiloSite, reaproveitado aqui pro card de sequência.
+  function formatarContagemDias(n) {
+    const idioma = getIdioma();
+    let unidade;
+    if (idioma === 'en') unidade = n === 1 ? 'day' : 'days';
+    else if (idioma === 'el') unidade = n === 1 ? 'ημέρα' : 'ημέρες';
+    else unidade = n === 1 ? 'dia' : 'dias';
+    return `${n} ${unidade}`;
+  }
+
   // agrupa as entradas por mês/ano (chave "MM/AAAA"), pra alimentar
   // o gráfico de "Atividade por mês" no painel detalhado.
   function calcularContagemPorMes(entradas) {
@@ -12464,6 +13622,80 @@ browser.storage.onChanged.addListener((changes, area) => {
         qtd,
         tooltip: `${formatarRotuloMes(chave)} — ${qtd}`,
       });
+    }
+    return itens;
+  }
+
+  // Junta data ("dd/mm/aaaa") + hora ("HH:mm:ss") da entrada num
+  // timestamp único, pra dar pra ordenar/comparar cronologicamente —
+  // usado no cálculo de ritmo entre envios (calcularRitmoSessoes).
+  function timestampEntrada(e) {
+    const partesData = (e.data || '').split('/').map(Number);
+    if (partesData.length !== 3 || partesData.some((n) => Number.isNaN(n))) return null;
+    const [d, m, a] = partesData;
+    const partesHora = (e.hora || '').split(':').map(Number);
+    const h = Number.isFinite(partesHora[0]) ? partesHora[0] : 0;
+    const mi = Number.isFinite(partesHora[1]) ? partesHora[1] : 0;
+    const s = Number.isFinite(partesHora[2]) ? partesHora[2] : 0;
+    return new Date(a, m - 1, d, h, mi, s).getTime();
+  }
+
+  // Considera duas entradas consecutivas como parte da MESMA sessão de
+  // trabalho quando o intervalo entre elas é de até 40 minutos — acima
+  // disso, entende-se que houve uma pausa/o usuário saiu e voltou depois,
+  // então esse intervalo maior não entra na média de ritmo (senão uma
+  // única pausa longa distorceria pra cima o "tempo médio entre envios").
+  const LIMITE_GAP_SESSAO_MINUTOS = 40;
+
+  function calcularRitmoSessoes(entradas) {
+    const comTimestamp = entradas
+      .map((e) => timestampEntrada(e))
+      .filter((ts) => ts !== null)
+      .sort((a, b) => a - b);
+
+    if (comTimestamp.length < 2) return { mediaSegundos: null, amostras: 0, sessoes: 0 };
+
+    const limiteMs = LIMITE_GAP_SESSAO_MINUTOS * 60000;
+    const gaps = [];
+    let sessoes = 0;
+    let dentroDeSessao = false;
+    for (let i = 1; i < comTimestamp.length; i++) {
+      const gap = comTimestamp[i] - comTimestamp[i - 1];
+      if (gap > 0 && gap <= limiteMs) {
+        gaps.push(gap);
+        if (!dentroDeSessao) {
+          sessoes++;
+          dentroDeSessao = true;
+        }
+      } else {
+        dentroDeSessao = false;
+      }
+    }
+    if (!gaps.length) return { mediaSegundos: null, amostras: 0, sessoes: 0 };
+    const mediaMs = gaps.reduce((soma, g) => soma + g, 0) / gaps.length;
+    return { mediaSegundos: Math.round(mediaMs / 1000), amostras: gaps.length, sessoes };
+  }
+
+  // Duração média das faixas por mês (últimos N meses, incluindo o atual),
+  // pra enxergar a TENDÊNCIA (trabalha com músicas mais curtas ou mais
+  // longas do que trabalhava antes) em vez de só o extremo isolado
+  // (mais curta/mais longa) que já existe em calcularEstatisticas.
+  function calcularSerieDuracaoMediaPorMes(entradas, meses) {
+    const totalMeses = meses || 6;
+    const hoje = mxmAgora();
+    const itens = [];
+    for (let i = totalMeses - 1; i >= 0; i--) {
+      const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const chave = `${mm}/${d.getFullYear()}`;
+      const duracoesDoMes = entradas.filter((e) => {
+        const partes = (e.data || '').split('/');
+        return partes.length === 3 && `${partes[1]}/${partes[2]}` === chave && Number.isFinite(e.duracaoSegundos);
+      });
+      const mediaSegundos = duracoesDoMes.length
+        ? Math.round(duracoesDoMes.reduce((soma, e) => soma + e.duracaoSegundos, 0) / duracoesDoMes.length)
+        : null;
+      itens.push({ label: formatarRotuloMes(chave), chave, mediaSegundos, qtd: duracoesDoMes.length });
     }
     return itens;
   }
@@ -14681,6 +15913,95 @@ browser.storage.onChanged.addListener((changes, area) => {
     return `<div style="display:flex; gap:10px;">${cardHoje}${cardRecorde}</div>${progressoHtml}`;
   }
 
+  // Card "Atual vs Recorde" da SEQUÊNCIA de dias seguidos enviando algo —
+  // mesmo layout visual do card de volume acima (renderBarraHojeVsRecorde),
+  // só que a métrica é continuidade (dias seguidos), não quantidade.
+  function renderCardSequencia(porData) {
+    const sequenciaAtual = calcularSequenciaAtual(porData);
+    const sequenciaRecorde = calcularMaiorSequenciaDias(porData);
+    const empatouRecorde = sequenciaAtual > 0 && sequenciaAtual >= sequenciaRecorde;
+    const pctParaRecorde = sequenciaRecorde > 0 ? Math.min(100, Math.round((sequenciaAtual / sequenciaRecorde) * 100)) : 0;
+
+    const cardAtual = `
+      <div style="flex:1; background:var(--md-sys-color-surface); border-radius:var(--md-shape-sm); padding:12px; min-width:0;">
+        <div style="display:flex; align-items:center; gap:5px; font-size:11px; color:var(--md-sys-color-outline); text-transform:uppercase; letter-spacing:.3px;">${icone(
+          'calendar',
+          11
+        )}${t('sequenciaAtualLabel')}</div>
+        <div style="display:flex; align-items:baseline; gap:6px; margin-top:6px;">
+          <span style="font-size:26px; font-weight:800; color:var(--md-sys-color-primary); line-height:1;">${sequenciaAtual}</span>
+          ${empatouRecorde ? icone('flame', 13, 'var(--md-sys-color-tertiary)') : ''}
+        </div>
+        <div style="font-size:10.5px; color:var(--md-sys-color-outline); margin-top:4px;">${formatarContagemDias(
+          sequenciaAtual
+        )}</div>
+      </div>
+    `;
+
+    const cardRecorde = `
+      <div style="flex:1; background:var(--md-sys-color-surface); border-radius:var(--md-shape-sm); padding:12px; min-width:0; border:1px solid color-mix(in srgb, var(--md-sys-color-tertiary) 28%, transparent);">
+        <div style="display:flex; align-items:center; gap:5px; font-size:11px; color:var(--md-sys-color-outline); text-transform:uppercase; letter-spacing:.3px;">${icone(
+          'star',
+          11
+        )}${t('sequenciaRecordeLabel')}</div>
+        <div style="display:flex; align-items:baseline; gap:6px; margin-top:6px;">
+          <span style="font-size:26px; font-weight:800; color:var(--md-sys-color-tertiary); line-height:1;">${
+            sequenciaRecorde > 0 ? sequenciaRecorde : '—'
+          }</span>
+        </div>
+        <div style="font-size:10.5px; color:var(--md-sys-color-outline); margin-top:4px;">${
+          sequenciaRecorde > 0 ? formatarContagemDias(sequenciaRecorde) : t('nenhumAinda')
+        }</div>
+      </div>
+    `;
+
+    const progressoHtml =
+      sequenciaRecorde > 0
+        ? `
+      <div style="margin-top:10px;">
+        <div style="display:flex; justify-content:space-between; font-size:10.5px; color:var(--md-sys-color-outline); margin-bottom:4px;">
+          <span>${t('progressoSequenciaRecorde')}</span>
+          <span style="color:var(--md-sys-color-on-surface-variant); font-weight:600;">${pctParaRecorde}%</span>
+        </div>
+        <div style="background:var(--md-sys-color-surface); border-radius:var(--md-shape-sm); height:6px; overflow:hidden;">
+          <div style="width:${
+            pctParaRecorde > 0 ? Math.max(pctParaRecorde, 4) : 0
+          }%; height:100%; background:linear-gradient(90deg,var(--md-sys-color-primary),var(--md-sys-color-tertiary)); border-radius:var(--md-shape-sm); transition:width .3s ease;"></div>
+        </div>
+      </div>
+    `
+        : '';
+
+    return `<div style="display:flex; gap:10px;">${cardAtual}${cardRecorde}</div>${progressoHtml}`;
+  }
+
+  // Heatmap simples (uma linha, 7 células) de quantos envios caem em cada
+  // dia da semana, somando todo o histórico — cor com intensidade
+  // proporcional ao dia mais movimentado, no mesmo espírito do gráfico de
+  // horário de pico, só que por dia da semana em vez de hora do dia.
+  function renderHeatmapDiaSemana(porDiaSemana, cor) {
+    const corBase = cor || '#1DB954';
+    const max = Math.max(1, ...porDiaSemana);
+    const rotulos = rotulosDiaSemana();
+    const celulas = porDiaSemana
+      .map((qtd, idx) => {
+        const intensidade = qtd > 0 ? Math.max(0.16, qtd / max) : 0;
+        const bg =
+          qtd > 0
+            ? `color-mix(in srgb, ${corBase} ${Math.round(intensidade * 100)}%, var(--md-sys-color-surface-container-high))`
+            : 'var(--md-sys-color-surface-container-high)';
+        const corTexto = qtd > 0 && intensidade > 0.55 ? '#0b0b0b' : 'var(--md-sys-color-on-surface-variant)';
+        return `
+          <div style="display:flex; flex-direction:column; align-items:center; gap:5px; flex:1; min-width:0;">
+            <div title="${rotulos[idx]} — ${qtd}" style="width:100%; aspect-ratio:1; max-width:40px; border-radius:var(--md-shape-sm); background:${bg}; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:${corTexto}; transition:background .3s ease;">${qtd}</div>
+            <div style="font-size:9.5px; color:var(--md-sys-color-outline);">${rotulos[idx]}</div>
+          </div>
+        `;
+      })
+      .join('');
+    return `<div style="background:var(--md-sys-color-surface); border-radius:var(--md-shape-sm); padding:10px 8px; display:flex; align-items:flex-start; gap:4px;">${celulas}</div>`;
+  }
+
   // Atualiza a barrinha compacta logo abaixo da busca no painel principal
   // (só o essencial: total de hoje + recorde numa linha pequena embaixo).
   function atualizarResumoDia() {
@@ -15334,6 +16655,112 @@ browser.storage.onChanged.addListener((changes, area) => {
     return `<div style="background:var(--md-sys-color-surface); border-radius:var(--md-shape-sm); padding:10px 6px; overflow-x:auto; overflow-y:hidden;"><div style="display:flex; align-items:flex-end; justify-content:flex-start; height:110px; width:max-content; min-width:100%; box-sizing:border-box;">${barras}</div></div>`;
   }
 
+  // Card único com o tempo médio entre envios DENTRO de uma sessão de
+  // trabalho (ver calcularRitmoSessoes) — não é o total do dia, é o ritmo:
+  // quanto tempo em média passa de uma música pra outra enquanto o
+  // usuário está ativamente trabalhando.
+  function renderCardRitmoSessao(ritmo) {
+    if (!ritmo.mediaSegundos || ritmo.amostras < 3) {
+      return `<div style="color:var(--md-sys-color-outline); font-size:12px;">${t('ritmoDadosInsuficientes')}</div>`;
+    }
+    return `
+      <div style="background:var(--md-sys-color-surface); border-radius:var(--md-shape-sm); padding:14px; display:flex; align-items:center; gap:12px;">
+        <div style="flex-shrink:0; width:40px; height:40px; border-radius:50%; background:color-mix(in srgb, var(--md-sys-color-primary) 20%, transparent); display:flex; align-items:center; justify-content:center; color:var(--md-sys-color-primary);">${icone(
+          'clock',
+          18
+        )}</div>
+        <div style="min-width:0;">
+          <div style="font-size:22px; font-weight:800; color:var(--md-sys-color-primary); line-height:1.2; font-variant-numeric:tabular-nums;">${
+            segundosParaDuracao(ritmo.mediaSegundos) || '—'
+          }</div>
+          <div style="font-size:10.5px; color:var(--md-sys-color-outline); margin-top:2px;">${preencherTemplate(
+            t('ritmoBaseadoEm'),
+            { n: String(ritmo.amostras), sessoes: String(ritmo.sessoes) }
+          )}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Gráfico de barras da duração MÉDIA das faixas por mês (últimos 6
+  // meses) — mesmo visual dos outros gráficos de barra da tela, mas a
+  // escala parte de um pouco abaixo do menor valor (em vez de zero),
+  // porque aqui o que importa é enxergar a VARIAÇÃO entre os meses, não o
+  // valor absoluto virando barra cheia/vazia como nos gráficos de
+  // contagem de envios.
+  function renderGraficoDuracaoMedia(itens, cor) {
+    const corBarra = cor || '#1DB954';
+    const valores = itens.map((i) => i.mediaSegundos).filter((v) => v !== null);
+    if (!valores.length) {
+      return `<div style="background:var(--md-sys-color-surface); border-radius:var(--md-shape-sm); padding:10px; color:var(--md-sys-color-outline); font-size:12px;">${t(
+        'nenhumaFaixaComDuracao'
+      )}</div>`;
+    }
+    const max = Math.max(...valores);
+    const min = Math.min(...valores);
+    const base = Math.max(0, min - (max - min || min) * 0.35);
+    const escala = Math.max(1, max - base);
+
+    const barras = itens
+      .map((item) => {
+        const temDado = item.mediaSegundos !== null;
+        const alturaPct = temDado ? Math.max(6, Math.round(((item.mediaSegundos - base) / escala) * 100)) : 2;
+        const tooltip = temDado
+          ? `${item.label} — ${segundosParaDuracao(item.mediaSegundos)}`
+          : `${item.label} — ${t('nenhumRegistroAinda')}`;
+        return `
+          <div style="display:flex; flex-direction:column; align-items:center; flex:1; height:100%; justify-content:flex-end; min-width:0;">
+            <div title="${tooltip}" data-final-altura="${alturaPct}"
+                 style="width:60%; min-height:2px; height:0%; background:${
+                   temDado ? corBarra : 'var(--md-sys-color-outline-variant)'
+                 }; border-radius:var(--md-shape-xs) var(--md-shape-xs) 0 0; transition:height .5s cubic-bezier(.22,.85,.32,1);"></div>
+            <div style="font-size:9px; color:var(--md-sys-color-outline); margin-top:4px; height:11px; white-space:nowrap;">${
+              item.label
+            }</div>
+          </div>
+        `;
+      })
+      .join('');
+
+    return `<div style="background:var(--md-sys-color-surface); border-radius:var(--md-shape-sm); padding:10px 6px; display:flex; align-items:flex-end; height:110px; gap:2px;">${barras}</div>`;
+  }
+
+  // Frase de destaque comparando o mês atual com o mesmo mês há ~3 meses
+  // atrás (primeiro e último item da série de 6 meses) — responde direto
+  // à pergunta "trabalho com músicas mais curtas ou mais longas do que
+  // trabalhava antes?".
+  function renderComparativoDuracaoMedia(itens) {
+    if (!itens || itens.length < 2) return '';
+    const atual = itens[itens.length - 1];
+    const passado = itens[0];
+    if (atual.mediaSegundos === null || passado.mediaSegundos === null) {
+      return `<div style="color:var(--md-sys-color-outline); font-size:11.5px; margin-top:8px;">${t(
+        'evolucaoDuracaoDadosInsuficientes'
+      )}</div>`;
+    }
+    const diffSegundos = atual.mediaSegundos - passado.mediaSegundos;
+    const diffAbs = Math.abs(diffSegundos);
+    if (diffAbs < 3) {
+      return `<div style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12px; color:var(--md-sys-color-outline); font-weight:600;">${icone(
+        'minus',
+        13,
+        'var(--md-sys-color-outline)'
+      )}${t('evolucaoDuracaoEstavel')}</div>`;
+    }
+    const maisCurtas = diffSegundos < 0;
+    const cor = maisCurtas ? '#5eead4' : '#ff8fb1';
+    const nomeIcone = maisCurtas ? 'trendingDown' : 'trendingUp';
+    const texto = preencherTemplate(t(maisCurtas ? 'evolucaoDuracaoMaisCurtas' : 'evolucaoDuracaoMaisLongas'), {
+      tempo: segundosParaDuracao(diffAbs) || `${diffAbs}s`,
+      mes: passado.label,
+    });
+    return `<div style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12px; color:${cor}; font-weight:600;">${icone(
+      nomeIcone,
+      13,
+      cor
+    )}${texto}</div>`;
+  }
+
   function animarBarrasEntrada(container) {
     if (!container) return;
     const barrasAltura = container.querySelectorAll('[data-final-altura]');
@@ -15528,8 +16955,12 @@ browser.storage.onChanged.addListener((changes, area) => {
     const comparativoAtivo = modoComparacaoAtivo === 'ciclo' ? comparativoCiclo : comparativoMensal;
     const seletorModoComparacaoHtml = renderSeletorModoComparacao(modoComparacaoAtivo);
     const comparativoDia = calcularComparativoDiaEquivalente(stats.porData);
+    const distribuicaoDiaSemana = calcularDistribuicaoPorDiaSemana(stats.porData);
+    const ritmoSessao = calcularRitmoSessoes(entradas);
+    const serieDuracaoMedia = calcularSerieDuracaoMediaPorMes(entradas, 6);
 
-    painel.innerHTML = `
+    const blocosSecoes = {
+      hojeVsRecorde: `
       <div style="margin-bottom:30px;">
         <div id="mxm-log-detalhado-titulo-hoje-recorde" style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--md-sys-color-outline); text-transform:uppercase; margin-bottom:10px; user-select:none;">${icone(
           'flame',
@@ -15537,6 +16968,8 @@ browser.storage.onChanged.addListener((changes, area) => {
         )}${t('hojeVsRecorde')}</div>
         ${renderBarraHojeVsRecorde(stats.porDataRecorde)}
       </div>
+      `,
+      proximoCiclo: `
       <div style="margin-bottom:30px;">
         <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--md-sys-color-outline); text-transform:uppercase; margin-bottom:10px;">${icone(
           'clock',
@@ -15570,6 +17003,8 @@ browser.storage.onChanged.addListener((changes, area) => {
           </div>
         </div>
       </div>
+      `,
+      musicasPorMissao: `
       <div style="margin-bottom:30px;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px;">
           <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--md-sys-color-outline); text-transform:uppercase; min-width:0;">${icone(
@@ -15580,6 +17015,8 @@ browser.storage.onChanged.addListener((changes, area) => {
         </div>
         ${missaoHtml}
       </div>
+      `,
+      duracaoDasFaixas: `
       <div style="margin-bottom:30px;">
         <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--md-sys-color-outline); text-transform:uppercase; margin-bottom:10px;">${icone(
           'clock',
@@ -15587,6 +17024,8 @@ browser.storage.onChanged.addListener((changes, area) => {
         )}${t('duracaoDasFaixas')}</div>
         ${duracaoHtml}
       </div>
+      `,
+      horarioDePico: `
       <div style="margin-bottom:30px;">
         <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--md-sys-color-outline); text-transform:uppercase; margin-bottom:10px;">${icone(
           'trendingUp',
@@ -15594,6 +17033,8 @@ browser.storage.onChanged.addListener((changes, area) => {
         )}${t('horarioDePico')}</div>
         ${renderGraficoHoras(stats.porHora, CORES_DESTAQUE.horarioPico)}
       </div>
+      `,
+      atividadePorDia: `
       <div style="margin-bottom:30px;">
         <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--md-sys-color-outline); text-transform:uppercase; margin-bottom:10px;">${icone(
           'calendar',
@@ -15601,6 +17042,8 @@ browser.storage.onChanged.addListener((changes, area) => {
         )}${t('atividadePorDia')}</div>
         ${renderGraficoBarrasSerie(seriePorDia, CORES_DESTAQUE.atividadeSemana)}
       </div>
+      `,
+      atividadePorMes: `
       <div style="margin-bottom:30px;">
         <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--md-sys-color-outline); text-transform:uppercase; margin-bottom:10px;">${icone(
           'barChart',
@@ -15608,6 +17051,8 @@ browser.storage.onChanged.addListener((changes, area) => {
         )}${t('atividadePorMes')}</div>
         ${renderGraficoBarrasSerie(seriePorMes, CORES_DESTAQUE.atividadeMes)}
       </div>
+      `,
+      comparativoPeriodo: `
       <div style="margin-bottom:30px;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px;">
           <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--md-sys-color-outline); text-transform:uppercase; min-width:0;">${icone(
@@ -15618,13 +17063,67 @@ browser.storage.onChanged.addListener((changes, area) => {
         </div>
         ${renderComparativoMensal(comparativoAtivo, modoComparacaoAtivo)}
       </div>
-      <div>
+      `,
+      diaVsDiaEquivalente: `
+      <div style="margin-bottom:30px;">
         <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--md-sys-color-outline); text-transform:uppercase; margin-bottom:10px;">${icone(
           'trendingUp',
           13
         )}${t('diaVsDiaEquivalente')}</div>
         ${renderComparativoDiaEquivalente(comparativoDia)}
       </div>
+      `,
+      sequencia: `
+      <div style="margin-bottom:30px;">
+        <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--md-sys-color-outline); text-transform:uppercase; margin-bottom:10px;">${icone(
+          'calendar',
+          13
+        )}${t('sequenciaTitulo')}</div>
+        ${renderCardSequencia(stats.porData)}
+      </div>
+      `,
+      distribuicaoDiaSemana: `
+      <div style="margin-bottom:30px;">
+        <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--md-sys-color-outline); text-transform:uppercase; margin-bottom:10px;">${icone(
+          'barChart',
+          13
+        )}${t('distribuicaoDiaSemanaTitulo')}</div>
+        ${renderHeatmapDiaSemana(distribuicaoDiaSemana, CORES_DESTAQUE.atividadeSemana)}
+      </div>
+      `,
+      ritmoEnvio: `
+      <div style="margin-bottom:30px;">
+        <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--md-sys-color-outline); text-transform:uppercase; margin-bottom:10px;">${icone(
+          'clock',
+          13
+        )}${t('ritmoEnvioTitulo')}</div>
+        ${renderCardRitmoSessao(ritmoSessao)}
+      </div>
+      `,
+      evolucaoDuracao: `
+      <div style="margin-bottom:30px;">
+        <div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--md-sys-color-outline); text-transform:uppercase; margin-bottom:10px;">${icone(
+          'trendingUp',
+          13
+        )}${t('evolucaoDuracaoTitulo')}</div>
+        ${renderGraficoDuracaoMedia(serieDuracaoMedia, CORES_DESTAQUE.maisLonga)}
+        ${renderComparativoDuracaoMedia(serieDuracaoMedia)}
+      </div>
+      `,
+    };
+
+    // monta o conteúdo final na ordem/visibilidade escolhidas pelo usuário
+    // (ver abrirPersonalizarPainelDetalhado) — qualquer id desconhecido ou
+    // removido de blocosSecoes (versão antiga salva, por ex.) é ignorado
+    // em silêncio, sem quebrar o painel.
+    const { ordem: ordemSecoes, ocultas: ocultasSecoes } = getConfigSecoesDetalhado();
+    const corpoSecoesHtml = ordemSecoes
+      .filter((id) => blocosSecoes[id] && !ocultasSecoes.has(id))
+      .map((id) => blocosSecoes[id])
+      .join('');
+
+    painel.innerHTML = `
+      ${corpoSecoesHtml}
       <div style="display:flex; align-items:flex-start; gap:7px; margin-top:24px; padding-top:16px; font-size:10.5px; line-height:1.5; color:var(--md-sys-color-outline);">
         ${icone('alertTriangle', 12, 'var(--md-sys-color-outline-variant)')}<span>${t('avisoDadosLocais')}</span>
       </div>
@@ -15654,6 +17153,220 @@ browser.storage.onChanged.addListener((changes, area) => {
     });
 
     vincularCliqueSeloVerificado(document.getElementById('mxm-log-detalhado-titulo-hoje-recorde'));
+  }
+
+  // ---------- janela "Personalizar painel" (mostrar/ocultar + reordenar seções do Log Detalhado) ----------
+  function abrirPersonalizarPainelDetalhado() {
+    document.querySelectorAll('#mxm-log-personalizar-overlay').forEach((el) => el.remove());
+
+    const overlay = document.createElement('div');
+    overlay.id = 'mxm-log-personalizar-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      background: 'color-mix(in srgb, var(--md-sys-color-scrim) 60%, transparent)',
+      zIndex: proximoZIndexFlutuante(),
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    });
+
+    const { ordem: ordemInicial, ocultas } = getConfigSecoesDetalhado();
+    const definicaoPorId = {};
+    SECOES_LOG_DETALHADO_DEFINICAO.forEach((s) => {
+      definicaoPorId[s.id] = s;
+    });
+
+    function renderLinha(id) {
+      const def = definicaoPorId[id];
+      if (!def) return '';
+      const oculta = ocultas.has(id);
+      return `
+        <div class="mxm-personalizar-item" draggable="true" data-secao-id="${id}" style="display:flex; align-items:center; gap:4px; padding:8px; border-radius:var(--md-shape-md); background:var(--md-sys-color-surface-container); margin-bottom:6px; opacity:${
+        oculta ? '.55' : '1'
+      }; transition:opacity .15s ease;">
+          <span class="mxm-personalizar-grip" title="${t(
+            'arrastarParaReordenar'
+          )}" style="cursor:grab; display:flex; color:var(--md-sys-color-outline); flex-shrink:0; padding:4px;">${icone(
+        'gripVertical',
+        15
+      )}</span>
+          <span style="display:flex; flex-shrink:0; color:var(--md-sys-color-outline);">${icone(def.icone, 14)}</span>
+          <span style="flex:1; min-width:0; font-size:12.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--md-sys-color-on-surface);">${escapeHtml(
+        t(def.tituloChave)
+      )}</span>
+          <button type="button" data-acao="up" title="${t(
+            'moverParaCima'
+          )}" style="cursor:pointer; border:none; background:transparent; display:flex; padding:6px; border-radius:50%; color:var(--md-sys-color-outline); transform:rotate(180deg);">${icone(
+        'chevronDown',
+        13
+      )}</button>
+          <button type="button" data-acao="down" title="${t(
+            'moverParaBaixo'
+          )}" style="cursor:pointer; border:none; background:transparent; display:flex; padding:6px; border-radius:50%; color:var(--md-sys-color-outline);">${icone(
+        'chevronDown',
+        13
+      )}</button>
+          <button type="button" data-acao="toggle" title="${
+            oculta ? t('personalizarSecaoMostrar') : t('personalizarSecaoOcultar')
+          }" style="cursor:pointer; border:none; background:transparent; display:flex; padding:6px; border-radius:50%; color:${
+        oculta ? 'var(--md-sys-color-outline)' : 'var(--md-sys-color-primary)'
+      };">${icone(oculta ? 'eyeOff' : 'eye', 15)}</button>
+        </div>
+      `;
+    }
+
+    overlay.innerHTML = `
+      <div id="mxm-log-personalizar-painel" style="background:var(--md-sys-color-surface-container-low); color:var(--md-sys-color-on-surface); width:380px; max-width:92vw; max-height:80vh; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); font-family:sans-serif; display:flex; flex-direction:column; overflow:hidden;">
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 16px 4px;">
+          <div style="display:flex; align-items:center; gap:8px; font-size:14px; font-weight:700;">${icone(
+            'sliders',
+            15
+          )}${t('personalizarPainelDetalhadoTitulo')}</div>
+          <div id="mxm-log-personalizar-fechar" class="mxm-log-close-btn" style="cursor:pointer; color:var(--md-sys-color-outline); font-size:16px; display:flex; padding:8px; border-radius:50%; transition:background-color .15s ease, color .15s ease;">${icone(
+            'x',
+            15
+          )}</div>
+        </div>
+        <div style="padding:2px 16px 10px; font-size:11.5px; line-height:1.5; color:var(--md-sys-color-on-surface-variant);">${t(
+          'personalizarPainelDetalhadoDescricao'
+        )}</div>
+        <div id="mxm-log-personalizar-lista" style="overflow-y:auto; flex:1; padding:0 12px 4px;"></div>
+        <div id="mxm-log-personalizar-aviso-vazio" style="display:none; padding:0 16px 8px; font-size:11px; color:var(--md-sys-color-error);">${t(
+          'personalizarTodasOcultas'
+        )}</div>
+        <div style="display:flex; gap:8px; padding:12px 16px 16px; border-top:1px solid var(--md-sys-color-outline-variant);">
+          <button id="mxm-log-personalizar-restaurar" style="flex:1; padding:8px; border-radius:var(--md-shape-sm); border:1px solid var(--md-sys-color-outline-variant); background:transparent; color:var(--md-sys-color-on-surface-variant); font-size:12.5px; cursor:pointer;">${t(
+            'personalizarRestaurarPadrao'
+          )}</button>
+          <button id="mxm-log-personalizar-concluido" style="flex:1; padding:8px; border-radius:var(--md-shape-sm); border:none; background:var(--md-sys-color-primary); color:var(--md-sys-color-on-primary); font-size:12.5px; font-weight:600; cursor:pointer;">${t(
+            'personalizarConcluido'
+          )}</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    const cartao = document.getElementById('mxm-log-personalizar-painel');
+    animarEntradaCartao(cartao, { distancia: 8, duracao: 180 });
+
+    const lista = document.getElementById('mxm-log-personalizar-lista');
+    const avisoVazio = document.getElementById('mxm-log-personalizar-aviso-vazio');
+
+    function ordemAtualDoDom() {
+      return Array.from(lista.querySelectorAll('.mxm-personalizar-item')).map((el) => el.getAttribute('data-secao-id'));
+    }
+
+    function atualizarAvisoVazio(ordemAtual) {
+      const todasOcultas = ordemAtual.length > 0 && ordemAtual.every((id) => ocultas.has(id));
+      avisoVazio.style.display = todasOcultas ? 'block' : 'none';
+    }
+
+    // salva a ordem/visibilidade atual (lidas do próprio DOM, já
+    // reordenado pelo arraste ou pelas setas) e atualiza o painel de
+    // trás ao vivo, sem precisar fechar essa janela.
+    function persistirEAtualizar() {
+      const ordemNova = ordemAtualDoDom();
+      setConfigSecoesDetalhado(ordemNova, ocultas);
+      atualizarAvisoVazio(ordemNova);
+      renderPainelDetalhado();
+    }
+
+    function vincularLinha(item) {
+      const id = item.getAttribute('data-secao-id');
+
+      item.addEventListener('dragstart', (e) => {
+        item.classList.add('mxm-personalizar-item-arrastando');
+        item.style.opacity = '.35';
+        try {
+          e.dataTransfer.setData('text/plain', id);
+        } catch (erro) {}
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      item.addEventListener('dragend', () => {
+        item.classList.remove('mxm-personalizar-item-arrastando');
+        item.style.opacity = ocultas.has(id) ? '.55' : '1';
+        persistirEAtualizar();
+      });
+      // enquanto arrasta por cima de outra linha, decide se entra antes
+      // ou depois dela pela metade em que o cursor está — dá pra soltar
+      // em qualquer ponto da linha-alvo, não só bem no topo/base dela.
+      item.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const arrastando = lista.querySelector('.mxm-personalizar-item-arrastando');
+        if (!arrastando || arrastando === item) return;
+        const retangulo = item.getBoundingClientRect();
+        const depois = (e.clientY - retangulo.top) / retangulo.height > 0.5;
+        lista.insertBefore(arrastando, depois ? item.nextSibling : item);
+      });
+
+      item.querySelector('[data-acao="toggle"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        tocarSom('clique');
+        if (ocultas.has(id)) {
+          ocultas.delete(id);
+        } else {
+          ocultas.add(id);
+        }
+        const oculta = ocultas.has(id);
+        item.style.opacity = oculta ? '.55' : '1';
+        const btn = e.currentTarget;
+        btn.innerHTML = icone(oculta ? 'eyeOff' : 'eye', 15);
+        btn.style.color = oculta ? 'var(--md-sys-color-outline)' : 'var(--md-sys-color-primary)';
+        btn.title = oculta ? t('personalizarSecaoMostrar') : t('personalizarSecaoOcultar');
+        persistirEAtualizar();
+      });
+
+      item.querySelector('[data-acao="up"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        tocarSom('clique');
+        const anterior = item.previousElementSibling;
+        if (anterior) {
+          lista.insertBefore(item, anterior);
+          persistirEAtualizar();
+        }
+      });
+      item.querySelector('[data-acao="down"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        tocarSom('clique');
+        const proximo = item.nextElementSibling;
+        if (proximo) {
+          lista.insertBefore(proximo, item);
+          persistirEAtualizar();
+        }
+      });
+    }
+
+    function reconstruirLista(ordemAtual) {
+      lista.innerHTML = ordemAtual.map(renderLinha).join('');
+      lista.querySelectorAll('.mxm-personalizar-item').forEach(vincularLinha);
+      atualizarAvisoVazio(ordemAtual);
+    }
+
+    reconstruirLista(ordemInicial);
+
+    function fechar() {
+      fecharOverlayAnimado(overlay, cartao, { distancia: 8, duracao: 180 });
+    }
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) fechar();
+    });
+    document.getElementById('mxm-log-personalizar-fechar').addEventListener('click', () => {
+      tocarSom('fechar');
+      fechar();
+    });
+    document.getElementById('mxm-log-personalizar-concluido').addEventListener('click', () => {
+      tocarSom('clique');
+      fechar();
+    });
+    document.getElementById('mxm-log-personalizar-restaurar').addEventListener('click', () => {
+      tocarSom('clique');
+      ocultas.clear();
+      const ordemPadrao = ORDEM_PADRAO_SECOES_DETALHADO.slice();
+      setConfigSecoesDetalhado(ordemPadrao, ocultas);
+      reconstruirLista(ordemPadrao);
+      renderPainelDetalhado();
+    });
   }
 
   let janelaZIndexTopo = 2100000000;
@@ -16527,6 +18240,12 @@ browser.storage.onChanged.addListener((changes, area) => {
                 fotoValorInicial ? 'none' : 'flex'
               }; align-items:center; justify-content:center; color:var(--md-sys-color-outline);">${icone('user', 13)}</div>
             </div>
+            <div id="mxm-log-detalhado-personalizar" class="mxm-log-close-btn" title="${t(
+              'personalizarPainelDetalhado'
+            )}" style="cursor:pointer; color:var(--md-sys-color-outline); font-size:18px; display:flex; padding:9px; border-radius:50%; transition:background-color .15s ease, color .15s ease;">${icone(
+              'sliders',
+              16
+            )}</div>
             <div id="mxm-log-detalhado-fechar" class="mxm-log-close-btn" style="cursor:pointer; color:var(--md-sys-color-outline); font-size:18px; display:flex; padding:9px; border-radius:50%; transition:background-color .15s ease, color .15s ease;">${icone(
               'x',
               16
@@ -16795,6 +18514,10 @@ browser.storage.onChanged.addListener((changes, area) => {
     document.getElementById('mxm-log-detalhado-fechar').addEventListener('click', () => {
       tocarSom('fechar');
       fechar();
+    });
+    document.getElementById('mxm-log-detalhado-personalizar').addEventListener('click', () => {
+      tocarSom('clique');
+      abrirPersonalizarPainelDetalhado();
     });
   }
 
@@ -18466,7 +20189,8 @@ browser.storage.onChanged.addListener((changes, area) => {
     const estiloTamanhoPainel = `width:${larguraPainel}px; height:${alturaPainel}px;`;
 
     overlay.innerHTML = `
-      <div id="mxm-log-painel" style="background:var(--md-sys-color-surface-container-low); color:var(--md-sys-color-on-surface); ${estiloTamanhoPainel} max-width:92vw; max-height:92vh; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); display:flex; flex-direction:column; font-family:sans-serif; overflow:hidden; pointer-events:auto; position:relative; isolation:isolate;">
+      <div id="mxm-log-painel" style="background:var(--md-sys-color-surface); color:var(--md-sys-color-on-surface); ${estiloTamanhoPainel} max-width:92vw; max-height:92vh; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); display:flex; flex-direction:column; font-family:sans-serif; overflow:hidden; pointer-events:auto; position:relative; isolation:isolate;">
+        <div id="mxm-log-topo-cartao" style="background:var(--md-sys-color-surface-container); border-radius:0 0 var(--md-shape-xl) var(--md-shape-xl); flex-shrink:0;">
         <div id="mxm-log-painel-header" style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px;">
           <div style="display:flex; align-items:center; gap:8px; font-size:15px; font-weight:600;">
             <div id="mxm-log-config-btn" title="${t(
@@ -18557,7 +20281,7 @@ browser.storage.onChanged.addListener((changes, area) => {
           <div id="mxm-log-resumo-dia"></div>
         </div>
         <div id="mxm-log-aviso-resumo-mes-wrap" style="display:none; padding:0 14px 8px;"></div>
-        <div id="mxm-log-ferramentas-wrap" style="flex-shrink:0; padding:0 14px 6px; position:relative; z-index:3; background:var(--md-sys-color-surface-container-low); overflow:hidden; opacity:1; transition:max-height .22s ease, opacity .18s ease, padding-bottom .22s ease;">
+        <div id="mxm-log-ferramentas-wrap" style="flex-shrink:0; padding:0 14px 6px; position:relative; z-index:3; background:transparent; overflow:hidden; opacity:1; transition:max-height .22s ease, opacity .18s ease, padding-bottom .22s ease;">
           <button id="mxm-log-ferramentas-toggle" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:9px 12px; border-radius:var(--md-shape-lg); border:none; background:var(--md-sys-color-surface-container-high); color:var(--md-sys-color-on-surface-variant); font-size:12.5px; font-weight:500; cursor:pointer; transition:background .15s ease, color .15s ease;">
             <span style="display:flex; align-items:center; gap:7px;">${icone(
             'menu',
@@ -18566,7 +20290,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       'chevronDown',
       14
     )}</span></button>
-          <div id="mxm-log-ferramentas-grid" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin-top:0px; max-height:0px; overflow:hidden; opacity:0; visibility:hidden; background:var(--md-sys-color-surface-container-low); transition:max-height .22s ease, opacity .18s ease, margin-top .22s ease, visibility 0s linear .22s;">
+          <div id="mxm-log-ferramentas-grid" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin-top:0px; max-height:0px; overflow:hidden; opacity:0; visibility:hidden; background:transparent; transition:max-height .22s ease, opacity .18s ease, margin-top .22s ease, visibility 0s linear .22s;">
             ${criarTileFerramenta('mxm-log-diffmanual-abrir-btn', 'gitCompare', t('diffManual'), t('diffManual'), 'tertiary')}
             ${criarTileFerramenta('mxm-log-diffssalvos-abrir-btn', 'archive', t('diffsSalvosTitulo'), t('diffsSalvosTitulo'), 'secondary')}
             ${criarTileFerramenta(
@@ -18602,7 +20326,8 @@ browser.storage.onChanged.addListener((changes, area) => {
             )}
           </div>
         </div>
-        <div id="mxm-log-lista-wrap" style="flex:1; min-height:0; overflow:hidden; border-radius:var(--md-shape-lg) var(--md-shape-lg) 0 0; position:relative; z-index:1; margin-top:0; background:var(--md-sys-color-surface); contain:paint; transform:translateZ(0);">
+        </div>
+        <div id="mxm-log-lista-wrap" style="flex:1; min-height:0; overflow:hidden; border-radius:0; position:relative; z-index:1; margin-top:0; background:var(--md-sys-color-surface); contain:paint; transform:translateZ(0);">
           <div id="mxm-log-lista" style="overflow-y:auto; height:100%; background:var(--md-sys-color-surface);"></div>
         </div>
         <input id="mxm-log-importar-input" type="file" accept=".txt" style="display:none;">
@@ -19283,10 +21008,61 @@ browser.storage.onChanged.addListener((changes, area) => {
     }
   }
 
+  // V3.4.29: antes só reconhecia o clique se o texto do botão fosse
+  // EXATAMENTE "enviar" ou "submit" — se a conta do curator estivesse com
+  // a interface do site em qualquer outro idioma (ou com tradução
+  // automática do navegador ativa), o clique nunca era reconhecido, sem
+  // nenhum aviso. Duas camadas agora, em vez de uma:
+  //   1) lista mais ampla de traduções conhecidas de "enviar/submeter"
+  //      (não cobre tudo, mas reduz bastante os casos que falhavam antes);
+  //   2) reforço estrutural, independente de idioma: o botão real de
+  //      envio é sempre o botão de ação em destaque (preenchido) da tela,
+  //      cujo texto usa a cor invertida --mxm-contentPrimaryInvertedStatic
+  //      (confirmado inspecionando a página real) — diferente do texto
+  //      normal (--mxm-contentPrimary) usado em quase tudo mais. Combinado
+  //      com uma lista de exclusão (outras ações que também podem usar
+  //      esse mesmo destaque, tipo cancelar/voltar/instrumental), isso
+  //      reconhece o botão de envio mesmo em um idioma totalmente
+  //      desconhecido pro script.
+  const PALAVRAS_ENVIAR = new Set([
+    'enviar', // pt/es
+    'submit', // en
+    'envoyer', // fr
+    'invia', // it
+    'einreichen',
+    'senden', // de
+    'skicka', // sv
+    'lähetä', // fi
+    'verzenden', // nl
+    'wyślij', // pl
+    'gönder', // tr
+    'kirim', // id
+    'gửi', // vi
+    'отправить', // ru
+    'υποβολή', // el
+  ]);
+
+  const PALAVRAS_NAO_ENVIAR = new Set([
+    'cancelar',
+    'cancel',
+    'voltar',
+    'back',
+    'fechar',
+    'close',
+    'pular',
+    'skip',
+    'marcar como instrumental',
+    'mark as instrumental',
+    'aprovar',
+    'approve',
+    'rejeitar',
+    'reject',
+  ]);
+
   function textoEhEnviar(texto) {
     if (!texto) return false;
     const limpo = texto.trim().toLowerCase();
-    return limpo === 'enviar' || limpo === 'submit';
+    return PALAVRAS_ENVIAR.has(limpo);
   }
 
   // mesmo princípio, mas pro botão "Marcar como instrumental" ("Mark as
@@ -19297,12 +21073,61 @@ browser.storage.onChanged.addListener((changes, area) => {
     return limpo === 'marcar como instrumental' || limpo === 'mark as instrumental';
   }
 
+  // reforço estrutural (ver comentário acima): true se o label usa a cor
+  // de destaque invertida E o texto não bate com nenhuma outra ação
+  // conhecida que também poderia usar esse destaque.
+  function labelPareceBotaoDeEnvioPorEstrutura(label) {
+    if (!label) return false;
+    const estiloUsaCorInvertida =
+      (label.getAttribute('style') || '').indexOf('--mxm-contentPrimaryInvertedStatic') !== -1;
+    if (!estiloUsaCorInvertida) return false;
+    const limpo = (label.textContent || '').trim().toLowerCase();
+    if (!limpo) return false;
+    // V3.4.36: as tags do painel de estrutura (#VERSE, #CHORUS,
+    // #PRE-CHORUS etc.) usam essa MESMA cor invertida no texto — e ficam
+    // dentro de um div[tabindex="0"] com cursor:pointer, batendo também
+    // no seletor do clique de "Enviar". Sem essa exclusão, clicar em
+    // qualquer tag de estrutura era lido como clique real no botão de
+    // envio (nenhuma dessas tags aparece em PALAVRAS_NAO_ENVIAR, já que
+    // aquela lista foi pensada só pra outras AÇÕES tipo cancelar/voltar).
+    // Toda tag de estrutura sempre começa com "#", o que nenhum texto de
+    // botão de envio real faz em nenhum idioma conhecido — sinal seguro
+    // e independente de idioma pra descartar esses cliques aqui.
+    if (limpo.startsWith('#')) return false;
+    return !PALAVRAS_NAO_ENVIAR.has(limpo);
+  }
+
+  function labelPareceBotaoDeEnvio(label) {
+    if (!label) return false;
+    return textoEhEnviar(label.textContent) || labelPareceBotaoDeEnvioPorEstrutura(label);
+  }
+
   function encontrarBotaoEnviar() {
     const candidatos = Array.from(document.querySelectorAll('div[tabindex="0"]'));
-    return candidatos.find((el) => {
-      const label = el.querySelector('div[dir="auto"]');
-      return label && textoEhEnviar(label.textContent);
-    });
+    return candidatos.find((el) => labelPareceBotaoDeEnvio(el.querySelector('div[dir="auto"]')));
+  }
+
+  // V3.4.37: o reforço estrutural (labelPareceBotaoDeEnvioPorEstrutura,
+  // v3.4.29) reconhece QUALQUER div[tabindex="0"] em destaque na página
+  // inteira cujo texto não esteja na lista de exclusão — não só o botão
+  // real de "Enviar". Isso inclui, por exemplo, "Salvar"/"Confirmar"/
+  // "Concluir"/"OK" de janelas e fluxos completamente sem relação (ex:
+  // Configurações, upload de foto, diálogos de confirmação), que também
+  // usam esse mesmo destaque visual e não caem em PALAVRAS_NAO_ENVIAR —
+  // causando registro de envio (registrarEnvio) sem o usuário ter
+  // clicado no botão real de "Enviar" da tela de tarefa. Corrigido: o
+  // reforço estrutural só é aceito quando o elemento clicado é
+  // exatamente o mesmo botão-âncora já usado pra posicionar a toolbar
+  // da extensão (Diff Check/Copiar letra/Log) — não qualquer botão em
+  // destaque solto na página. O match por texto exato (idiomas
+  // conhecidos) continua sem essa restrição.
+  function elementoEhBotaoEnviarReal(el) {
+    if (!el) return false;
+    const label = el.querySelector('div[dir="auto"]');
+    if (!label) return false;
+    if (textoEhEnviar(label.textContent)) return true;
+    if (!labelPareceBotaoDeEnvioPorEstrutura(label)) return false;
+    return el === encontrarBotaoEnviar();
   }
 
   // mesmo problema do botão "Enviar" — a aba "Todas as faixas" da
@@ -19680,6 +21505,9 @@ browser.storage.onChanged.addListener((changes, area) => {
         <div style="font-size:11.5px; color:var(--md-sys-color-outline); margin-top:4px;">${t('versaoInstalada')} v${
       getVersaoInstalada() || '?'
     }</div>
+        <div style="font-size:11.5px; color:var(--md-sys-color-outline); margin-top:2px;">${t(
+          'versaoTabsV3'
+        )}: 3.304.1 (Valkyria)</div>
       </div>
     `;
     menu.appendChild(identidade);
@@ -19780,9 +21608,9 @@ browser.storage.onChanged.addListener((changes, area) => {
         cor = 'var(--md-sys-color-tertiary)';
         texto = `${t('atualizarAgora')} (${extraCompleto})`;
       } else if (estado === 'aplicando') {
-        iconeNome = 'download';
+        iconeNome = 'loader';
         cor = 'var(--md-sys-color-tertiary)';
-        texto = t('aplicandoAtualizacao');
+        texto = t('buscandoXpiGithub');
         girando = true;
       } else if (estado === 'aviso-contagem') {
         // aguardando o retry automático tentar de novo sozinho — clicar
@@ -19814,20 +21642,11 @@ browser.storage.onChanged.addListener((changes, area) => {
         itemNotasUpdate.innerHTML = `<div style="margin-bottom:6px;">${escapeHtml(extraCompleto)}</div><div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;"><a href="${AMO_PAGE_URL}" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:4px; text-decoration:none; color:var(--md-sys-color-tertiary); font-weight:600; font-size:11px;">${icone(
           'externalLink',
           11
-        )}${t('abrirPaginaExtensao')}</a><button id="mxm-log-update-config-copiar" type="button" style="display:inline-flex; align-items:center; gap:4px; border:none; background:transparent; padding:0; margin:0; cursor:pointer; color:var(--md-sys-color-tertiary); font-weight:600; font-size:11px; font-family:inherit;">${icone(
-          'copy',
+        )}${t('abrirPaginaExtensao')}</a><a href="${GITHUB_RELEASES_PAGE_URL}" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:4px; text-decoration:none; color:var(--md-sys-color-tertiary); font-weight:600; font-size:11px;">${icone(
+          'externalLink',
           11
-        )}${t('copiarAboutAddons')}</button></div>`;
+        )}${t('abrirReleasesGithub')}</a></div>`;
         itemNotasUpdate.style.display = 'block';
-        // Firefox não deixa a extensão abrir about:addons direto (URL
-        // "privilegiada", browser.tabs.create sempre falha) — então em vez
-        // de fingir que dá, deixa o endereço prontinho pra colar.
-        itemNotasUpdate.querySelector('#mxm-log-update-config-copiar')?.addEventListener('click', () => {
-          navigator.clipboard
-            .writeText('about:addons')
-            .then(() => mostrarToastSimples(t('aboutAddonsCopiado')))
-            .catch(() => {});
-        });
       } else {
         const notasPendentes = estado === 'disponivel' || estado === 'aplicando' ? getUpdateNotas() : '';
         if (notasPendentes) {
@@ -19854,16 +21673,15 @@ browser.storage.onChanged.addListener((changes, area) => {
     // sozinha quando o Firefox ainda não tem a versão pronta, com teto
     // de tentativas antes de desistir e devolver o controle pro usuário.
     function textoMotivoUpdate(motivo) {
-      if (motivo === 'throttled') return t('atualizacaoLimitada');
-      if (motivo === 'instalacao_temporaria') return t('atualizacaoInstalacaoTemporaria');
-      if (motivo === 'sem_forcar_checagem') return t('atualizacaoSemForcarChecagem');
-      return t('atualizacaoAindaNaoPronta');
+      if (motivo === 'sem_release_github') return t('atualizacaoAindaNaoSincronizadaGithub');
+      if (motivo === 'erro_github') return t('erroConsultarGithub');
+      return t('atualizacaoAindaNaoSincronizadaGithub');
     }
 
     const retryUpdateConfig = criarRetryAtualizacao({
       tentar(callback) {
         renderConteudoUpdate('aplicando');
-        aplicarAtualizacaoAgora(callback);
+        tentarAtualizarViaGithub(callback);
       },
       aoContar(motivo, segundosRestantes, tentativaAtual, totalTentativas) {
         const contagemTexto = t('retryAtualizacaoContagem')
@@ -19875,8 +21693,6 @@ browser.storage.onChanged.addListener((changes, area) => {
         renderConteudoUpdate('aviso-contagem', { curto: contagemTexto, completo: `${textoMotivoUpdate(motivo)} ${contagemTexto}` });
       },
       aoDesistir(motivo) {
-        // instalação temporária: nunca vai dar certo sozinho, então o
-        // texto já é a explicação em si (sem o genérico "esgotado" junto).
         const completo = MOTIVOS_SEM_RETRY.includes(motivo) ? textoMotivoUpdate(motivo) : t('retryAtualizacaoEsgotado');
         renderConteudoUpdate('aviso', { curto: t('erroVerificarAtualizacao'), completo });
       },
@@ -20463,6 +22279,21 @@ browser.storage.onChanged.addListener((changes, area) => {
     // "Salvar letra completa no log" deixou de ser opcional — o
     // interruptor saiu daqui (ver isCapturaLetraAtiva, sempre true agora).
 
+    // V3.4.39: interruptor pra escolher entre esperar a janela verde de
+    // confirmação antes de registrar o envio (padrão, mais seguro — ver
+    // aguardarConfirmacaoDeEnvio) ou registrar direto no clique em
+    // "Enviar", como era antes da v3.4.38.
+    const descricaoConfirmarEnvio = document.createElement('div');
+    descricaoConfirmarEnvio.style.cssText =
+      'padding:4px 10px 8px; font-size:11px; color:var(--md-sys-color-outline); line-height:1.5;';
+    descricaoConfirmarEnvio.textContent = t('confirmarEnvioDesc');
+    criarBloco(
+      criarItemSwitch(t('confirmarEnvioAtivar'), 'clock', isConfirmarEnvioAtivo, () => {
+        setConfirmarEnvioAtivo(!isConfirmarEnvioAtivo());
+      }),
+      descricaoConfirmarEnvio
+    );
+
     // sistema de conquistas — desligado por padrão (ver
     // STORAGE_CONQUISTAS_ATIVAS_KEY), então mora aqui como um interruptor
     // explícito em vez de já vir ativo feito o resto de "Comportamento".
@@ -20718,6 +22549,16 @@ browser.storage.onChanged.addListener((changes, area) => {
       wrapSimulador.appendChild(linhaBotoes);
 
       criarBloco(descricaoSimulador, wrapSimulador);
+
+      // V3.4.30 (debug): força uma entrada "sem detalhes" no log, sem
+      // precisar reproduzir de verdade uma falha de detecção — só pra
+      // conferir visualmente a tag/o fluxo de completar manualmente.
+      criarBloco(
+        criarItemAcao(t('debugForcarSemDetalhes'), 'edit', () => {
+          registrarEnvioSemDetalhes('lyrics', null);
+          renderPainelLista();
+        })
+      );
     }
 
     iniciarCartaoSecao(t('opcoesAjuda'));
@@ -20897,6 +22738,13 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   setTimeout(verificarBackupAutomaticoPeriodico, 8000);
   setInterval(verificarBackupAutomaticoPeriodico, 6 * 60 * 60 * 1000);
+
+  // Limpeza silenciosa dos diffs compartilhados vencidos (substitui o TTL
+  // nativo do Firestore — ver mxmLimparDiffsCompartilhadosExpirados).
+  // Atraso maior que os outros pra não competir com nada crítico do
+  // carregamento inicial; roda de fato no máximo 1x por dia.
+  setTimeout(mxmLimparDiffsCompartilhadosExpirados, 12000);
+  setInterval(mxmLimparDiffsCompartilhadosExpirados, 6 * 60 * 60 * 1000);
 
   // ...reforçada por um MutationObserver agendado via requestAnimationFrame
   // (não um debounce de tempo fixo) — reage assim que o navegador processa
@@ -21630,6 +23478,56 @@ browser.storage.onChanged.addListener((changes, area) => {
 
     .mxm-log-data-header {
       overflow: visible;
+    }
+    /* só a "pílula" com o rótulo do grupo (data/missão/letra/ciclo) é
+       clicável — o cabeçalho ao redor dela (chevron, botão de ordenar,
+       fundo) fica de fora, sem cursor de clique nem efeito nenhum. */
+    .mxm-log-grupo-toggle {
+      -webkit-user-select: none;
+      user-select: none;
+      cursor: pointer;
+      transition: background-color .15s ease, transform .1s ease;
+    }
+    .mxm-log-grupo-toggle:hover {
+      background: var(--md-sys-color-surface-container-highest) !important;
+    }
+    .mxm-log-grupo-toggle:active {
+      transform: scale(0.94);
+    }
+    /* janela "Personalizar painel" (Log Detalhado) — lista de seções
+       arrastáveis, ver abrirPersonalizarPainelDetalhado. */
+    .mxm-personalizar-item button {
+      transition: background-color .12s ease, color .12s ease;
+    }
+    .mxm-personalizar-item button:hover {
+      background: var(--md-sys-color-surface-container-highest) !important;
+    }
+    .mxm-personalizar-item.mxm-personalizar-item-arrastando {
+      cursor: grabbing;
+    }
+    .mxm-personalizar-grip:active {
+      cursor: grabbing;
+    }
+    .mxm-log-grupo-chevron {
+      transition: transform .28s cubic-bezier(0.4, 0, 0.2, 1);
+      transform: rotate(0deg);
+    }
+    .mxm-log-grupo-chevron.mxm-grupo-chevron-fechado {
+      transform: rotate(-90deg);
+    }
+    .mxm-log-grupo-corpo {
+      display: grid;
+      grid-template-rows: 1fr;
+      opacity: 1;
+      transition: grid-template-rows .32s cubic-bezier(0.4, 0, 0.2, 1), opacity .28s ease;
+    }
+    .mxm-log-grupo-corpo > div {
+      overflow: hidden;
+      min-height: 0;
+    }
+    .mxm-log-grupo-corpo.mxm-grupo-recolhido {
+      grid-template-rows: 0fr;
+      opacity: 0;
     }
     .mxm-log-header-notch {
       position: absolute;
@@ -22394,8 +24292,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       // Caso "Enviar": o botão real fica dentro de um div[tabindex="0"].
       const elEnviar = e.target.closest('div[tabindex="0"]');
       if (elEnviar) {
-        const labelEnviar = elEnviar.querySelector('div[dir="auto"]');
-        if (labelEnviar && textoEhEnviar(labelEnviar.textContent)) {
+        if (elementoEhBotaoEnviarReal(elEnviar)) {
           const ehReenvio = (() => {
             try {
               const infoAtual = obterEntradaLogFaixaAtual();
@@ -22405,7 +24302,24 @@ browser.storage.onChanged.addListener((changes, area) => {
             }
           })();
           const letraCapturada = isCapturaLetraAtiva() || ehReenvio ? capturarLetraCompleta() : null;
-          setTimeout(() => registrarEnvio('lyrics', letraCapturada), 50);
+          // V3.4.38: por padrão só registra quando a janela verde de
+          // sucesso realmente aparecer — ver aguardarConfirmacaoDeEnvio.
+          // Cada janela vermelha (aviso/erro) só gera um aviso no
+          // console; o clique deixou de registrar o envio "no escuro".
+          // V3.4.39: quem desligar "Confirmar envio antes de registrar"
+          // nas Configurações volta ao comportamento anterior — registra
+          // direto no clique, sem esperar nenhuma janela.
+          if (isConfirmarEnvioAtivo()) {
+            aguardarConfirmacaoDeEnvio(
+              () => registrarEnvio('lyrics', letraCapturada),
+              () =>
+                console.warn(
+                  '[Log de Envios] Envio não confirmado ainda (janela de aviso/erro detectada) — aguardando nova tentativa.'
+                )
+            );
+          } else {
+            registrarEnvio('lyrics', letraCapturada);
+          }
           return;
         }
       }
@@ -22415,7 +24329,17 @@ browser.storage.onChanged.addListener((changes, area) => {
       // qualquer div[dir="auto"] a partir do que foi clicado.
       const elInstrumental = e.target.closest('div[dir="auto"]');
       if (elInstrumental && textoEhInstrumental(elInstrumental.textContent)) {
-        setTimeout(() => registrarEnvio('instrumental'), 50);
+        if (isConfirmarEnvioAtivo()) {
+          aguardarConfirmacaoDeEnvio(
+            () => registrarEnvio('instrumental'),
+            () =>
+              console.warn(
+                '[Log de Envios] Instrumental não confirmado ainda (janela de aviso/erro detectada) — aguardando nova tentativa.'
+              )
+          );
+        } else {
+          registrarEnvio('instrumental');
+        }
       }
     },
     true
@@ -22431,6 +24355,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     { chave: STORAGE_IMG_KEY, tipo: 'local' },
     { chave: STORAGE_ANIMACOES_KEY, tipo: 'local' },
     { chave: STORAGE_CAPTURA_LETRA_KEY, tipo: 'local' },
+    { chave: STORAGE_CONFIRMAR_ENVIO_KEY, tipo: 'local' },
     { chave: STORAGE_DIFF_FIXAR_TAGS_KEY, tipo: 'local' },
     { chave: STORAGE_DIFF_ALINHAR_LINHAS_KEY, tipo: 'local' },
     { chave: STORAGE_MOSTRAR_DETALHADO_KEY, tipo: 'local' },
@@ -22561,6 +24486,206 @@ browser.storage.onChanged.addListener((changes, area) => {
     return mxmFirebaseIdTokenCache;
   }
 
+  // ---------- sessão ANÔNIMA do Firebase (só pra compartilhar diff) ----------
+  // Separada de propósito da sessão com Google usada pro backup acima:
+  // não precisa de popup nem de conta nenhuma, só serve pra ter
+  // permissão de escrita no Firestore (ver regras de segurança no
+  // README-diff-viewer.md) sem expor a conta Google da pessoa em algo
+  // que é só compartilhamento de um diff avulso.
+  const STORAGE_FIREBASE_ANON_REFRESH_TOKEN_KEY = 'mxm_log_firebase_anon_refresh_token';
+  let mxmFirebaseAnonIdTokenCache = null; // { idToken, uid, expiraEm }
+
+  async function mxmFirebaseGarantirAuthAnonimo() {
+    if (mxmFirebaseAnonIdTokenCache && mxmFirebaseAnonIdTokenCache.expiraEm > mxmAgoraMs() + 30000) {
+      return mxmFirebaseAnonIdTokenCache;
+    }
+
+    const refreshToken = GM_getValue(STORAGE_FIREBASE_ANON_REFRESH_TOKEN_KEY, null);
+    if (refreshToken) {
+      try {
+        const resposta = await fetch(`https://securetoken.googleapis.com/v1/token?key=${MXM_FIREBASE_CONFIG.apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}`,
+        });
+        if (resposta.ok) {
+          const dados = await resposta.json();
+          GM_setValue(STORAGE_FIREBASE_ANON_REFRESH_TOKEN_KEY, dados.refresh_token);
+          mxmFirebaseAnonIdTokenCache = {
+            idToken: dados.id_token,
+            uid: dados.user_id,
+            expiraEm: mxmAgoraMs() + Number(dados.expires_in || 3600) * 1000,
+          };
+          return mxmFirebaseAnonIdTokenCache;
+        }
+      } catch (erro) {
+        console.warn('[Log de Envios] Falha ao renovar sessão anônima, criando uma nova.', erro);
+      }
+    }
+
+    // Primeira vez (ou refresh token inválido): cria uma conta anônima
+    // nova — silencioso, sem nenhuma tela pro usuário.
+    const resposta = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${MXM_FIREBASE_CONFIG.apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ returnSecureToken: true }),
+    });
+    if (!resposta.ok) {
+      const erroJson = await resposta.json().catch(() => null);
+      throw new Error((erroJson && erroJson.error && erroJson.error.message) || `HTTP ${resposta.status}`);
+    }
+    const dados = await resposta.json();
+    GM_setValue(STORAGE_FIREBASE_ANON_REFRESH_TOKEN_KEY, dados.refreshToken);
+    mxmFirebaseAnonIdTokenCache = {
+      idToken: dados.idToken,
+      uid: dados.localId,
+      expiraEm: mxmAgoraMs() + Number(dados.expiresIn || 3600) * 1000,
+    };
+    return mxmFirebaseAnonIdTokenCache;
+  }
+
+  // Sorteia um ID curto (10 caracteres, alfabeto base62) pra nomear o
+  // documento do diff compartilhado — curto o bastante pra caber num
+  // link pequeno, aleatório o bastante (62^10 combinações) pra não dar
+  // pra adivinhar/enumerar o diff de outra pessoa.
+  function mxmGerarIdCurto() {
+    const alfabeto = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const bytes = crypto.getRandomValues(new Uint8Array(10));
+    let id = '';
+    for (let i = 0; i < bytes.length; i++) id += alfabeto[bytes[i] % alfabeto.length];
+    return id;
+  }
+
+  // Comprime o HTML do diff e guarda como documento avulso na coleção
+  // `diffs_compartilhados` do mesmo projeto Firestore do backup —
+  // autenticado com a sessão anônima acima. `expiraEm` é o campo usado
+  // pela política de TTL do Firestore (ver README-diff-viewer.md) pra
+  // apagar o documento sozinho depois de 30 dias, sem precisar de
+  // nenhuma limpeza manual. Devolve o link final (já pequeno, com só o
+  // ID na URL) ou lança erro se a escrita falhar por qualquer motivo —
+  // quem chama (compartilharDiffComoLink) trata isso caindo pro esquema
+  // antigo de link autocontido.
+  async function mxmCompartilharDiffViaNuvem(documentoHtml) {
+    const { idToken } = await mxmFirebaseGarantirAuthAnonimo();
+    const dadosBase64Url = await comprimirTextoParaBase64Url(documentoHtml);
+
+    const agora = mxmAgora();
+    const expiraEm = new Date(agora.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const corpo = {
+      fields: {
+        dados: { stringValue: dadosBase64Url },
+        criadoEm: { timestampValue: agora.toISOString() },
+        expiraEm: { timestampValue: expiraEm.toISOString() },
+      },
+    };
+
+    // Tenta algumas vezes com IDs novos no raríssimo caso de colisão
+    // (409 = já existe um documento com esse ID).
+    let ultimoErro = null;
+    for (let tentativa = 0; tentativa < 3; tentativa++) {
+      const idCurto = mxmGerarIdCurto();
+      const resposta = await fetch(
+        `https://firestore.googleapis.com/v1/projects/${MXM_FIREBASE_CONFIG.projectId}/databases/(default)/documents/diffs_compartilhados?documentId=${idCurto}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+          body: JSON.stringify(corpo),
+        }
+      );
+      if (resposta.ok) {
+        return `${MXM_DIFF_VIEWER_URL_BASE}?id=${idCurto}`;
+      }
+      if (resposta.status !== 409) {
+        const erroJson = await resposta.json().catch(() => null);
+        throw new Error((erroJson && erroJson.error && erroJson.error.message) || `HTTP ${resposta.status}`);
+      }
+      ultimoErro = new Error('Colisão de ID curto (tentando de novo).');
+    }
+    throw ultimoErro;
+  }
+
+  // Limpeza "na mão" dos diffs compartilhados vencidos — substitui a
+  // política de TTL nativa do Firestore, que exige o projeto estar no
+  // plano pago (Blaze); esta extensão roda no plano gratuito (Spark), e
+  // uma extensão pessoal de baixo uso nunca chega perto da cota grátis
+  // (50 mil leituras / 20 mil exclusões por dia), então não há custo real
+  // aqui — só o trabalho de fazer manualmente o que o TTL faria sozinho.
+  //
+  // Roda no máximo 1x por dia (ver STORAGE_ULTIMA_LIMPEZA_DIFFS_KEY),
+  // silenciosamente, sem popup nem som — é housekeeping, não uma feature
+  // visível. Consulta até LIMITE_LIMPEZA_DIFFS_POR_VEZ documentos cujo
+  // `expiraEm` já passou e apaga um por um; se sobrar mais que isso
+  // vencido de uma vez (não deveria, rodando 1x/dia), o resto é pego na
+  // próxima passada do dia seguinte — sem problema, o diff só fica um
+  // pouco além dos 30 dias combinados, nunca menos.
+  const LIMITE_LIMPEZA_DIFFS_POR_VEZ = 50;
+
+  async function mxmLimparDiffsCompartilhadosExpirados() {
+    const ultima = GM_getValue(STORAGE_ULTIMA_LIMPEZA_DIFFS_KEY, 0);
+    const UM_DIA_MS = 24 * 60 * 60 * 1000;
+    if (mxmAgoraMs() - ultima < UM_DIA_MS) return;
+
+    try {
+      const { idToken } = await mxmFirebaseGarantirAuthAnonimo();
+
+      const consulta = {
+        structuredQuery: {
+          from: [{ collectionId: 'diffs_compartilhados' }],
+          where: {
+            fieldFilter: {
+              field: { fieldPath: 'expiraEm' },
+              op: 'LESS_THAN_OR_EQUAL',
+              value: { timestampValue: mxmAgora().toISOString() },
+            },
+          },
+          limit: LIMITE_LIMPEZA_DIFFS_POR_VEZ,
+        },
+      };
+
+      const respostaConsulta = await fetch(
+        `https://firestore.googleapis.com/v1/projects/${MXM_FIREBASE_CONFIG.projectId}/databases/(default)/documents:runQuery`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+          body: JSON.stringify(consulta),
+        }
+      );
+      if (!respostaConsulta.ok) {
+        throw new Error(`HTTP ${respostaConsulta.status} na consulta`);
+      }
+
+      const linhas = await respostaConsulta.json();
+      // Cada item pode vir sem `document` (linha de heartbeat/readTime
+      // vazia do runQuery) — filtra só os que têm documento de verdade.
+      const nomes = (Array.isArray(linhas) ? linhas : [])
+        .map((linha) => linha && linha.document && linha.document.name)
+        .filter(Boolean);
+
+      let apagados = 0;
+      for (const nomeCompleto of nomes) {
+        try {
+          const respostaDelete = await fetch(`https://firestore.googleapis.com/v1/${nomeCompleto}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${idToken}` },
+          });
+          if (respostaDelete.ok) apagados++;
+        } catch (erroItem) {
+          console.warn('[Log de Envios] Falha ao apagar diff compartilhado expirado.', nomeCompleto, erroItem);
+        }
+      }
+
+      if (apagados > 0) {
+        console.log(`[Log de Envios] Limpeza de diffs compartilhados: ${apagados} expirado(s) apagado(s).`);
+      }
+      GM_setValue(STORAGE_ULTIMA_LIMPEZA_DIFFS_KEY, mxmAgoraMs());
+    } catch (erro) {
+      // Silencioso de propósito — é housekeeping em segundo plano, não
+      // deve incomodar o usuário com popup/som de erro. Não atualiza o
+      // timestamp de "última limpeza" pra tentar de novo na próxima carga
+      // de página, em vez de esperar 24h depois de uma falha.
+      console.warn('[Log de Envios] Falha na limpeza automática de diffs compartilhados expirados.', erro);
+    }
+  }
 
   // Teto de segurança por PARTE, abaixo do limite real de 1MB (1.048.576
   // bytes) de um documento do Firestore — deixa margem pro overhead do
