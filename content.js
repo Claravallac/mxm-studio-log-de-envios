@@ -24400,7 +24400,7 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   // ---------- backup na nuvem (Firebase) ----------
   const MXM_FIREBASE_CONFIG = {
-    apiKey: 'AIzaSyA9rYLJXJ12jewWPQJEW9BQXQwhxGz7ap8',
+    apiKey: '(USE A SUA)',
     projectId: 'musixmatch-logs',
   };
 
