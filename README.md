@@ -1,4 +1,4 @@
-# MXM Studio - Log de Envios
+# Echoform - Log de Envios
 
 Extensão de navegador (Firefox, Manifest V3) para o **Musixmatch Curators Studio**, que adiciona um painel de log/acompanhamento de envios e várias ferramentas de apoio ao trabalho de curadoria de letras.
 
