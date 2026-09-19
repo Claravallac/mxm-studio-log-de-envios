@@ -1,5 +1,19 @@
 'use strict';
 
+// ===== PONTO DE PORT 2 (ver mapa completo em build.js, item 2) =====
+// Shim mínimo pra rodar igual no Chrome: no Chrome não existe
+// browser.menus (a API se chama chrome.contextMenus), então criamos
+// browser.menus como um espelho de chrome.contextMenus só quando
+// browser.menus não existir. No Firefox isso nunca entra em ação, porque
+// browser.menus já existe nativamente.
+// NÃO É O MESMO shim do chrome-compat.js (que só faz browser = chrome de
+// forma genérica) — essa API tem NOME DIFERENTE entre os navegadores,
+// por isso precisa de um alias específico, feito aqui.
+if (typeof browser !== 'undefined' && !browser.menus && typeof chrome !== 'undefined' && chrome.contextMenus) {
+  browser.menus = chrome.contextMenus;
+}
+// ===== FIM PONTO DE PORT 2 =====
+
 // Espelha as ações que no userscript (Tampermonkey) eram registradas com
 // GM_registerMenuCommand — aqui viram itens de browser.menus no ícone da
 // extensão (contexts: ['action']), cada um repassado ao content script via
@@ -89,9 +103,50 @@ async function checarAtualizacaoAmo() {
   }
 }
 
+// No Chrome, quem publica/versiona de verdade é a Web Store, não a AMO —
+// checar a AMO faria o Chrome achar que "tem atualização" comparando com
+// um catálogo que não é o dele (e, pior, ofereceria um .xpi que o Chrome
+// nem consegue instalar, ver tentarAtualizarViaGithub em content.js). Por
+// isso, no Chrome, essa checagem usa requestUpdateCheck() nativo — a
+// mesma API que verificarEinstalarAtualizacao já usa pra aplicar. Aqui só
+// perguntamos "tem?", sem aplicar nada (aplicar é feito só quando o
+// usuário pede, ver mxm-log-apply-update).
+async function checarAtualizacaoChrome() {
+  if (typeof browser.runtime.requestUpdateCheck !== 'function') {
+    // Não deveria acontecer no Chrome (a API é nativa dele), mas por
+    // segurança devolve "sem atualização" em vez de quebrar o chamador.
+    return { ok: true, versaoRemota: null, notas: null };
+  }
+  try {
+    const resultado = await browser.runtime.requestUpdateCheck();
+    const status = Array.isArray(resultado) ? resultado[0] : resultado && resultado.status;
+    const detalhes = Array.isArray(resultado) ? resultado[1] : resultado && resultado.details;
+    if (status !== 'update_available') {
+      return { ok: true, versaoRemota: null, notas: null };
+    }
+    // details.version só vem preenchido em alguns casos (ex. update via
+    // update_url customizada); na Web Store normal pode vir undefined —
+    // nesse caso content.js trata versaoRemota:null com temAtualizacao
+    // calculado à parte (ver mxm-log-apply-update, que não depende disso).
+    const versaoRemota = (detalhes && detalhes.version) || null;
+    return { ok: true, versaoRemota, notas: null };
+  } catch (erro) {
+    return { ok: false, erro: String((erro && erro.message) || erro) };
+  }
+}
+
+// background.js roda no service worker (Chrome) ou na background page
+// (Firefox) — chrome-compat.js NÃO é carregado aqui (só no content
+// script), então MXM_IS_CHROME não existe nesse contexto. Em vez de criar
+// outra flag, reaproveita o mesmo critério real já usado em
+// verificarEinstalarAtualizacao acima: requestUpdateCheck só existe no
+// Chrome/Chromium (ver comentário na linha ~112).
+const MXM_BG_IS_CHROME = typeof browser.runtime.requestUpdateCheck === 'function';
+
 browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || msg.type !== 'mxm-log-check-update') return undefined;
-  checarAtualizacaoAmo().then(sendResponse);
+  const checagem = MXM_BG_IS_CHROME ? checarAtualizacaoChrome() : checarAtualizacaoAmo();
+  checagem.then(sendResponse);
   return true; // mantém o canal aberto pra resposta assíncrona
 });
 
@@ -179,15 +234,17 @@ const GOOGLE_OAUTH_CLIENT_ID = '315724734446-ai0t1ragg82322jl13hi8jilhs8pk2qv.ap
 // Client tipo "Aplicativo da Web" no Google Cloud — mesmo usando PKCE,
 // esse tipo de client exige client_secret na troca do code por tokens e
 // na renovação via refresh_token (diferente de clients "públicos", tipo
-// Chrome App/Desktop, que dispensam o secret). Cole aqui o valor gerado
+// Chrome App/Desktop, que dispensam o secret). O valor é gerado
 // no Console (Credenciais → esse Client OAuth → gerar nova chave secreta).
 // NOTA DE SEGURANÇA: um secret dentro do background.js de uma extensão é
 // inspecionável (o código roda no navegador do usuário). É uma limitação
 // aceita nesse tipo de projeto client-side — não há como evitar 100% sem
 // mover a troca de tokens pra um servidor próprio.
-// Removido do código publicado — preencha com o secret real localmente
-// (Google Cloud Console → Credenciais) antes de empacotar/buildar.
-const GOOGLE_OAUTH_CLIENT_SECRET = 'COLE_AQUI_O_CLIENT_SECRET';
+// O valor real NÃO fica no repositório: o build.js troca o marcador abaixo pelo
+// secret (variável de ambiente ECHOFORM_GOOGLE_CLIENT_SECRET ou arquivo local
+// secrets.local.json, ignorado pelo git) ao montar os pacotes. Ver item 10 do
+// mapa de diferenças em build.js.
+const GOOGLE_OAUTH_CLIENT_SECRET = '__ECHOFORM_GOOGLE_CLIENT_SECRET__';
 
 async function fazerLoginGoogle() {
   const redirectUri = browser.identity.getRedirectURL();
@@ -422,8 +479,14 @@ browser.action.onClicked.addListener((tab) => {
 browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || msg.type !== 'mxm-log-backup-automatico') return undefined;
 
-  const blob = new Blob([msg.conteudo], { type: 'application/json;charset=utf-8' });
-  const objectUrl = URL.createObjectURL(blob);
+  // ===== PONTO DE PORT 3 (ver mapa completo em build.js, item 3) =====
+  // URL.createObjectURL não existe no service worker do Chrome (MV3);
+  // data: URL funciona em ambos os navegadores, então serve pros dois.
+  // (revokeObjectURL também foi removido das duas ocorrências abaixo,
+  // no .then e no .catch — data: URL não precisa e não pode ser revogada)
+  const objectUrl =
+    'data:application/json;charset=utf-8,' + encodeURIComponent(msg.conteudo);
+  // ===== FIM PONTO DE PORT 3 =====
 
   browser.downloads
     .download({
@@ -437,7 +500,6 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (delta.id !== downloadId || !delta.state) return;
         const estado = delta.state.current;
         if (estado === 'complete' || estado === 'interrupted') {
-          URL.revokeObjectURL(objectUrl);
           browser.downloads.onChanged.removeListener(aoMudar);
         }
       }
@@ -445,7 +507,6 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: true });
     })
     .catch((erro) => {
-      URL.revokeObjectURL(objectUrl);
       sendResponse({ ok: false, erro: String((erro && erro.message) || erro) });
     });
 
@@ -472,6 +533,76 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     })
     .then(() => sendResponse({ ok: true }))
     .catch((erro) => sendResponse({ ok: false, erro: String((erro && erro.message) || erro) }));
+
+  return true; // mantém o canal aberto pra resposta assíncrona
+});
+
+// ---------- proxy de fetch cross-origin (ver chrome-compat.js) ----------
+// O content script no Chrome (MV3) tem o fetch dele preso ao CORS da
+// PÁGINA (curators.musixmatch.com), então chamadas a Firebase/Firestore/
+// Drive/is.gd/etc. seriam bloqueadas se saíssem direto do content.js.
+// chrome-compat.js intercepta essas chamadas (só pros hosts em
+// HOSTS_PROXY_FETCH, mesma lista de lá) e manda pra cá via mensagem — o
+// service worker TEM as host_permissions, então o fetch sai daqui sem
+// problema de CORS. Resposta é reconstruída como Response() do lado do
+// content script; por isso devolvemos status/statusText/headers/corpo
+// separados, não um objeto Response (que não é serializável em mensagem).
+const HOSTS_PROXY_FETCH = new Set([
+  'economia.awesomeapi.com.br',
+  'identitytoolkit.googleapis.com',
+  'securetoken.googleapis.com',
+  'firestore.googleapis.com',
+  'www.googleapis.com',
+  'is.gd',
+  'itunes.apple.com',
+  'api.deezer.com',
+]);
+
+function bytesParaBase64(bytes) {
+  let binario = '';
+  const bloco = 0x8000; // evita estourar o limite de argumentos do apply em respostas grandes
+  for (let i = 0; i < bytes.length; i += bloco) {
+    binario += String.fromCharCode.apply(null, bytes.subarray(i, i + bloco));
+  }
+  return btoa(binario);
+}
+
+browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || msg.type !== 'mxm-log-fetch-proxy') return undefined;
+
+  (async () => {
+    try {
+      const url = new URL(msg.url);
+      // mesma barreira de segurança do lado do chrome-compat.js: mesmo que
+      // alguém chame essa mensagem diretamente, só passam os hosts
+      // declarados nas host_permissions pra esse fim.
+      if (url.protocol !== 'https:' || !HOSTS_PROXY_FETCH.has(url.hostname)) {
+        sendResponse({ ok: false, erro: 'Host não permitido no proxy de fetch.' });
+        return;
+      }
+
+      const resposta = await fetch(url.href, {
+        method: msg.method || 'GET',
+        headers: msg.headers || {},
+        body: msg.body == null ? undefined : msg.body,
+        cache: msg.cache || 'default',
+      });
+
+      const bytes = new Uint8Array(await resposta.arrayBuffer());
+      const cabecalhos = [];
+      resposta.headers.forEach((valor, nome) => cabecalhos.push([nome, valor]));
+
+      sendResponse({
+        ok: true,
+        status: resposta.status,
+        statusText: resposta.statusText,
+        headers: cabecalhos,
+        bodyB64: bytesParaBase64(bytes),
+      });
+    } catch (erro) {
+      sendResponse({ ok: false, erro: String((erro && erro.message) || erro) });
+    }
+  })();
 
   return true; // mantém o canal aberto pra resposta assíncrona
 });
