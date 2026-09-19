@@ -1,5 +1,28 @@
 'use strict';
 
+// Compatibilidade universal entre Chrome (Manifest V3) e Firefox
+const browser = (function () {
+  const root = typeof globalThis !== 'undefined' ? globalThis : (typeof self !== 'undefined' ? self : window);
+  const b = (typeof root.browser !== 'undefined' && root.browser) || (typeof root.chrome !== 'undefined' && root.chrome);
+  if (!b) return {};
+
+  try {
+    if (typeof root.browser === 'undefined') {
+      root.browser = b;
+    }
+  } catch (e) {}
+
+  // Proxy para unificar browser.menus -> chrome.contextMenus e compatibilidade de chamadas
+  return new Proxy(b, {
+    get(target, prop, receiver) {
+      if (prop === 'menus') {
+        return target.menus || target.contextMenus;
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+})();
+
 // Espelha as ações que no userscript (Tampermonkey) eram registradas com
 // GM_registerMenuCommand — aqui viram itens de browser.menus no ícone da
 // extensão (contexts: ['action']), cada um repassado ao content script via
@@ -24,6 +47,7 @@ const IDIOMAS = [
   { codigo: 'pt', nome: 'Português' },
   { codigo: 'en', nome: 'English' },
   { codigo: 'el', nome: 'Ελληνικά' },
+  { codigo: 'id', nome: 'Bahasa Indonesia' },
 ];
 
 const MENUS_FINAIS = [
@@ -39,7 +63,27 @@ const MENUS_FINAIS = [
 ];
 
 async function setupMenus() {
-  await browser.menus.removeAll();
+  const menusApi = (browser && (browser.menus || browser.contextMenus)) || (typeof chrome !== 'undefined' && chrome.contextMenus);
+  if (!menusApi) return;
+
+  await new Promise((resolve) => {
+    try {
+      let settled = false;
+      const done = () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      const res = menusApi.removeAll(done);
+      if (res && typeof res.then === 'function') {
+        res.then(done).catch(done);
+      }
+    } catch (e) {
+      resolve();
+    }
+  });
+
   for (const item of MENUS_FINAIS) {
     const props = {
       id: item.id,
@@ -47,7 +91,19 @@ async function setupMenus() {
       contexts: ['action'],
     };
     if (item.parentId) props.parentId = item.parentId;
-    await browser.menus.create(props);
+
+    await new Promise((resolve) => {
+      try {
+        menusApi.create(props, () => {
+          if (browser.runtime && browser.runtime.lastError) {
+            // Consumir lastError para não poluir o console com avisos de itens duplicados
+          }
+          resolve();
+        });
+      } catch (e) {
+        resolve();
+      }
+    });
   }
 }
 
@@ -55,9 +111,9 @@ function sendToTab(tabId, acao) {
   browser.tabs.sendMessage(tabId, { type: 'mxm-log-menu', acao }).catch(() => {});
 }
 
-setupMenus();
-browser.runtime.onInstalled.addListener(setupMenus);
-browser.runtime.onStartup.addListener(setupMenus);
+setupMenus().catch(() => {});
+browser.runtime.onInstalled.addListener(() => setupMenus().catch(() => {}));
+browser.runtime.onStartup.addListener(() => setupMenus().catch(() => {}));
 
 const AMO_ADDON_SLUG = 'mxm-studio-log';
 const AMO_API_URL = `https://addons.mozilla.org/api/v5/addons/addon/${AMO_ADDON_SLUG}/`;
@@ -189,6 +245,29 @@ const GOOGLE_OAUTH_CLIENT_ID = '315724734446-ai0t1ragg82322jl13hi8jilhs8pk2qv.ap
 // (Google Cloud Console → Credenciais) antes de empacotar/buildar.
 const GOOGLE_OAUTH_CLIENT_SECRET = 'COLE_AQUI_O_CLIENT_SECRET';
 
+function executarWebAuthFlow(options) {
+  const identity = (browser && browser.identity) || (typeof chrome !== 'undefined' && chrome.identity);
+  if (!identity || !identity.launchWebAuthFlow) {
+    return Promise.reject(new Error('browser.identity.launchWebAuthFlow não suportado neste navegador'));
+  }
+  return new Promise((resolve, reject) => {
+    try {
+      const res = identity.launchWebAuthFlow(options, (url) => {
+        if (browser.runtime && browser.runtime.lastError) {
+          reject(new Error(browser.runtime.lastError.message));
+        } else {
+          resolve(url);
+        }
+      });
+      if (res && typeof res.then === 'function') {
+        res.then(resolve).catch(reject);
+      }
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
 async function fazerLoginGoogle() {
   const redirectUri = browser.identity.getRedirectURL();
   const nonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -201,7 +280,7 @@ async function fazerLoginGoogle() {
   authUrl.searchParams.set('nonce', nonce);
   authUrl.searchParams.set('prompt', 'select_account');
 
-  const urlResposta = await browser.identity.launchWebAuthFlow({
+  const urlResposta = await executarWebAuthFlow({
     url: authUrl.toString(),
     interactive: true,
   });
@@ -259,7 +338,7 @@ async function fazerLoginGoogleDrive() {
   authUrl.searchParams.set('access_type', 'offline');
   authUrl.searchParams.set('prompt', 'consent');
 
-  const urlResposta = await browser.identity.launchWebAuthFlow({
+  const urlResposta = await executarWebAuthFlow({
     url: authUrl.toString(),
     interactive: true,
   });
@@ -422,12 +501,36 @@ browser.action.onClicked.addListener((tab) => {
 browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || msg.type !== 'mxm-log-backup-automatico') return undefined;
 
-  const blob = new Blob([msg.conteudo], { type: 'application/json;charset=utf-8' });
-  const objectUrl = URL.createObjectURL(blob);
+  let urlParaDownload = null;
+  let precisaRevogar = false;
+
+  try {
+    if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+      const blob = new Blob([msg.conteudo], { type: 'application/json;charset=utf-8' });
+      urlParaDownload = URL.createObjectURL(blob);
+      precisaRevogar = true;
+    }
+  } catch (e) {
+    urlParaDownload = null;
+  }
+
+  if (!urlParaDownload) {
+    // Compatível com Service Worker no Chrome MV3 (onde createObjectURL pode não estar disponível)
+    urlParaDownload = 'data:application/json;charset=utf-8,' + encodeURIComponent(msg.conteudo);
+    precisaRevogar = false;
+  }
+
+  const limparUrl = () => {
+    if (precisaRevogar && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+      try {
+        URL.revokeObjectURL(urlParaDownload);
+      } catch (e) {}
+    }
+  };
 
   browser.downloads
     .download({
-      url: objectUrl,
+      url: urlParaDownload,
       filename: msg.filename,
       saveAs: false,
       conflictAction: 'overwrite',
@@ -437,7 +540,7 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (delta.id !== downloadId || !delta.state) return;
         const estado = delta.state.current;
         if (estado === 'complete' || estado === 'interrupted') {
-          URL.revokeObjectURL(objectUrl);
+          limparUrl();
           browser.downloads.onChanged.removeListener(aoMudar);
         }
       }
@@ -445,7 +548,7 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: true });
     })
     .catch((erro) => {
-      URL.revokeObjectURL(objectUrl);
+      limparUrl();
       sendResponse({ ok: false, erro: String((erro && erro.message) || erro) });
     });
 
@@ -463,13 +566,29 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || msg.type !== 'mxm-log-notificacao-nativa') return undefined;
 
   const idNotificacao = `mxm-log-envio-${Date.now()}-${contadorNotificacaoNativa++}`;
-  browser.notifications
-    .create(idNotificacao, {
-      type: 'basic',
-      iconUrl: browser.runtime.getURL('icons/icon-128.png'),
-      title: msg.titulo || 'Echoform',
-      message: msg.mensagem || '',
-    })
+  const opcoes = {
+    type: 'basic',
+    iconUrl: browser.runtime.getURL('icons/icon-128.png'),
+    title: msg.titulo || 'Echoform',
+    message: msg.mensagem || '',
+  };
+
+  new Promise((resolve, reject) => {
+    try {
+      const res = browser.notifications.create(idNotificacao, opcoes, (criadoId) => {
+        if (browser.runtime && browser.runtime.lastError) {
+          reject(new Error(browser.runtime.lastError.message));
+        } else {
+          resolve(criadoId);
+        }
+      });
+      if (res && typeof res.then === 'function') {
+        res.then(resolve).catch(reject);
+      }
+    } catch (e) {
+      reject(e);
+    }
+  })
     .then(() => sendResponse({ ok: true }))
     .catch((erro) => sendResponse({ ok: false, erro: String((erro && erro.message) || erro) }));
 
