@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "MXM Studio - Log de Envios",
-  "version": "3.4.51",
-  "description": "Registra data/hora de cada envio no MXM Studio, com missão (inclusive manual), duração da faixa, painel de log (foto do curator, atividade por dia/mês), aba Reward (USD+BRL), Diff Check, captura opcional da letra, temas do Tabs V3 (beta), backup completo em .json, importar/exportar, tela de boas-vindas com termos de uso e tour inicial. PT/EN/EL.",
+  "name": "Echoform",
+  "version": "3.5.62",
+  "description": "Registra data/hora de cada envio no MXM Studio, com miss\u00e3o (inclusive manual), dura\u00e7\u00e3o da faixa, painel de log (foto do curator, atividade por dia/m\u00eas, link direto pra p\u00e1gina da m\u00fasica), aba Reward (USD+BRL), Diff Check, captura opcional da letra, temas do Tabs V3 (beta), backup completo em .json, backup autom\u00e1tico em disco, na nuvem (Firestore) e no Google Drive, importar/exportar, tela de boas-vindas com termos de uso e tour inicial. PT/EN/EL.",
   "author": "nero",
   "browser_specific_settings": {
     "gecko": {
@@ -19,13 +19,15 @@
     }
   },
   "icons": {
+    "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
     "96": "icons/icon-96.png",
     "128": "icons/icon-128.png"
   },
   "action": {
-    "default_title": "MXM Studio - Log de Envios",
+    "default_title": "Echoform",
     "default_icon": {
+      "16": "icons/icon-16.png",
       "48": "icons/icon-48.png",
       "96": "icons/icon-96.png",
       "128": "icons/icon-128.png"
@@ -40,7 +42,8 @@
     "storage",
     "menus",
     "downloads",
-    "identity"
+    "identity",
+    "notifications"
   ],
   "host_permissions": [
     "https://curators.musixmatch.com/*",
@@ -51,7 +54,10 @@
     "https://identitytoolkit.googleapis.com/*",
     "https://securetoken.googleapis.com/*",
     "https://firestore.googleapis.com/*",
-    "https://is.gd/*"
+    "https://www.googleapis.com/*",
+    "https://is.gd/*",
+    "https://itunes.apple.com/*",
+    "https://api.deezer.com/*"
   ],
   "content_scripts": [
     {
@@ -71,7 +77,9 @@
         "injected.js",
         "sounds/erro.wav",
         "sounds/atualizacao.wav",
-        "sounds/resumo-musica.mp3"
+        "sounds/resumo-musica.mp3",
+        "sounds/sucesso.mp3",
+        "sounds/reenvio.mp3"
       ],
       "matches": [
         "https://curators.musixmatch.com/*",
