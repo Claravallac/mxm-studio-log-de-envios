@@ -1,18 +1,5 @@
-/* MXM Studio - Log de Envios — content script (MIT).
-   Compatível com Chrome (Manifest V3) e Firefox. */
-
-// Compatibilidade universal entre Chrome (chrome.*) e Firefox (browser.*)
-const browser = (function () {
-  const root = typeof globalThis !== "undefined" ? globalThis : (typeof window !== "undefined" ? window : self);
-  const b = (typeof root.browser !== "undefined" && root.browser) || (typeof root.chrome !== "undefined" && root.chrome) || {};
-  try {
-    if (typeof root.browser === "undefined") {
-      root.browser = b;
-    }
-  } catch (e) {}
-  return b;
-})();
-
+/* MXM Studio - Log de Envios — content script da extensão Firefox (MIT).
+   Porte automático a partir do userscript (Tampermonkey) de mesmo nome. */
 const mxmStorageCache = Object.create(null);
 
 function GM_getValue(key, defaultValue) {
@@ -472,10 +459,9 @@ browser.storage.onChanged.addListener((changes, area) => {
     CHF: { symbol: 'CHF ', flag: 'ch', label: 'CHF' },
     CAD: { symbol: 'CA$', flag: 'ca', label: 'CAD' },
     AUD: { symbol: 'AU$', flag: 'au', label: 'AUD' },
-    IDR: { symbol: 'Rp', flag: 'id', label: 'IDR' },
   };
   const FALLBACK_RATES = {
-    BRL: 5.2, EUR: 0.92, GBP: 0.79, ARS: 1180, JPY: 152, CHF: 0.87, CAD: 1.37, AUD: 1.53, IDR: 16200,
+    BRL: 5.2, EUR: 0.92, GBP: 0.79, ARS: 1180, JPY: 152, CHF: 0.87, CAD: 1.37, AUD: 1.53,
   };
 
   // Mesmas fontes de cotação do widget: AwesomeAPI (principal, pares
@@ -511,11 +497,11 @@ browser.storage.onChanged.addListener((changes, area) => {
   // o padrão ISO em alguns casos, ex.: "AR$", "CA$").
   const CURRENCY_LOCALE = {
     USD: 'en-US', BRL: 'pt-BR', EUR: 'de-DE', GBP: 'en-GB',
-    ARS: 'es-AR', JPY: 'ja-JP', CHF: 'de-CH', CAD: 'en-CA', AUD: 'en-AU', IDR: 'id-ID',
+    ARS: 'es-AR', JPY: 'ja-JP', CHF: 'de-CH', CAD: 'en-CA', AUD: 'en-AU',
   };
   function formatarNumeroMoeda(valor, codigo, casasDecimais) {
     const locale = CURRENCY_LOCALE[codigo] || 'en-US';
-    const casas = casasDecimais != null ? casasDecimais : (codigo === 'JPY' || codigo === 'IDR') ? 0 : 2;
+    const casas = casasDecimais != null ? casasDecimais : codigo === 'JPY' ? 0 : 2;
     try {
       return new Intl.NumberFormat(locale, {
         minimumFractionDigits: casas,
@@ -1489,10 +1475,2667 @@ browser.storage.onChanged.addListener((changes, area) => {
   // ---------- internacionalização (PT/EN) ----------
 
   const STRINGS = {
-    pt: (globalThis.MXM_LOCALES && globalThis.MXM_LOCALES.pt && globalThis.MXM_LOCALES.pt.strings) || {},
-    en: (globalThis.MXM_LOCALES && globalThis.MXM_LOCALES.en && globalThis.MXM_LOCALES.en.strings) || {},
-    el: (globalThis.MXM_LOCALES && globalThis.MXM_LOCALES.el && globalThis.MXM_LOCALES.el.strings) || {},
-    id: (globalThis.MXM_LOCALES && globalThis.MXM_LOCALES.id && globalThis.MXM_LOCALES.id.strings) || {},
+    pt: {
+      envioRegistrado: 'Envio registrado',
+      reenvioRegistrado: 'Reenvio registrado',
+      instrumentalMarcado: 'Instrumental marcado',
+      instrumentalAtualizado: 'Instrumental atualizado',
+      id: 'Abstrack',
+      manual: 'manual',
+      tentativa: 'tentativa',
+      as: 'às',
+      logDeEnvios: 'Echoform',
+      integracaoPayflowTitulo: 'Echoform + Payflow',
+      integracaoPayflowTexto:
+        'Detectamos as duas extensões ativas no Curators Studio. Ative a integração para ver os ganhos em USD/BRL direto no seu log de envios.',
+      integracaoPayflowBadge: 'Nova integração disponível',
+      integracaoPayflowFeature1: 'Valores da missão puxados automaticamente pro log',
+      integracaoPayflowFeature2: 'Cotação ao vivo sincronizada nos dois painéis',
+      integracaoPayflowFeature3: 'Sem duplicar cálculo — uma única fonte de verdade',
+      integracaoPayflowBotaoAtivar: 'Ativar integração',
+      integracaoPayflowBotaoAgoraNao: 'Agora não',
+      sobreTitulo: 'Sobre o Echoform',
+      sobreDescricao:
+        'Echoform é uma extensão independente e sem fins lucrativos, feita por um curador para ajudar outros curadores a organizar e acompanhar o próprio tempo e atividade no Musixmatch Studio. Não usa, acessa nem se conecta à API oficial da Musixmatch — só lê informações já exibidas na tela pelo navegador do próprio usuário. Código aberto, disponível no GitHub.',
+      sobreLinkGithub: 'Ver código-fonte no GitHub',
+      tabsV3Titulo: 'Tabs V3',
+      tabsV3Subtitulo: 'Novo layout, mesmo ritmo do Echoform.',
+      tabsV3Changelog: [
+        'Ícone novo para o tema do painel, na mesma paleta do Echoform.',
+        'Ajustes finos de cor e espaçamento nas superfícies tonais.',
+        'Base pronta para os próximos esquemas de cor (beta).',
+      ],
+      detalhado: 'Detalhado',
+      buscarPlaceholder: 'Buscar por título, artista ou ID...',
+      limparBusca: 'Limpar busca',
+      // aviso mostrado acima da barra de busca nos últimos dias do
+      // mês, lembrando de revisar/fechar o resumo do que foi feito em
+      // Reward antes do mês virar.
+      avisoFimMesTextoPlural: 'Faltam {dias} dias para o fim do mês — que tal revisar o resumo do que foi feito em Reward?',
+      avisoFimMesTextoSingular: 'Falta 1 dia para o fim do mês — que tal revisar o resumo do que foi feito em Reward?',
+      avisoFimMesTextoHoje: 'Hoje é o último dia do mês — não esqueça de revisar o resumo do que foi feito em Reward.',
+      avisoFimMesVerResumo: 'Ver resumo',
+      avisoFimMesSuspender: 'Suspender',
+      avisoFimMesSuspensoToast: 'Aviso suspenso até o próximo mês.',
+      // banner animado (grade de capas do mês subindo ao fundo)
+      // entre as bolinhas do carrossel Hoje/Recorde e "Ferramentas úteis",
+      // só nas últimas horas do último dia do mês (ver deveMostrarAvisoResumoMes).
+      avisoResumoMesTitulo: 'Resumo de {mes} quase fechando',
+      avisoResumoMesTexto: 'Faltam só algumas horas pro mês virar — dá uma espiada em tudo que você enviou.',
+      tarefasHoje: 'Tarefas hoje',
+      tarefasEnviadasHoje: 'tarefas enviadas hoje',
+      emRelacaoAoDiaAnterior: 'em relação a ontem',
+      semMudancaOntem: 'Sem mudança em relação a ontem',
+      recorde: 'Recorde',
+      nenhumAinda: 'nenhum ainda',
+      em: 'em',
+      tarefa: 'tarefa',
+      nenhumEnvioEncontrado: 'Nenhum envio encontrado.',
+      // V3.4.82: marcador "Fim da lista" logo abaixo da última entrada —
+      // ver renderPainelLista. Ocupa espaço real no fluxo (não é padding
+      // nem scroll-margin, já tentados e revertidos na v3.4.78/79), então
+      // a última música nunca fica colada em nada, e some junto quando a
+      // lista está vazia/sem resultado de busca.
+      fimDaLista: 'Fim da lista',
+      dicasListaCurtaTitulo: 'Enquanto isso, algumas dicas',
+      // estado vazio "de verdade" da lista (log sem nenhum envio,
+      // sem filtro de busca aplicado) — convite pra importar um backup em
+      // vez de só dizer que está vazio (ver renderPainelLista).
+      logVazioTitulo: 'Ainda não há nenhum envio registrado aqui.',
+      logVazioDescricao:
+        'Se você já usava a extensão antes (em outro computador, navegador, ou depois de reinstalar), pode importar um backup pra recuperar seu histórico agora.',
+      logVazioImportarLocal: 'Importar backup (arquivo)',
+      logVazioImportarNuvem: 'Importar da nuvem',
+      // selo mostrado perto das ações de backup na nuvem, indicando
+      // que a ação pede login com a conta Google (ver mxmFirebaseGarantirAuth).
+      nuvemRequerGoogle: 'Requer login com sua conta Google',
+      instrumentalTag: 'Instrumental',
+      instrumentalTagTooltip: 'Clique pra uma curiosidade sobre instrumentais',
+      manualTag: 'Manual',
+      semDetalhesTitulo: 'Sem detalhes',
+      semDetalhesTag: 'Sem detalhes',
+      semDetalhesTagTooltip: 'Não deu pra identificar o título/artista deste envio. Clique pra completar manualmente.',
+      envioSemDetalhesToast: 'Envio registrado sem título/artista. Clique na música no log pra completar.',
+      editarDetalhesTitulo: 'Completar detalhes do envio',
+      editarDetalhesTituloMensagem: 'Qual é o título da música?',
+      editarDetalhesTituloPlaceholder: 'Título da música',
+      editarDetalhesArtistaMensagem: 'E o artista?',
+      editarDetalhesArtistaPlaceholder: 'Artista (opcional)',
+      detalhesAdicionadosToast: 'Detalhes adicionados ao envio.',
+      // V3.4.65: toast mostrado quando o usuário cancela logo no
+      // primeiro passo (título) da cadeia aberta pelo botão "+" — a
+      // entrada em branco criada é apagada e toda a cadeia é encerrada.
+      novaEntradaCanceladaToast: 'Criação da nova música cancelada.',
+      // V3.4.34: edição manual de data/hora de um envio, clicando
+      // diretamente na hora mostrada na linha do log principal.
+      editarDataHoraTitulo: 'Alterar data e hora',
+      editarDataHoraMensagem: 'Ajuste quando este envio foi registrado.',
+      editarDataHoraDataLabel: 'Data',
+      editarDataHoraHoraLabel: 'Hora',
+      editarDataHoraToast: 'Data e hora atualizadas.',
+      editarDataHoraErro: 'Preencha uma data e hora válidas.',
+      // V3.4.35: painel único da música, aberto ao clicar em qualquer
+      // área da linha no log principal (alvo grande — sem precisar
+      // acertar um ícone pequeno). Reúne letra, data/hora, duração e
+      // missão num só lugar, com data/hora e missão editáveis ali mesmo.
+      painelMusicaDataHoraLabel: 'Data e hora',
+      painelMusicaEditarDataHoraTitulo: 'Alterar',
+      painelMusicaDuracaoLabel: 'Duração',
+      painelMusicaDuracaoIndisponivel: 'Não disponível',
+      painelMusicaMissaoLabel: 'Missão',
+      painelMusicaEditarMissaoTitulo: 'Alterar',
+      painelMusicaLetraLabel: 'Letra',
+      painelMusicaVerLetra: 'Ver letra completa',
+      painelMusicaSemLetra: 'Nenhuma letra capturada neste envio.',
+      painelMusicaAdicionarLetra: 'Adicionar letra',
+      painelMusicaCopiarIdTitulo: 'Copiar Abstrack',
+      painelMusicaIdCopiadoToast: 'Abstrack copiado.',
+      painelMusicaAbrirPaginaLabel: 'Página da música',
+      painelMusicaAbrirPaginaValor: 'Ver no Musixmatch',
+      painelMusicaAbrirPaginaTitulo: 'Abrir a página desta música',
+      painelMusicaAbrirPaginaErro: 'Não foi possível abrir a página desta música.',
+      painelMusicaAbrirStudioLabel: 'Abrir no Studio',
+      painelMusicaAbrirStudioValor: 'Ver no Curators Studio',
+      painelMusicaAbrirStudioTitulo: 'Abrir esta música no Curators Studio',
+      painelMusicaAbrirStudioErro: 'Não foi possível abrir esta música no Studio.',
+      ativarTemaClaro: 'Ativar tema claro',
+      voltarTemaEscuro: 'Voltar ao tema escuro',
+      // rótulo do interruptor de tema claro nas Configurações.
+      temaClaro: 'Tema claro',
+      // sistema de notificações no cabeçalho do painel principal
+      // (sino perto do avatar) — reúne aviso de atualização, resumo mensal
+      // pronto, lembrete de backup na nuvem e dicas rotativas de funções.
+      notificacoes: 'Notificações',
+      notificacoesNenhuma: 'Nenhuma notificação por enquanto.',
+      notificacoesMarcarLidas: 'Marcar tudo como lido',
+      notificacoesDispensar: 'Dispensar',
+      notifUpdateTitulo: 'Nova versão disponível',
+      notifResumoMensalTitulo: 'Resumo do mês pronto',
+      notifResumoMensalDesc: 'O resumo de {mes} já pode ser conferido e salvo.',
+      notifResumoMensalAcao: 'Ver resumo',
+      notifBackupAutoTitulo: 'Backup automático salvo',
+      notifBackupAutoDesc: 'Uma cópia do seu histórico foi salva em Downloads/MXMBackups em {data}.',
+      notifBackupAutoAcao: 'Saber mais',
+      notifBackupNuvemTitulo: 'Ative o backup na nuvem',
+      notifBackupNuvemDesc: 'Seu histórico só existe neste navegador. Ative o backup na nuvem pra não perder nada.',
+      notifBackupNuvemAcao: 'Ativar backup',
+      // V3.5.52: avisa sobre o novo painel "Backup e Restauração".
+      notifNovidadeBackupTitulo: 'Novidade: painel de Backup e Restauração',
+      notifNovidadeBackupDesc:
+        'Agora todos os seus backups (arquivo, disco, nuvem e texto) ficam reunidos num só lugar, dentro de Ferramentas úteis.',
+      notifNovidadeBackupAcao: 'Ver painel',
+      notifDicaTitulo: 'Dica',
+      notifDicaTemas: 'Você pode trocar entre vários esquemas de cor do Tabs V3 (e até um tema claro) nas Configurações.',
+      notifDicaDiffCheck: 'O Diff Check compara a letra da tela atual com a versão anterior — ótimo pra achar o que mudou antes de reenviar.',
+      notifDicaCopiarLetra: 'Dá pra copiar a letra inteira da música com um clique, direto da tela de Transcrição ou Sincronização.',
+      notifDicaSons: 'Se os bipes de clique/sucesso/erro incomodam, dá pra desligar os efeitos sonoros nas Configurações.',
+      notifDicaDiffManual: 'O "Diff manual" deixa comparar duas letras quaisquer coladas por você, sem precisar estar numa música específica.',
+      notifDicaResumoDia: 'A barrinha "Hoje vs Recorde" no painel Detalhado mostra o quanto falta pra bater seu recorde diário.',
+      // notificação fixa explicando o que é o "ciclo de missões" e por que
+      // uma missão específica pode terminar antes do fim do mês (ver
+      // abrirExplicacaoCiclosMissoes, aberta também pela janela do
+      // cronômetro do próximo ciclo).
+      notifCicloMissoesTitulo: 'Ciclos de missões',
+      notifCicloMissoesDesc: 'O que é isso? Veja como funciona a virada do ciclo e o prazo de cada missão.',
+      notifCicloMissoesAcao: 'Saiba mais',
+      cicloMissoesPopupTitulo: 'O que são os ciclos de missões?',
+      cicloMissoesPopupIntro:
+        'O cronômetro do próximo ciclo mostra a virada mensal do log desta extensão — ela acontece automaticamente às 21h (horário de Brasília) do último dia do mês.',
+      cicloMissoesPopupPonto1:
+        'Esse ciclo do log só decide em qual mês uma música enviada é contabilizada aqui no seu histórico — é fixo e sempre dura o mês inteiro.',
+      cicloMissoesPopupPonto2:
+        'Já as missões da Musixmatch (as que aparecem nos cards do site) têm prazo próprio: cada uma recebe sua própria data de início e de expiração quando é liberada pra você, não necessariamente alinhada ao calendário do mês.',
+      cicloMissoesPopupPonto3:
+        'Por isso é comum uma missão específica sumir da tela alguns dias antes do fim do mês — o prazo dela é curto e independente da virada do ciclo do log, mesmo estando dentro do mesmo mês.',
+      cicloMissoesPopupPonto4:
+        'Resumindo: este cronômetro mostra a virada do MÊS; o prazo de cada missão pode terminar antes disso — fique de olho nos cards de missão do próprio site pra saber quando cada uma expira de verdade.',
+      cicloMissoesDiagramaLog: 'Ciclo do log',
+      cicloMissoesDiagramaLogLegenda: 'sempre o mês inteiro',
+      cicloMissoesDiagramaMissao: 'Prazo da missão',
+      cicloMissoesDiagramaMissaoLegenda: 'pode acabar antes',
+      cicloMissoesDiagramaDia1: 'dia 1',
+      cicloMissoesDiagramaFimMes: '21h · fim do mês',
+      cicloMissoesPopupBotao: 'Entendi',
+      abrirLogDetalhado: 'Abrir Log Detalhado',
+      abrirDiffCheckAcao: 'Abrir Diff Check',
+      abrirDiffManualAcao: 'Abrir Diff manual',
+      // badge da lista pra registros com letra completa capturada,
+      // e textos do visualizador que abre ao clicar nela.
+      letraCapturadaTag: 'Letra',
+      letraCapturadaTooltip: 'Letra completa capturada — clique pra ver',
+      letraSuspeitaTooltip: 'A letra capturada contém um termo que sugere possível erro (ex: "Undetermined", "English", "Portuguese", "Reward" ou "task completed") — vale a pena conferir.',
+      confirmarFalsoPositivoLetraTitulo: 'Marcar como falso positivo?',
+      confirmarFalsoPositivoLetraMensagem: 'A letra continua contendo o termo suspeito, mas o aviso deixará de aparecer para este registro. Você poderá conferir a letra a qualquer momento clicando na tag.',
+      confirmarFalsoPositivoLetraBotao: 'Marcar',
+      falsoPositivoLetraMarcado: 'Aviso removido — marcado como falso positivo.',
+      verLetraTitulo: 'Letra completa',
+      copiarLetra: 'Copiar',
+      letraCopiada: 'Letra copiada!',
+      // tamanho (em bytes) da letra mostrada no visualizador.
+      tamanhoLetra: 'Tamanho',
+      // indicador de uso de memória interna nas Configurações.
+      usoMemoriaInterna: 'Memória interna usada',
+      usoMemoriaDetalhe: '{tamanho} · {n} registro(s) salvo(s)',
+      exportarTxt: 'Exportar .txt',
+      limparTudo: 'Limpar tudo',
+      hoje: 'Hoje',
+      ontem: 'Ontem',
+      remover: 'Remover',
+      logDetalhado: 'Log Detalhado',
+      hojeVsRecorde: 'Hoje vs Recorde',
+      progressoRecorde: 'Progresso até o recorde',
+      musicasPorMissao: 'Músicas por missão',
+      filtroTotal: 'Total',
+      filtroCicloAtual: 'Ciclo atual',
+      proximoCicloTitulo: 'Próximo ciclo em',
+      proximoCicloDescricao: 'Novo ciclo de missões começa às 21h (horário de Brasília)',
+      cronometroEstiloSiteLabel: 'contagem do site',
+      cronometroEstiloSiteTooltip:
+        'Como a Musixmatch mostra prazos de missão nos cards (ex.: "29 days") — esse número só muda uma vez por dia, às 9h, ao contrário do cronômetro em tempo real acima.',
+      // ícone de pino nas tiles do carrossel Hoje/Recorde, pra
+      // travar numa delas sem ficar girando sozinho.
+      resumoFixarSlide: 'Fixar aqui (parar de girar sozinho)',
+      resumoDesfixarSlide: 'Desfixar (voltar a girar sozinho)',
+      // V3.4.64: setas circulares de navegação do carrossel do resumo.
+      resumoSetaAnterior: 'Slide anterior',
+      resumoSetaProxima: 'Próximo slide',
+      cronometroCicloMainAtivar: 'Cronômetro do ciclo no carrossel',
+      cronometroCicloMainDescricao: 'Mostra a contagem regressiva até o próximo ciclo de missões, abaixo da barra de busca.',
+      // popup único (some pra sempre depois de visto) que aparece
+      // apontando pro ícone de pino na primeira vez que o painel abre com a
+      // tile do cronômetro já fixada por padrão.
+      popupPinoCronometroTitulo: 'Contagem regressiva fixada aqui',
+      popupPinoCronometroMensagem: 'Deixamos essa tile ligada e fixada por padrão, pra sempre aparecer. Clique de novo no pino pra desfixar e voltar a girar entre as tiles.',
+      popupPinoCronometroBotao: 'Entendi',
+      nenhumRegistroAinda: 'Nenhum registro ainda.',
+      semMissaoIdentificada: 'Sem missão identificada',
+      duracaoDasFaixas: 'Duração das faixas',
+      maisCurta: 'Mais curta',
+      maisLonga: 'Mais longa',
+      nenhumaFaixaComDuracao:
+        'Nenhuma faixa com duração registrada ainda (só vale pros próximos envios a partir de agora).',
+      horarioDePico: 'Horário de pico (por hora do dia)',
+      // V3.5.0: sequência de dias seguidos enviando algo, distribuição
+      // por dia da semana, ritmo entre envios numa sessão e evolução da
+      // duração média das faixas — 4 métricas novas do painel Detalhado.
+      sequenciaTitulo: 'Sequência de envios',
+      sequenciaAtualLabel: 'Atual',
+      sequenciaRecordeLabel: 'Recorde',
+      progressoSequenciaRecorde: 'Progresso até o recorde',
+      distribuicaoDiaSemanaTitulo: 'Distribuição por dia da semana',
+      ritmoEnvioTitulo: 'Ritmo entre envios (mesma sessão)',
+      ritmoDadosInsuficientes: 'Ainda não há envios suficientes numa mesma sessão pra calcular o ritmo.',
+      ritmoBaseadoEm: 'com base em {n} intervalos, em {sessoes} sessões de trabalho',
+      evolucaoDuracaoTitulo: 'Evolução da duração média das faixas',
+      evolucaoDuracaoDadosInsuficientes: 'Ainda não há duração suficiente registrada nesse período pra comparar.',
+      evolucaoDuracaoEstavel: 'Duração média estável nos últimos meses',
+      evolucaoDuracaoMaisCurtas: 'Faixas {tempo} mais curtas, em média, do que em {mes}',
+      evolucaoDuracaoMaisLongas: 'Faixas {tempo} mais longas, em média, do que em {mes}',
+      // janela de personalizar seções do painel Log Detalhado (mostrar/
+      // ocultar e reordenar cada métrica arrastando).
+      personalizarPainelDetalhado: 'Personalizar seções',
+      personalizarPainelDetalhadoTitulo: 'Personalizar painel',
+      personalizarPainelDetalhadoDescricao: 'Escolha o que aparece aqui e arraste pelo ícone ⠿ pra mudar a ordem.',
+      personalizarSecaoMostrar: 'Mostrar seção',
+      personalizarSecaoOcultar: 'Ocultar seção',
+      personalizarRestaurarPadrao: 'Restaurar padrão',
+      personalizarConcluido: 'Concluído',
+      personalizarTodasOcultas: 'Todas as seções foram ocultadas — ative pelo menos uma pra ver alguma coisa aqui.',
+      arrastarParaReordenar: 'Arraste pra reordenar',
+      moverParaCima: 'Mover pra cima',
+      moverParaBaixo: 'Mover pra baixo',
+      // aviso no rodapé do painel detalhado — deixa claro que os
+      // números vêm só do log local da extensão, não da Musixmatch.
+      avisoDadosLocais:
+        'Todos os dados desta página são estimados a partir do log capturado localmente por esta extensão — não vêm dos servidores do MXM, de suas APIs protegidas ou de parceiros. Alguns números podem ser imprecisos; use como referência, não como verdade absoluta.',
+      atividadePorDia: 'Atividade da semana',
+      atividadePorMes: 'Atividade por mês',
+      mesAtualVsAnterior: 'Mês atual vs anterior',
+      comparativoPeriodo: 'Comparativo do período',
+      mesAtual: 'Mês atual',
+      mesAnterior: 'Mês anterior',
+      emRelacaoAoMesAnterior: 'em relação ao mês anterior',
+      semMudanca: 'Sem mudança em relação ao mês anterior',
+      semDadosMesAnterior: 'Sem dados do mês anterior pra comparar',
+      // modo "Ciclo" do comparativo do período — mesma comparação,
+      // mas usando o ciclo de missão (virada às 21h de Brasília,
+      // chaveCicloAtual/chaveCicloDaEntrada) em vez do mês de calendário.
+      modoComparacaoMensal: 'Mensal',
+      modoComparacaoCiclo: 'Ciclo',
+      cicloAnterior: 'Ciclo anterior',
+      emRelacaoAoCicloAnterior: 'em relação ao ciclo anterior',
+      semMudancaCiclo: 'Sem mudança em relação ao ciclo anterior',
+      semDadosCicloAnterior: 'Sem dados do ciclo anterior pra comparar',
+      diaVsDiaEquivalente: 'Hoje vs mesmo dia do mês passado',
+      diaEquivalenteMesPassado: 'Mesmo dia (mês passado)',
+      emRelacaoAoDiaEquivalente: 'em relação ao mesmo dia do mês passado',
+      semDadosDiaEquivalente: 'Sem dados do dia equivalente pra comparar',
+      mostrarNumeroEnvios: 'Mostrar número de envios no ícone',
+      mostrarImagem: 'Mostrar imagem das músicas no log',
+      ativarAnimacoes: 'Animações de abertura e gráficos',
+      ativarSons: 'Efeitos sonoros da interface',
+      notificarPeloWindows: 'Notificar pelo Windows (desativa o popup da extensão)',
+      esquemaDestaque: 'Esquema de destaque',
+      esquemaFundo: 'Esquema de fundo',
+      esquemaCorRoxo: 'Roxo',
+      esquemaCorAzul: 'Azul',
+      esquemaCorVerde: 'Verde',
+      esquemaCorRosa: 'Rosa',
+      esquemaCorLaranja: 'Laranja',
+      esquemaCorVermelho: 'Vermelho',
+      esquemaCorCiano: 'Ciano',
+      esquemaCorAmarelo: 'Amarelo',
+      esquemaCorCoral: 'Coral',
+      esquemaCorLima: 'Lima',
+      esquemaCorEsmeralda: 'Esmeralda',
+      esquemaCorIndigo: 'Índigo',
+      esquemaCorVioleta: 'Violeta',
+      esquemaCorMagenta: 'Magenta',
+      esquemaFundoNeutro: 'Neutro',
+      esquemaFundoQuente: 'Quente',
+      esquemaFundoFrio: 'Frio',
+      esquemaFundoVerde: 'Verde',
+      esquemaFundoRosa: 'Rosa',
+      esquemaFundoAzul: 'Azul',
+      esquemaFundoRoxo: 'Roxo',
+      esquemaFundoPreto: 'Preto puro (AMOLED)',
+      esquemaFundoVinho: 'Vinho',
+      esquemaFundoAreia: 'Areia',
+      esquemaFundoMenta: 'Menta',
+      esquemaFundoOceano: 'Oceano',
+      esquemaFundoAmeixa: 'Ameixa',
+      escolhaTemaTitulo: 'Escolha seu tema',
+      escolhaTemaMensagem: 'Isso aparece só uma vez — dá pra trocar quando quiser depois, nas Configurações.',
+      escolhaTemaConfirmar: 'Confirmar',
+      escolhaTemaUsarPadrao: 'Usar padrão',
+      termosTitulo: 'Termos de uso e avisos legais',
+      termosMensagemIntro: 'Antes de continuar, leia com atenção os avisos abaixo.',
+      termosParagrafo1:
+        'Natureza do projeto: esta é uma extensão independente e sem fins lucrativos, desenvolvida por um curador para auxiliar outros curadores a organizar e acompanhar seu próprio tempo e atividade dentro do Musixmatch Studio.',
+      termosParagrafo2:
+        'Funcionamento: a extensão não utiliza, acessa ou se conecta à API oficial da Musixmatch. Todo o seu funcionamento se limita à leitura e à medição de informações já exibidas na tela pelo navegador do próprio usuário, sem interceptar, automatizar ou alterar o envio de conteúdo em nome do curador. Não foi desenvolvida com o propósito de fraudar, burlar ou conceder qualquer vantagem indevida nos processos de curadoria ou premiação da plataforma.',
+      termosParagrafo3:
+        'Isenção de responsabilidade: o uso desta extensão é de inteira responsabilidade do usuário. O desenvolvedor não se responsabiliza por eventual mau uso da ferramenta, por decisões tomadas com base nas informações exibidas, nem por quaisquer consequências, penalidades, suspensões ou perdas decorrentes do uso da extensão.',
+      termosParagrafo4:
+        'Marcas registradas: "Musixmatch", seu logotipo e demais marcas relacionadas são de propriedade exclusiva da Musixmatch. Esta extensão não é um produto oficial, não é afiliada, patrocinada ou endossada pela empresa — é um projeto independente feito apenas para ajudar o curador a gerenciar melhor seu tempo na plataforma.',
+      termosLinkEula: 'Termos de Uso (EULA) da Musixmatch',
+      termosLinkSuporte: 'Central de Ajuda da Musixmatch',
+      termosCheckboxLabel: 'Li e concordo com os termos e avisos acima.',
+      termosBotaoAceitar: 'Aceitar e continuar',
+      termosBotaoRecusar: 'Não aceito',
+      termosRecusaTitulo: 'Termos não aceitos',
+      termosRecusaMensagem:
+        'Sem a concordância com os termos acima, não é possível usar esta extensão. Este painel será fechado agora.',
+      termosRecusaBotaoFechar: 'Fechar',
+      boasVindasIdiomaTitulo: 'Escolha seu idioma',
+      boasVindasIdiomaMensagem: 'Em qual idioma você quer usar a extensão?',
+      boasVindasNomeTitulo: 'Como podemos te chamar?',
+      boasVindasNomeMensagem: 'Esse nome substitui "Curator" no seu painel — pode mudar quando quiser depois.',
+      boasVindasNomePlaceholder: 'Seu nome',
+      boasVindasFotoTitulo: 'Deixe seu perfil com a sua cara',
+      boasVindasFotoMensagem: 'Adicione uma foto de perfil e uma capa pro seu painel, ou pule e defina depois.',
+      boasVindasFotoBotaoAdicionar: 'Adicionar foto de perfil',
+      boasVindasFotoBotaoTrocar: 'Trocar foto de perfil',
+      boasVindasCapaBotaoAdicionar: 'Adicionar capa',
+      boasVindasCapaBotaoTrocar: 'Trocar capa',
+      continuar: 'Continuar',
+      voltar: 'Voltar',
+      reverBoasVindas: 'Rever tela de boas-vindas',
+      modoMarcacaoManual: 'Modo marcação manual',
+      idiomaIngles: 'Interface em inglês',
+      dicaModoManual: 'Com o modo manual ligado: clique numa linha da lista = letra · Shift+clique = instrumental.',
+      categoriaManualLabel: 'Marcadas manualmente',
+      cicloLabel: 'Ciclo',
+      inicioNovoCiclo: 'Início de novo ciclo',
+      // usados no separador de corte de ciclo (pill duplo: ciclo que
+      // fechou -> ciclo que abriu) — ver renderPainelLista.
+      cicloEncerrado: 'encerrado',
+      cicloIniciado: 'iniciado',
+      pausarModoManual: 'Pausar modo manual',
+      marcandoManualmenteLabel: 'Marcando manualmente',
+      nomeExtensao: 'MXM Studio',
+      nenhumEnvioRegistradoAinda: 'Nenhum envio registrado ainda.',
+      confirmarLimpar: 'Tem certeza que quer apagar todo o log de envios? Essa ação não pode ser desfeita.',
+      logApagado: 'Log apagado.',
+      debugAtivado: 'Modo debug ativado — logs de captura no console.',
+      debugDesativado: 'Modo debug desativado.',
+      opcoesDebugSecao: 'Modo debug — simulador de data',
+      debugSimuladorDescricao:
+        'Simula outra data/hora pra tudo que a extensão calcula a partir de "agora" (ciclo de missões, cronômetro, resumo do dia, virada de mês etc.) — sem mexer no relógio real do dispositivo. O tempo continua correndo normalmente a partir do valor escolhido.',
+      debugSimuladorStatusAtivo: 'Simulação ativa',
+      debugSimuladorStatusInativo: 'Usando a data/hora real do dispositivo',
+      debugSimuladorAplicar: 'Aplicar data simulada',
+      debugSimuladorRestaurar: 'Voltar para a data real',
+      debugSimuladorPreencherAgora: 'Preencher com agora',
+      debugSimuladorAtivadoToast: 'Data simulada aplicada — a extensão agora lê essa data como "agora".',
+      debugSimuladorDesativadoToast: 'Simulação desligada — voltando à data/hora real.',
+      debugSimuladorSelecioneData: 'Escolha uma data e hora antes de aplicar.',
+      debugForcarSemDetalhes: 'Forçar entrada "Sem detalhes" no log (teste)',
+      debugForcarTelaIntegracaoPayflow: 'Forçar tela de integração com o Payflow (teste)',
+      debugSimuladorListaDescricao:
+        'Simula, só na tela, como a lista fica com 0 ou 1 música — sem apagar nem tocar no seu log de verdade. Útil pra testar o estado vazio ou o marcador "Fim da lista"/dicas de lista curta sem precisar zerar o histórico de verdade.',
+      debugSimuladorListaOff: 'Lista real (sem simulação)',
+      debugSimuladorListaVazia: 'Simular lista vazia',
+      debugSimuladorListaUma: 'Simular lista com 1 música',
+      debugSimuladorListaAtivadoToast: 'Simulação de lista ativa — o log de verdade continua intacto.',
+      debugSimuladorListaDesativadoToast: 'Simulação de lista desligada — voltando à lista real.',
+      debugAvisoBannerTexto: 'Se você não sabe o que está fazendo, aconselho sair desse modo.',
+      debugAvisoBannerBotaoSair: 'Sair do modo debug',
+      avisoEntradaDemonstracaoDebug: 'Essa é uma entrada de demonstração da simulação — não é uma música real do seu log.',
+      debugForcarSplashBoasVindas: 'Rever tela de boas-vindas (splash inicial)',
+      duracaoLabel: 'Duração',
+      missaoLabel: 'Missão',
+      tentativasLabel: 'tentativas',
+      verLogDeEnvios: 'Ver log de envios (clique direito para opções)',
+      trocarIdiomaPara: 'Idioma',
+      configuracoes: 'Configurações',
+      layoutResumoDia: 'Layout do resumo do dia',
+      mostrarResumoDia: 'Mostrar resumo do dia',
+      girarResumoAutomaticamente: 'Girar resumo automaticamente',
+      layoutLadoLado: 'Lado a lado',
+      layoutTipografia: 'Texto',
+      layoutChip: 'Chip',
+      importarTxt: 'Importar .txt',
+      confirmarExclusaoTitulo: 'Confirmar exclusão',
+      confirmarExclusaoRegistro: 'Tem certeza que quer remover este registro? Essa ação não pode ser desfeita.',
+      // confirmação específica pro menu de contexto da tag "Letra"
+      // (apaga só a letra capturada, mantém o resto do registro).
+      confirmarExclusaoLetra: 'Tem certeza que quer apagar a letra capturada deste registro? Essa ação não pode ser desfeita.',
+      cancelar: 'Cancelar',
+      ok: 'OK',
+      confirmar: 'Confirmar',
+      excluir: 'Excluir',
+      // V3.5.58: menu de "mais opções" (3 pontinhos) na linha do log
+      // principal, no lugar do antigo ícone único de lixeira.
+      maisOpcoes: 'Mais opções',
+      abrirNoSite: 'Abrir no site',
+      abrirNoStudio: 'Abrir no Studio',
+      importadosSucesso: 'registro(s) importado(s)',
+      ignoradosLabel: 'ignorado(s)',
+      arquivoInvalido: 'Não consegui ler nenhum registro válido nesse arquivo.',
+      // backup completo (.json) — dados + configurações.
+      backupModalTitulo: 'Restaurar backup completo',
+      backupResumoTitulo: 'O que este backup vai alterar',
+      backupNovosRegistros: 'música(s) nova(s) no log',
+      backupLetrasAlteradas: 'letra(s) diferente(s) da versão salva atualmente',
+      backupDiffsSalvosNovos: 'diff(s) salvo(s) novo(s)',
+      backupConfigsAlteradas: 'configuração(ões) diferente(s)',
+      backupNenhumaMudanca: 'Esse arquivo é idêntico aos dados que você já tem — nada para restaurar.',
+      // botão extra no aviso "nada para restaurar" — força aplicar
+      // o backup mesmo assim (útil se a comparação não pegar alguma
+      // diferença fora do que ela checa, tipo tentativas/imagem/id).
+      backupImportarMesmoAssim: 'Importar mesmo assim',
+      backupConteudoTitulo: 'Conteúdo deste backup',
+      backupResumoMusicas: 'Músicas',
+      backupResumoLetras: 'Letras salvas',
+      backupVerDiferencas: 'Ver diferenças',
+      backupOcultarDiferencas: 'Ocultar',
+      backupBotaoRestaurar: 'Restaurar backup',
+      backupSucesso: 'Backup restaurado com sucesso. Recarregue a página para aplicar todas as configurações visuais.',
+      backupArquivoInvalido: 'Esse arquivo não parece ser um backup completo válido deste script.',
+      backupGeradoEm: 'Backup gerado em',
+      backupVersaoScript: 'versão',
+      backupSemLetraSalva: '(sem letra salva atualmente)',
+      backupExportarCurto: 'Exportar backup completo',
+      backupImportarCurto: 'Importar backup completo',
+      selecionarVarias: 'Selecionar várias',
+      redimensionar: 'Arraste para redimensionar',
+      selecionarBtn: 'Selecionar',
+      sairSelecao: 'Sair da seleção',
+      selecionarTodas: 'Selecionar todas',
+      desmarcarTodas: 'Desmarcar todas',
+      nenhumaSelecionada: 'Nenhum item selecionado',
+      itemSelecionado: 'item selecionado',
+      itensSelecionados: 'itens selecionados',
+      excluirSelecionados: 'Excluir selecionados',
+      confirmarExclusaoMultipla: 'Tem certeza que quer remover os itens selecionados? Essa ação não pode ser desfeita.',
+      // seção "Perfil de uso" nas Configurações.
+      opcoesPerfilUso: 'Perfil de uso',
+      perfilCompletoTitulo: 'Completo',
+      perfilCompletoDescricao: 'Mostra tudo: log geral, Resumo do dia, painel Detalhado, Reward e Comparar.',
+      perfilMinimalistaTitulo: 'Minimalista',
+      perfilMinimalistaDescricao:
+        'Esconde Resumo do dia, Detalhado, Reward, Comparar e desliga Conquistas — só o log geral dos envios e as ferramentas de letra.',
+      avisoModoMinimalista:
+        'Você está no modo Minimalista — Resumo do dia, Detalhado, Reward e Comparar ficam ocultos, e Conquistas fica desligado. Mude em "Perfil de uso" abaixo.',
+      resumoDiaBloqueadoMinimalista: 'Desligado pelo perfil Minimalista — mude para Completo pra ajustar.',
+      opcoesDeVisualizacao: 'Visualização',
+      opcoesResumoDia: 'Resumo do dia',
+      opcoesAparencia: 'Aparência',
+      opcoesGerais: 'Geral',
+      buscarConfiguracao: 'Buscar nas configurações...',
+      verificarAtualizacoes: 'Verificar atualizações',
+      verificando: 'Verificando...',
+      versaoAtualizada: 'Você está na versão mais recente',
+      novaVersaoDisponivel: 'Nova versão disponível',
+      baixarAtualizacao: 'Baixar atualização',
+      atualizarAgora: 'Atualizar agora',
+      novidadesVersao: 'Novidades desta versão',
+      aplicandoAtualizacao: 'Aplicando atualização...',
+      atualizacaoAindaNaoPronta: 'O Firefox ainda está preparando essa versão. Tente de novo em alguns instantes.',
+      atualizacaoLimitada: 'Aguarde um pouco antes de checar de novo.',
+      retryAtualizacaoContagem: 'Tentando de novo em {s}s… ({n}/{max})',
+      retryAtualizacaoToqueAgora: 'Toque para tentar agora',
+      retryAtualizacaoEsgotado: 'Não deu pra atualizar sozinho depois de várias tentativas. Tente de novo mais tarde ou pela página da AMO.',
+      atualizacaoInstalacaoTemporaria: 'Essa instalação é temporária (modo desenvolvedor) — o Firefox não gerencia atualização automática pra ela. Baixe a versão nova pela página da extensão.',
+      atualizacaoSemForcarChecagem: 'O Firefox não deixa forçar essa verificação por aqui — mas já está escutando em segundo plano e aplica sozinho assim que o Firefox achar a versão nova (por conta própria ou se você clicar em "Verificar atualizações" no about:addons).',
+      abrirPaginaExtensao: 'Abrir página da extensão',
+      abrirReleasesGithub: 'Ver Releases no GitHub',
+      copiarAboutAddons: 'Copiar "about:addons"',
+      aboutAddonsCopiado: 'Copiado! Cole na barra de endereço e aperte Enter.',
+      buscandoXpiGithub: 'Buscando .xpi no GitHub...',
+      atualizacaoAindaNaoSincronizadaGithub: 'O GitHub ainda não sincronizou essa versão (a sincronização roda periodicamente).',
+      erroConsultarGithub: 'Não deu pra consultar o GitHub agora.',
+      erroVerificarAtualizacao: 'Não foi possível verificar agora. Tente de novo mais tarde.',
+      versaoInstalada: 'Versão instalada',
+      versaoTabsV3: 'Versão do Tabs V3',
+      notificarAtualizacaoAuto: 'Avisar sobre atualizações automaticamente',
+      opcoesNotificacoes: 'Notificações',
+      notifDicasAtivar: 'Dicas de uso no sino de notificações',
+      notifDicasAtivarDesc: 'Mostra dicas de uso de vez em quando no sino de notificações.',
+      extensaoAtualizada: 'Extensão atualizada',
+      verNotasVersao: 'Ver página da extensão',
+      // interruptor de "esperar a janela de confirmação antes de
+      // registrar o envio" — ligado por padrão (ver
+      // STORAGE_CONFIRMAR_ENVIO_KEY).
+      confirmarEnvioAtivar: 'Confirmar envio antes de registrar',
+      confirmarEnvioDesc:
+        'Espera a janela verde de sucesso aparecer antes de registrar no log (mais seguro, mas pode demorar um pouco). Desligue pra registrar assim que clicar em "Enviar", como era antes.',
+      // interruptor do sistema de conquistas — desligado por
+      // padrão (ver STORAGE_CONQUISTAS_ATIVAS_KEY).
+      sistemaConquistas: 'Sistema de conquistas',
+      sistemaConquistasDesc: 'Badges por marcos como quantidade de músicas, dias seguidos e diffs salvos.',
+      // botão "Ferramentas úteis" (grade expansível no painel
+      // principal, abaixo do resumo Hoje/Recorde) — agrupa os atalhos que
+      // antes viviam soltos no cabeçalho.
+      ferramentasUteis: 'Ferramentas úteis',
+      // no Diff Check, mostra as tags de estrutura (#Verse,
+      // #Chorus etc.) como uma barra única fixa, em vez de participarem do
+      // diff coluna a coluna normal.
+      diffFixarTagsBeta: 'Fixar tags no mesmo lugar',
+      betaTag: 'BETA',
+      // aba "Reward"
+      reward: 'Reward',
+      verReward: 'Reward',
+      logReward: 'Log de Reward',
+      totalGanho: 'Total ganho',
+      historicoDias: 'últimos {dias} dias',
+      cotacaoAtual: 'Cotação atual',
+      buscandoCotacao: 'Buscando cotação...',
+      cotacaoIndisponivel: 'Cotação indisponível — usando valor de referência',
+      rewardPorMissao: 'Reward por missão',
+      taxaEstimada: 'taxa estimada',
+      tarefasAbrev: 'tarefas',
+      semReward: 'Nenhum envio com missão identificada ainda.',
+      fonteWidget: 'Dados ao vivo via Payflow',
+      fonteWidgetCurta: 'Ao vivo',
+      fonteLog: 'Estimado a partir deste log — instale a extensão Payflow pra dados exatos',
+      fonteLogCurta: 'Estimado',
+      poweredByPayflow: 'Powered by Payflow',
+      descontoManual: 'Desconto de $ {amount} aplicado manualmente no widget',
+      avisoExtensaoRewardAusente:
+        'A extensão Payflow não está instalada, está desativada, ou ainda não registrou nenhuma missão — os valores abaixo são só uma estimativa baseada neste log. Instale/ative a extensão pra ver os valores reais.',
+      baixarExtensaoTotalUsdBrl: 'Baixar extensão Payflow no Firefox Add-ons',
+      // pergunta mostrada quando o mês vira, oferecendo guardar o
+      // resumo (quantidade de músicas + valor ganho) do mês que terminou.
+      resumoMensalTitulo: 'Guardar resumo do mês',
+      resumoMensalMensagem:
+        'O mês de {mes} terminou. Quer guardar o resumo dele — {qtd} música(s) enviada(s) e {usd} ({brl}) em reward — para comparar com outros meses depois?',
+      resumoMensalBotaoSalvar: 'Salvar resumo',
+      resumoMensalAgoraNao: 'Agora não',
+      resumoMensalSalvoToast: 'Resumo de {mes} guardado.',
+      // banner (não mais popup) mostrado acima da barra de busca a
+      // partir das 21h de Brasília do último dia do mês, até o usuário
+      // clicar em "Mudar o ciclo".
+      avisoTrocaCicloTitulo: 'O ciclo de missões já virou?',
+      avisoTrocaCicloMensagem:
+        'O ciclo de missões deste mês já deve ter virado (21h, horário de Brasília) mesmo que o calendário ainda mostre hoje. Confirme quando notar a mudança na Musixmatch.',
+      avisoTrocaCicloBotaoConfirmar: 'Mudar o ciclo',
+      avisoTrocaCicloConfirmadoToast: 'Ok, ciclo alterado — resumo disponível se quiser guardar.',
+      avisoDiffManualMinimizadoMensagem: 'Você tem um Diff manual minimizado, com a comparação esperando de onde parou.',
+      avisoDiffManualMinimizadoBotaoVoltar: 'Voltar para o Diff manual',
+      // lista de resumos mensais guardados, exibida na aba Reward.
+      resumosMensaisTitulo: 'Resumos mensais guardados',
+      resumosMensaisVazio: 'Nenhum resumo guardado ainda — quando um mês virar, você vai poder guardar o resumo dele aqui.',
+      resumosMensaisApagar: 'Apagar este resumo',
+      resumosMensaisRever: 'Rever este resumo',
+      resumosMensaisConfirmarApagar: 'Apagar o resumo guardado desse mês? Essa ação não pode ser desfeita.',
+      resumosMensaisVerAgora: 'Ver resumo agora',
+      resumosMensaisIndisponivel: 'Resumo indisponível',
+      resumoAtualTitulo: 'Resumo deste mês (até agora)',
+      resumoAtualVerSlides: 'Ver em slides',
+      resumoSlidesVerCompleto: 'Ver resumo completo',
+      resumoAtualBotaoSalvar: 'Salvar este resumo agora',
+      // V3.5.58: quando já existe um "corte" salvo deste mês, o botão
+      // deixa isso explícito em vez de repetir o texto de "primeiro
+      // salvamento" — o resumo do mês em andamento é sempre recalculado
+      // ao vivo (ver abrirResumoAtual), então salvar de novo é uma
+      // atualização do corte, não uma ação nova.
+      resumoAtualBotaoAtualizar: 'Atualizar resumo salvo',
+      resumoAtualFechar: 'Fechar',
+      resumoAtualConfirmarSobrescrever:
+        'Você já tem um resumo salvo pra este mês — salvar de novo vai substituí-lo pelos números atuais. Continuar?',
+      // linhas extras do cartão "Ver resumo agora" — maior/menor
+      // música (por duração), maior/menor letra capturada (por tamanho do
+      // texto), instrumentais e missão com mais/menos envios no mês.
+      resumoAtualDetalhesTitulo: 'Mais detalhes do mês',
+      resumoAtualMusicaMaisLonga: 'Música mais longa',
+      resumoAtualMusicaMaisCurta: 'Música mais curta',
+      resumoAtualLetraMaisLonga: 'Letra mais longa',
+      resumoAtualLetraMaisCurta: 'Letra mais curta',
+      resumoAtualInstrumentais: 'Instrumentais no mês',
+      resumoAtualMissaoMais: 'Missão com mais envios',
+      resumoAtualMissaoMenos: 'Missão com menos envios',
+      resumoAtualCaractere: '1 caractere',
+      resumoAtualCaracteres: '{n} caracteres',
+      // carrossel de slides (uma tela cheia por métrica) aberto
+      // pelo botão "Ver em slides" no cartão de resumo — pensado pra ser
+      // mostrado/compartilhado no fim do mês, tipo um "retrospectiva".
+      resumoAtualVerSlides: 'Ver em slides',
+      resumoSlidesBRL: 'Total em Reais',
+      resumoSlidesMoedaGenerica: 'Total em {moeda}',
+      resumoSlidesUSD: 'Total em Dólares',
+      resumoSlidesTarefas: 'Tarefas enviadas',
+      // PoC preview Apple Music (ver montarBotaoPreviewAppleMusic).
+      resumoPreviewCarregando: 'Buscando prévia…',
+      resumoPreviewOuvir: 'Ouvir prévia',
+      resumoPreviewTocando: 'Tocando…',
+      logCapaOuvirPreviaTooltip: 'Ouvir prévia de 30s',
+      logCapaPreviaIndisponivel: 'Prévia não encontrada pra essa faixa.',
+      resumoSlidesCapaTitulo: 'Seu resumo de {mes}',
+      resumoSlidesFinalTitulo: 'Isso foi {mes}!',
+      resumoSlidesFinalTexto: 'Bora fechar mais um mês assim.',
+      resumoSlidesAnterior: 'Anterior',
+      resumoSlidesProximo: 'Próximo',
+      resumoSlidesComecar: 'Começar',
+      // título do botão de mutar/desmutar a musiquinha de fundo
+      // do carrossel de slides do resumo mensal (ver abrirResumoSlides).
+      resumoMusicaSilenciar: 'Silenciar música',
+      resumoMusicaAtivar: 'Ativar música',
+      // seção "Backup" das Configurações — backup automático em
+      // disco, pra proteger os dados de uma desinstalação da extensão.
+      opcoesBackup: 'Backup',
+      // V3.5.53: a seção inteira saiu daqui e virou o painel dedicado
+      // (ver backupMudouAcao/abrirPainelBackup) — sobrou só este aviso +
+      // atalho, em vez de duplicar as mesmas opções em dois lugares.
+      backupMudouDescricao: 'Os backups mudaram de lugar, agora organize todos os backups em um só lugar!',
+      backupMudouAcao: 'Abrir Backup e Restauração',
+      // V3.5.52: painel "Backup e Restauração" próprio, na grade
+      // "Ferramentas úteis" — reúne tudo que antes ficava espalhado
+      // (Configurações → Backup, menu do FAB) num único lugar, com
+      // visual de "área segura" pros dados do usuário.
+      backupRestauracaoTitulo: 'Backup e Restauração',
+      backupAreaSeguraTitulo: 'Seus dados, protegidos',
+      backupAreaSeguraDescricao:
+        'Nada sai daqui sem você pedir. Backup em disco fica só no seu computador; backup na nuvem só é enviado quando você ativa ou clica em enviar.',
+      backupResumoMusicasProtegidas: 'música(s) no log',
+      backupResumoDiffsProtegidos: 'diff(s) salvo(s)',
+      backupResumoResumosProtegidos: 'resumo(s) mensal(is)',
+      backupSecaoArquivoCompleto: 'Backup completo (arquivo)',
+      backupSecaoArquivoCompletoDescricao:
+        'Gera um arquivo .json com todo o seu log, diffs salvos, resumos mensais e configurações — pra guardar você mesmo ou levar pra outro computador.',
+      backupSecaoDisco: 'Backup automático em disco',
+      backupSecaoNuvem: 'Backup na nuvem (Google)',
+      backupSecaoTextoSimples: 'Log em texto simples (.txt)',
+      backupSecaoTextoSimplesDescricao:
+        'Formato mais simples, só com o log de envios em texto — sem diffs, resumos ou configurações. Útil pra ler rápido ou colar em outro lugar.',
+      backupZonaRiscoTitulo: 'Zona de risco',
+      backupAutomaticoAtivar: 'Backup automático em disco',
+      backupAutomaticoDescricao:
+        'Salva uma cópia dos seus dados de tempos em tempos na pasta Downloads/MXMBackups, pra não perder tudo se desinstalar a extensão.',
+      backupAutomaticoFazerAgora: 'Fazer backup agora',
+      // mesmo fluxo de "Importar backup completo" (que antes só
+      // existia no menu de contexto do ícone da extensão), agora também
+      // acessível direto por aqui, na seção Backup do painel.
+      backupAutomaticoRestaurar: 'Restaurar backup completo',
+      backupAutomaticoSucesso: 'Backup salvo em Downloads/MXMBackups.',
+      backupAutomaticoErro: 'Não consegui salvar o backup automático — verifique as permissões de download da extensão.',
+      // backup na nuvem (Firebase) — complementa o backup automático
+      // em disco, permitindo restaurar em outro computador/navegador.
+      nuvemDescricao: 'Envia um backup pra nuvem, vinculado à sua conta Google, pra restaurar em outro computador.',
+      nuvemEnviar: 'Enviar backup pra nuvem',
+      nuvemRestaurar: 'Restaurar da nuvem',
+      // envio automático (silencioso) do backup pra nuvem — pensado pra
+      // quem alterna entre PC e notebook e esquece de sincronizar na mão.
+      backupNuvemAutomaticoAtivar: 'Backup automático na nuvem',
+      backupNuvemAutomaticoDescricao:
+        'Envia o backup pra nuvem sozinho de tempos em tempos, sem precisar clicar em "Enviar backup pra nuvem". Requer já ter feito login com o Google pelo menos uma vez.',
+      // mostrado logo abaixo do interruptor de backup automático na
+      // nuvem, com a data/hora do último envio bem-sucedido (manual ou
+      // automático) — ver STORAGE_ULTIMO_BACKUP_NUVEM_KEY.
+      nuvemUltimoBackup: 'Último backup na nuvem: {data}',
+      nuvemUltimoBackupNunca: 'Você ainda não fez nenhum backup na nuvem.',
+      // seletor de frequência do envio automático pra nuvem — aparece
+      // só quando o interruptor acima está ligado (ver renderCorpoNuvem,
+      // dentro do painel "Backup e Restauração").
+      nuvemFrequenciaTitulo: 'Frequência do backup automático',
+      nuvemFrequenciaDiaria: 'Diária',
+      nuvemFrequenciaSemanal: 'Semanal',
+      nuvemFrequenciaMensal: 'Mensal',
+      nuvemEnvioSucesso: 'Backup enviado pra nuvem.',
+      // mostrado quando o backup precisou de mais de 1 parte
+      // (sharding) — ver coletarBackupParaNuvem/dividirEmPartesUtf8Seguro.
+      nuvemEnvioSucessoPartes: 'Backup enviado pra nuvem em {n} partes.',
+      nuvemEnvioErro: 'Não consegui enviar o backup pra nuvem — verifique sua conexão e tente de novo.',
+      nuvemNenhumBackup: 'Nenhum backup encontrado na nuvem ainda.',
+      nuvemRestaurarErro: 'Não consegui buscar o backup na nuvem — verifique sua conexão e tente de novo.',
+      // backup no Google Drive — terceiro destino de backup, separado do
+      // Firestore (ver docs/backup-google-drive.md). Salvo numa pasta
+      // própria "Echoform Backups" no Drive do usuário.
+      backupSecaoDrive: 'Backup no Google Drive',
+      backupSecaoDriveDescricao:
+        'Envia um backup pra sua conta do Google Drive, numa pasta própria da extensão, pra restaurar em outro computador.',
+      driveEnviar: 'Enviar backup pro Drive',
+      driveRestaurar: 'Restaurar do Drive',
+      driveRequerGoogle: 'Requer login com sua conta Google',
+      backupDriveAutomaticoAtivar: 'Backup automático no Drive',
+      backupDriveAutomaticoDescricao:
+        'Envia o backup pro Drive sozinho de tempos em tempos, sem precisar clicar em "Enviar backup pro Drive". Requer já ter feito login com o Google pelo menos uma vez.',
+      // menu de missão (clique direito numa música do log)
+      definirMissao: 'Definir missão',
+      outraMissao: 'Outra missão...',
+      menuInstrumentalMarcar: 'Marcar como instrumental',
+      menuInstrumentalDesmarcar: 'Desmarcar instrumental',
+      digitarNomeMissao: 'Digite o nome da missão:',
+      // nome do curator (editável) e sistema de comparação de logs
+      curator: 'Curator',
+      editarNomeCurator: 'Clique pra usar seu próprio nome',
+      mashupMagico: 'Mashup Mágico',
+      mashupMagicoAtivar: 'Sortear Mashup Mágico',
+      mashupMagicoIndisponivel: 'Envie mais músicas com letra salva pra desbloquear o Mashup Mágico',
+      digitarNomeCurator: 'Digite seu nome (deixe em branco pra voltar a "Curator"):',
+      // foto de perfil customizada no painel de log detalhado
+      editarFotoCurator: 'Clique pra trocar a foto',
+      alterarFoto: 'Alterar foto',
+      usarFotoPadrao: 'Usar foto padrão do MXM',
+      cliqueDireito: 'clique direito',
+      fotoInvalida: 'Não deu pra usar essa imagem — tente outro arquivo.',
+      // capa/banner customizada + editor de recorte (foto e capa,
+      // ambos aceitam GIF animado)
+      editarCapaCurator: 'Clique pra trocar a capa · clique direito: mais opções',
+      alterarCapa: 'Alterar capa',
+      removerCapa: 'Remover capa',
+      recorteArrasteAviso: 'Arraste a imagem pra posicionar e use o zoom pra ajustar o recorte.',
+      recorteSalvar: 'Salvar recorte',
+      ajustarRecorte: 'Ajustar recorte',
+      imagemGrandeDemais: 'Essa imagem é grande demais — escolha um arquivo de até 8MB.',
+      comparar: 'Comparar',
+      logComparacao: 'Comparar Log',
+      exportarComparacao: 'Exportar meu log',
+      importarComparacao: 'Importar arquivo de outra pessoa',
+      comparacaoSemImportacao:
+        'Exporte o seu log e peça pra outra pessoa fazer o mesmo — depois importe o arquivo .json dela aqui pra ver a comparação lado a lado.',
+      arquivoComparacaoInvalido: 'Esse arquivo não é um log de comparação válido.',
+      vc: 'Você',
+      totalDeEnvios: 'Total de envios',
+      duracaoMedia: 'Duração média',
+      diasAtivos: 'Dias ativos',
+      naoDisponivelAbrev: 'N/D',
+      comparadoEm: 'Comparando com',
+      trocarArquivoComparacao: 'Trocar arquivo',
+      // reorganização do menu de configurações em seções
+      opcoesComportamento: 'Comportamento',
+      opcoesAtualizacoes: 'Atualizações',
+      opcoesExperimental: 'Experimental',
+      // nova seção "Ajuda" nas configurações, com a opção de rever
+      // o tutorial inicial manualmente (antes só existia pelo menu do
+      // Tampermonkey, escondido pra quem não sabia que existia).
+      opcoesAjuda: 'Ajuda',
+      reverTutorial: 'Rever tutorial inicial',
+      // splash de primeira montagem — tela vazia (só logo + frase) mostrada
+      // por um instante antes do painel real "se montar" por cima dela, na
+      // primeiríssima vez que o usuário abre a extensão (ver
+      // mostrarSplashPrimeiraMontagem).
+      splashBoasVindasFrase: 'Bem-vindo(a) ao Echoform',
+      splashBoasVindasLegenda: 'Vamos te mostrar rapidinho como tudo funciona por aqui.',
+      splashBoasVindasAprender: 'Aprender',
+      // tour inicial (balões de tutorial, mostrados só uma vez)
+      tourMissao: 'Clique com o botão direito numa música da lista pra escolher (ou corrigir) em que missão ela foi feita.',
+      // V3.5.52: apresenta a grade "Ferramentas úteis" como um todo antes
+      // dos passos seguintes entrarem no detalhe de Detalhado/Reward —
+      // ela cresceu bastante (Diff manual, Diffs salvos, trocar idioma,
+      // Comparar, Ciclos, Bloco de notas, Backup e Restauração) e nenhum
+      // passo do tour apresentava o conjunto até agora.
+      tourFerramentas:
+        'Aqui ficam as ferramentas extras: Diff manual e Diffs salvos (comparar letras), trocar idioma, Comparar com outro curator, Ciclos, Bloco de notas e Backup e Restauração — além de Detalhado e Reward, que têm um passo só pra elas a seguir.',
+      tourDetalhado: 'Clique aqui para logs detalhados: músicas por missão, faixa mais curta/mais longa e horários de pico.',
+      tourReward: 'Clique aqui para detalhes de pagamentos: total ganho e reward estimado por missão.',
+      // dica final do tour, mostrando onde ficam as configurações.
+      tourConfiguracoes: 'É aqui que ficam as configurações do script — aparência, comportamento e mais. Pode rever este tutorial a qualquer momento por aqui.',
+      tourRedimensionar: 'Essa janela é redimensionável — arraste este canto pra deixá-la maior ou menor.',
+      tourProximo: 'Próximo',
+      tourEntendi: 'Entendi',
+      tourPular: 'Pular',
+      diffCheck: 'Diff Check',
+      diffCheckDesc: 'Comparar com a última versão salva',
+      diffCheckTitulo: 'Diff Check — comparação de letra',
+      // aviso mostrado antes de abrir o Diff Check, sugerindo
+      // recarregar a página primeiro pra letra carregar "limpa" (ver
+      // abrirAvisoRecarregarDiffCheck).
+      diffAvisoRecarregarTitulo: 'Antes de abrir o Diff Check',
+      diffAvisoRecarregarMensagem:
+        'Pra letra carregar de um jeito mais limpo (evitando comparações quebradas), recarregue a página antes de usar o Diff Check.',
+      diffAvisoRecarregarBotao: 'Recarregar página',
+      diffAvisoRecarregarContinuar: 'Continuar assim mesmo',
+      // rótulo do interruptor nas Configurações que liga/desliga
+      // o aviso acima.
+      diffAvisoRecarregarAtivarLabel: 'Aviso pra recarregar antes do Diff Check',
+      // tooltip mostrado quando o interruptor acima fica desativado por
+      // causa do modo de captura "Rede" (ver criarItemSwitch/getDisabled
+      // em criarItemModoCapturaDiff).
+      diffAvisoRecarregarDesativadoModoRede: 'Não se aplica no modo de captura "Rede" — a letra já vem certa direto da rede, sem precisar recarregar.',
+      diffIndoParaSincronizacao: 'Abrindo a aba Sincronização (mais confiável pra ler a letra completa)...',
+      diffIndoParaTraducao: 'Abrindo a aba Tradução...',
+      diffSemFaixa: 'Não consegui identificar a música desta página.',
+      diffSemVersaoSalva: 'Ainda não há uma versão salva dessa letra pra comparar. Envie essa música pelo menos uma vez.',
+      diffSemCapturaAtual: 'Não consegui capturar a letra desta tela agora. Role até a letra aparecer na tela e tente de novo.',
+      // mostrado na área de conteúdo do painel assim que ele abre,
+      // enquanto a captura da letra (via Tradução/Fiber/auto-scroll) ainda
+      // está rodando — evita o painel parecer travado só com o cabeçalho.
+      diffCarregandoLetra: 'Carregando a letra desta tela...',
+      diffAdicionadas: 'adicionada(s)',
+      diffRemovidas: 'removida(s)',
+      diffVersaoAnterior: 'Versão anterior (salva)',
+      diffVersaoAtual: 'Versão atual (nesta tela)',
+      diffCopiar: 'Copiar diff',
+      diffCopiarEstaLetra: 'Copiar esta letra',
+      diffCopiado: 'Diff copiado!',
+      // contador de linhas por coluna no cabeçalho do diff (ex: "143
+      // linhas"), igual ao que o site original do Musixmatch mostra.
+      diffLinhas: 'linha(s)',
+      diffVerComoDigitada: 'Ver como digitada',
+      diffVerComparacao: 'Ver comparação',
+      diffAlinharLinhasAtivar: 'Alinhar linhas (modo antigo)',
+      diffAlinharLinhasDesativar: 'Colunas independentes (padrão)',
+      diffAlinharLinhasLabel: 'Alinhar linhas',
+      diffEspacoDiferenca: 'Espaço em branco — parte da diferença',
+      diffEspacoUnidade: 'espaço',
+      diffEspacoUnidadePlural: 'espaços',
+      diffSalvar: 'Salvar',
+      diffSalvo: 'Diff salvo!',
+      diffExportarHtml: 'Exportar HTML',
+      diffExportado: 'Diff exportado!',
+      diffCompartilharLink: 'Compartilhar link',
+      diffLinkCopiado: 'Link copiado! Cole pra compartilhar.',
+      diffLinkCopiadoNuvem: 'Link curto copiado! Expira sozinho em 30 dias.',
+      diffLinkCopiadoCurto: 'Link curto copiado! Cole pra compartilhar.',
+      diffLinkCopiadoGrande: 'Link copiado! (é longo — se algum app cortar, envie por outro meio)',
+      diffLinkErro: 'Não foi possível gerar o link. Tente de novo.',
+      diffSalvarNomePrompt: 'Nome para esse diff:',
+      diffTornarBase: 'Tornar base',
+      diffTornarBaseTooltip:
+        'Salva a versão atual (nesta tela) como a nova versão base no log, substituindo a versão anterior salva',
+      diffTornarBaseConfirmarTitulo: 'Tornar versão atual em base?',
+      diffTornarBaseConfirmarMensagem:
+        'A versão atual (mostrada nesta tela) vai substituir a versão anterior salva no log. Essa ação não pode ser desfeita.',
+      diffTornarBaseConfirmarBotao: 'Tornar base',
+      diffTornarBaseSucesso: 'Versão atual salva como base',
+      fechar: 'Fechar',
+      minimizar: 'Minimizar',
+      diffManualRestaurarPainel: 'Voltar para o Diff manual',
+      diffManualMinimizadoAviso: 'Há um Diff manual minimizado — clique para voltar',
+      // botão "sortear outra frase" da brincadeirinha da tag
+      // Instrumental (ver abrirBrincadeiraInstrumental).
+      brincadeiraInstrumentalOutra: 'Outra',
+      // painel "Diffs salvos" — lista das comparações guardadas
+      // pelo botão "Salvar" acima.
+      diffsSalvosTitulo: 'Diffs salvos',
+      diffsSalvosVazio: 'Nenhum diff salvo ainda. Use o botão "Salvar" dentro de um Diff Check ou Diff manual pra guardar uma comparação aqui.',
+      diffsSalvosExcluirConfirmar: 'Excluir esse diff salvo? Essa ação não pode ser desfeita.',
+      diffsSalvosAbrirTooltip: 'Abrir',
+      diffsSalvosExcluirTooltip: 'Excluir',
+      diffsSalvosVoltar: 'Voltar pra lista',
+      // painel "Bloco de notas" — anotações livres do usuário, com
+      // vínculo opcional a uma música e/ou a um ciclo (ver
+      // abrirBlocoDeNotas).
+      blocoDeNotasTitulo: 'Bloco de notas',
+      blocoDeNotasVazio: 'Nenhuma anotação ainda. Toque em "Nova nota" pra escrever a primeira.',
+      blocoDeNotasNovaNota: 'Nova nota',
+      blocoDeNotasEditarTooltip: 'Editar',
+      blocoDeNotasExcluirTooltip: 'Excluir',
+      blocoDeNotasExcluirConfirmar: 'Excluir essa nota? Essa ação não pode ser desfeita.',
+      blocoDeNotasPlaceholderTexto: 'Escreva sua anotação aqui...',
+      blocoDeNotasMusicaLabel: 'Música (opcional)',
+      blocoDeNotasMusicaPlaceholder: 'Buscar música pelo título...',
+      blocoDeNotasMusicaLimpar: 'Remover vínculo com música',
+      blocoDeNotasCicloLabel: 'Ciclo (opcional)',
+      blocoDeNotasCicloNenhum: 'Nenhum ciclo',
+      blocoDeNotasSalvar: 'Salvar nota',
+      blocoDeNotasCancelar: 'Cancelar',
+      blocoDeNotasVoltar: 'Voltar pra lista',
+      blocoDeNotasSemTexto: 'Escreva algo antes de salvar a nota.',
+      // painel "Ciclos" — lista os ciclos de missão do ano atual, com
+      // nome (renomeável), datas, nº de músicas e valores USD/BRL de
+      // cada um (ver abrirPainelCiclos/renderPainelCiclos).
+      ciclosTitulo: 'Ciclos',
+      cicloNumeroPadraoPrefixo: 'Ciclo',
+      cicloAtualBadge: 'Atual',
+      cicloRenomearTooltip: 'Renomear ciclo',
+      cicloVerNoLogTooltip: 'Ver no log — vai até a primeira música deste ciclo',
+      cicloRenomearPrompt: 'Nome do ciclo',
+      cicloMusicaSingular: 'música',
+      cicloMusicaPlural: 'músicas',
+      diffAvisoTelaRecomendada:
+        'O Diff Check funciona melhor nas telas de Transcrever e Sincronização — nesta tela a captura da letra pode vir incompleta ou incorreta.',
+      // preferência "Modo de captura" nas Configurações — escolhe se
+      // o Diff Check troca de aba automaticamente antes de capturar ou
+      // captura direto na tela atual (ver getModoCapturaDiffCheck).
+      diffModoCapturaLabel: 'Modo de captura do Diff Check',
+      diffModoCapturaDesc:
+        'Escolhe como o Diff Check pega a letra pra comparar. Deixe em "Rede" (recomendado) — os outros modos são só pra casos específicos.',
+      diffModoCapturaRede: 'Rede (recomendado)',
+      diffModoCapturaAuto: 'Automático',
+      diffModoCapturaAtual: 'Tela atual',
+      diffModoCapturaSincronizacao: 'Sincronização',
+      diffModoCapturaTraducao: 'Tradução',
+      diffModoCapturaAvisoTrocaManual:
+        'Rede é o único modo confiável para tags de estrutura. Trocar pra outro modo é considerado uso indevido do Diff Check — as tags podem sair incompletas ou erradas.',
+      diffModoCapturaAvisoTituloPopup: 'Tem certeza que quer trocar de modo?',
+      diffPriorizarSincronizacaoLabel: 'Priorizar Sincronização na troca automática',
+      diffPriorizarSincronizacaoDesc:
+        'Quando os modos Rede/Automático ainda precisam trocar de aba pra buscar tags, decide se essa troca vai pra Sincronização (padrão — mais confiável pra tags e instrumentais) ou pra Tradução (caminho mais novo, mas sem tags de instrumental e menos confiável pras demais tags).',
+      diffAvisoTagsIgnoradas:
+        'As tags de estrutura (#Verse, #Chorus etc.) não aparecem nesta tela e foram ignoradas nesta comparação.',
+      // a aba de Tradução (pra onde o Diff Check sempre leva) não
+      // tem nenhuma forma de mostrar um trecho instrumental — ver
+      // possuiTagInstrumental/removerLinhasDeTagInstrumental.
+      diffAvisoInstrumentalIgnorado:
+        'Esta tela não tem como mostrar trechos instrumentais — a tag "Instrumental" foi ignorada nesta comparação.',
+      opcoesBotaoBarra: 'Opções',
+      copiarLetra: 'Copiar letra',
+      copiarLetraDesc: 'Copiar a letra atual da tela',
+      letraCopiada: 'Letra copiada!',
+      // botão "Editar" no visualizador de letra (ao lado de
+      // "Copiar letra") — deixa corrigir o texto salvo direto ali, sem
+      // precisar reenviar a música.
+      editarLetra: 'Editar',
+      salvarLetra: 'Salvar',
+      letraAtualizada: 'Letra atualizada!',
+      editarLetraPlaceholder: 'Edite a letra aqui...',
+      // botão de ordenar/filtrar ao lado da primeira data no log
+      // principal.
+      ordenarFiltrarTitulo: 'Ordenar / filtrar',
+      adicionarEntradaVaziaTitulo: 'Adicionar música vazia pra preencher na mão',
+      adicionarEntradaVaziaBotao: 'Adicionar música vazia',
+      entradaVaziaAdicionadaToast: 'Música vazia adicionada. Clique nela no log pra completar título e artista.',
+      ordenarPorData: 'Data (mais recente)',
+      ordenarPorMissao: 'Missão',
+      ordenarAlfabetica: 'Ordem alfabética',
+      semMissaoLabel: 'Sem missão',
+      diffManual: 'Diff manual',
+      diffManualDesc: 'Comparar duas letras coladas manualmente',
+      diffManualTitulo: 'Diff manual — comparar duas letras',
+      diffManualLetra1: 'Letra 1',
+      diffManualLetra2: 'Letra 2',
+      diffManualPlaceholder1: 'Cole aqui a primeira letra...',
+      diffManualPlaceholder2: 'Cole aqui a segunda letra...',
+      diffManualComparar: 'Comparar',
+      diffManualNovaComparacao: 'Nova comparação',
+      diffManualPreencherAmbas: 'Cole as duas letras nos campos acima para comparar.',
+      diffManualSemDiferencas: 'As duas letras coladas são iguais — nenhuma diferença encontrada.',
+      diffManualVersao1: 'Letra 1',
+      diffManualVersao2: 'Letra 2',
+      conquistasTitulo: 'Conquistas',
+      conquistasProgresso: 'desbloqueadas',
+      conquistaDesbloqueadaToast: 'Conquista desbloqueada',
+      conquistaDesbloqueadaEm: 'Desbloqueada em',
+      conquistaBloqueada: 'Ainda não desbloqueada',
+      conquistaVerTodas: 'Ver todas',
+      conquistaMusicasTitulo: '{n} música(s) no log',
+      conquistaMusicasDesc: 'Registre {n} música(s) no seu log de envios.',
+      conquistaRecordeTitulo: 'Recorde de {n} num só dia',
+      conquistaRecordeDesc: 'Registre {n} música(s) em um único dia.',
+      conquistaSequenciaTitulo: '{n} dia(s) seguidos enviando',
+      conquistaSequenciaDesc: 'Registre pelo menos 1 música em {n} dia(s) seguidos.',
+      conquistaDiffsTitulo: '{n} diff(s) salvo(s)',
+      conquistaDiffsDesc: 'Salve {n} comparação(ões) de diff pra consultar depois.',
+      conquistaPerfilTitulo: 'Perfil com a sua cara',
+      conquistaPerfilDesc: 'Defina um nome e uma foto customizados no seu perfil.',
+      conquistaNuvemTitulo: 'Backup na nuvem',
+      conquistaNuvemDesc: 'Envie um backup completo pra nuvem pela primeira vez.',
+    },
+    en: {
+      envioRegistrado: 'Submission logged',
+      reenvioRegistrado: 'Resubmission logged',
+      instrumentalMarcado: 'Instrumental marked',
+      instrumentalAtualizado: 'Instrumental updated',
+      manual: 'manual',
+      tentativa: 'attempt',
+      id: 'Abstrack',
+      as: 'at',
+      logDeEnvios: 'Echoform',
+      integracaoPayflowTitulo: 'Echoform + Payflow',
+      integracaoPayflowTexto:
+        "We detected both extensions active in Curators Studio. Turn on the integration to see USD/BRL earnings right in your submission log.",
+      integracaoPayflowBadge: 'New integration available',
+      integracaoPayflowFeature1: 'Mission values pulled automatically into the log',
+      integracaoPayflowFeature2: 'Live exchange rate synced across both panels',
+      integracaoPayflowFeature3: "No duplicate math — a single source of truth",
+      integracaoPayflowBotaoAtivar: 'Enable integration',
+      integracaoPayflowBotaoAgoraNao: 'Not now',
+      sobreTitulo: 'About Echoform',
+      sobreDescricao:
+        "Echoform is an independent, non-profit extension, built by a curator to help other curators organize and track their own time and activity within Musixmatch Studio. It doesn't use, access, or connect to the official Musixmatch API — it only reads information already shown on screen by the user's own browser. Open source, available on GitHub.",
+      sobreLinkGithub: 'View source on GitHub',
+      tabsV3Titulo: 'Tabs V3',
+      tabsV3Subtitulo: 'New layout, same Echoform rhythm.',
+      tabsV3Changelog: [
+        'New icon for the panel theme, in the same Echoform palette.',
+        'Fine-tuned colors and spacing across tonal surfaces.',
+        'Groundwork laid for upcoming color schemes (beta).',
+      ],
+      detalhado: 'Details',
+      buscarPlaceholder: 'Search by title, artist or ID...',
+      limparBusca: 'Clear search',
+      avisoFimMesTextoPlural: '{dias} days left until the end of the month — how about reviewing your Reward summary?',
+      avisoFimMesTextoSingular: '1 day left until the end of the month — how about reviewing your Reward summary?',
+      avisoFimMesTextoHoje: "Today is the last day of the month — don't forget to review your Reward summary.",
+      avisoFimMesVerResumo: 'View summary',
+      avisoFimMesSuspender: 'Dismiss',
+      avisoFimMesSuspensoToast: 'Notice dismissed until next month.',
+      avisoResumoMesTitulo: '{mes} summary closing soon',
+      avisoResumoMesTexto: "Only a few hours left in the month — take a peek at everything you've submitted.",
+      tarefasHoje: "Today's tasks",
+      tarefasEnviadasHoje: 'tasks submitted today',
+      emRelacaoAoDiaAnterior: 'vs yesterday',
+      semMudancaOntem: 'No change from yesterday',
+      recorde: 'Record',
+      nenhumAinda: 'none yet',
+      em: 'on',
+      tarefa: 'task',
+      nenhumEnvioEncontrado: 'No submissions found.',
+      fimDaLista: 'End of list',
+      dicasListaCurtaTitulo: 'While you\'re here, a few tips',
+      logVazioTitulo: 'No submissions logged here yet.',
+      logVazioDescricao:
+        'If you already used this extension before (on another computer, browser, or after reinstalling), you can import a backup to restore your history now.',
+      logVazioImportarLocal: 'Import backup (file)',
+      logVazioImportarNuvem: 'Import from the cloud',
+      nuvemRequerGoogle: 'Requires signing in with your Google account',
+      instrumentalTag: 'Instrumental',
+      instrumentalTagTooltip: 'Click for a fun fact about instrumentals',
+      manualTag: 'Manual',
+      semDetalhesTitulo: 'No details',
+      semDetalhesTag: 'No details',
+      semDetalhesTagTooltip: "Couldn't identify this submission's title/artist. Click to fill it in manually.",
+      envioSemDetalhesToast: 'Submission logged without title/artist. Click the track in the log to complete it.',
+      editarDetalhesTitulo: 'Complete submission details',
+      editarDetalhesTituloMensagem: "What's the track title?",
+      editarDetalhesTituloPlaceholder: 'Track title',
+      editarDetalhesArtistaMensagem: 'And the artist?',
+      editarDetalhesArtistaPlaceholder: 'Artist (optional)',
+      detalhesAdicionadosToast: 'Details added to the submission.',
+      novaEntradaCanceladaToast: 'New track creation cancelled.',
+      editarDataHoraTitulo: 'Change date and time',
+      editarDataHoraMensagem: 'Adjust when this submission was logged.',
+      editarDataHoraDataLabel: 'Date',
+      editarDataHoraHoraLabel: 'Time',
+      editarDataHoraToast: 'Date and time updated.',
+      editarDataHoraErro: 'Enter a valid date and time.',
+      painelMusicaDataHoraLabel: 'Date and time',
+      painelMusicaEditarDataHoraTitulo: 'Change',
+      painelMusicaDuracaoLabel: 'Duration',
+      painelMusicaDuracaoIndisponivel: 'Not available',
+      painelMusicaMissaoLabel: 'Mission',
+      painelMusicaEditarMissaoTitulo: 'Change',
+      painelMusicaLetraLabel: 'Lyrics',
+      painelMusicaVerLetra: 'View full lyrics',
+      painelMusicaSemLetra: 'No lyrics captured for this submission.',
+      painelMusicaAdicionarLetra: 'Add lyrics',
+      painelMusicaCopiarIdTitulo: 'Copy Abstrack',
+      painelMusicaIdCopiadoToast: 'Abstrack copied.',
+      painelMusicaAbrirPaginaLabel: 'Track page',
+      painelMusicaAbrirPaginaValor: 'View on Musixmatch',
+      painelMusicaAbrirPaginaTitulo: 'Open this track\'s page',
+      painelMusicaAbrirPaginaErro: 'Could not open this track\'s page.',
+      painelMusicaAbrirStudioLabel: 'Open in Studio',
+      painelMusicaAbrirStudioValor: 'View in Curators Studio',
+      painelMusicaAbrirStudioTitulo: 'Open this track in Curators Studio',
+      painelMusicaAbrirStudioErro: 'Could not open this track in Studio.',
+      ativarTemaClaro: 'Switch to light theme',
+      voltarTemaEscuro: 'Switch back to dark theme',
+      temaClaro: 'Light theme',
+      // notification system in the main panel header (bell next to
+      // the avatar) — gathers update alerts, monthly summary ready,
+      // cloud backup reminder, and rotating feature tips.
+      notificacoes: 'Notifications',
+      notificacoesNenhuma: 'No notifications for now.',
+      notificacoesMarcarLidas: 'Mark all as read',
+      notificacoesDispensar: 'Dismiss',
+      notifUpdateTitulo: 'New version available',
+      notifResumoMensalTitulo: 'Monthly summary ready',
+      notifResumoMensalDesc: 'The summary for {mes} is ready to review and save.',
+      notifResumoMensalAcao: 'View summary',
+      notifBackupAutoTitulo: 'Automatic backup saved',
+      notifBackupAutoDesc: 'A copy of your history was saved to Downloads/MXMBackups on {data}.',
+      notifBackupAutoAcao: 'Learn more',
+      notifBackupNuvemTitulo: 'Turn on cloud backup',
+      notifBackupNuvemDesc: "Your history only exists in this browser. Turn on cloud backup so you don't lose it.",
+      notifBackupNuvemAcao: 'Enable backup',
+      notifNovidadeBackupTitulo: 'New: Backup & Restore panel',
+      notifNovidadeBackupDesc:
+        'All your backups (file, disk, cloud, and text) now live in one place, inside Useful tools.',
+      notifNovidadeBackupAcao: 'View panel',
+      notifDicaTitulo: 'Tip',
+      notifDicaTemas: 'You can switch between several Tabs V3 color schemes (and even a light theme) in Settings.',
+      notifDicaDiffCheck: 'Diff Check compares the current screen lyrics with the previous version — great for spotting what changed before resubmitting.',
+      notifDicaCopiarLetra: "You can copy the whole song's lyrics with one click, right from the Transcription or Synchronization screen.",
+      notifDicaSons: 'If the click/success/error beeps bother you, you can turn off sound effects in Settings.',
+      notifDicaDiffManual: '"Manual Diff" lets you compare any two lyrics you paste yourself, without needing to be on a specific track.',
+      notifDicaResumoDia: 'The "Today vs Record" bar in the Detailed panel shows how far you are from beating your daily record.',
+      // fixed notification explaining what the "mission cycle" is and why
+      // a specific mission can end before the month is over (see
+      // abrirExplicacaoCiclosMissoes, also opened from the next-cycle
+      // countdown window).
+      notifCicloMissoesTitulo: 'Mission cycles',
+      notifCicloMissoesDesc: "What's this? See how the cycle turnover and each mission's deadline work.",
+      notifCicloMissoesAcao: 'Learn more',
+      cicloMissoesPopupTitulo: 'What are mission cycles?',
+      cicloMissoesPopupIntro:
+        "The next-cycle countdown shows this extension's log monthly turnover — it happens automatically at 9 PM (Brasília time) on the last day of the month.",
+      cicloMissoesPopupPonto1:
+        "This log cycle only decides which month a submitted song is counted under in your history here — it's fixed and always lasts the whole month.",
+      cicloMissoesPopupPonto2:
+        "Musixmatch's own missions (the ones shown on the site's cards) have their own deadline instead: each one gets its own start and expiry date when it's unlocked for you, not necessarily aligned to the calendar month.",
+      cicloMissoesPopupPonto3:
+        "That's why a specific mission commonly disappears from the screen a few days before the month ends — its own deadline is short and independent from the log's cycle turnover, even while still inside the same month.",
+      cicloMissoesPopupPonto4:
+        "In short: this countdown shows the MONTH turnover; each mission's own deadline can end earlier than that — keep an eye on the mission cards on the site itself to know exactly when each one really expires.",
+      cicloMissoesDiagramaLog: 'Log cycle',
+      cicloMissoesDiagramaLogLegenda: 'always the whole month',
+      cicloMissoesDiagramaMissao: "Mission's deadline",
+      cicloMissoesDiagramaMissaoLegenda: 'can end earlier',
+      cicloMissoesDiagramaDia1: 'day 1',
+      cicloMissoesDiagramaFimMes: '9 PM · month end',
+      cicloMissoesPopupBotao: 'Got it',
+      abrirLogDetalhado: 'Open Detailed Log',
+      abrirDiffCheckAcao: 'Open Diff Check',
+      abrirDiffManualAcao: 'Open manual Diff',
+      letraCapturadaTag: 'Lyrics',
+      letraCapturadaTooltip: 'Full lyrics captured — click to view',
+      letraSuspeitaTooltip: 'The captured lyrics contain a term that suggests a possible mistake (e.g. "Undetermined", "English", "Portuguese", "Reward" or "task completed") — worth double-checking.',
+      confirmarFalsoPositivoLetraTitulo: 'Mark as false positive?',
+      confirmarFalsoPositivoLetraMensagem: 'The lyrics will still contain the suspicious term, but the warning will stop showing for this entry. You can still check the lyrics anytime by clicking the tag.',
+      confirmarFalsoPositivoLetraBotao: 'Mark',
+      falsoPositivoLetraMarcado: 'Warning removed — marked as false positive.',
+      verLetraTitulo: 'Full lyrics',
+      copiarLetra: 'Copy',
+      letraCopiada: 'Lyrics copied!',
+      tamanhoLetra: 'Size',
+      usoMemoriaInterna: 'Internal memory used',
+      usoMemoriaDetalhe: '{tamanho} · {n} record(s) saved',
+      exportarTxt: 'Export .txt',
+      limparTudo: 'Clear all',
+      hoje: 'Today',
+      ontem: 'Yesterday',
+      remover: 'Remove',
+      logDetalhado: 'Detailed Log',
+      hojeVsRecorde: 'Today vs Record',
+      progressoRecorde: 'Progress to record',
+      musicasPorMissao: 'Tracks per mission',
+      filtroTotal: 'Total',
+      filtroCicloAtual: 'Current cycle',
+      proximoCicloTitulo: 'Next cycle in',
+      proximoCicloDescricao: 'New mission cycle starts at 9 PM (Brasília time)',
+      cronometroEstiloSiteLabel: 'site style',
+      cronometroEstiloSiteTooltip:
+        'How Musixmatch shows mission deadlines on cards (e.g. "29 days") — this number only changes once a day, at 9 AM, unlike the real-time countdown above.',
+      resumoFixarSlide: 'Pin here (stop auto-rotating)',
+      resumoDesfixarSlide: 'Unpin (resume auto-rotating)',
+      resumoSetaAnterior: 'Previous slide',
+      resumoSetaProxima: 'Next slide',
+      cronometroCicloMainAtivar: 'Cycle timer in carousel',
+      cronometroCicloMainDescricao: 'Shows a countdown to the next mission cycle, below the search bar.',
+      popupPinoCronometroTitulo: 'Countdown pinned here',
+      popupPinoCronometroMensagem: "We left this tile on and pinned by default, so it's always showing. Click the pin again to unpin and go back to rotating between tiles.",
+      popupPinoCronometroBotao: 'Got it',
+      nenhumRegistroAinda: 'No records yet.',
+      semMissaoIdentificada: 'No mission identified',
+      duracaoDasFaixas: 'Track duration',
+      maisCurta: 'Shortest',
+      maisLonga: 'Longest',
+      nenhumaFaixaComDuracao: 'No track with a recorded duration yet (only counts for submissions from now on).',
+      horarioDePico: 'Peak hours (by time of day)',
+      sequenciaTitulo: 'Submission streak',
+      sequenciaAtualLabel: 'Current',
+      sequenciaRecordeLabel: 'Record',
+      progressoSequenciaRecorde: 'Progress towards the record',
+      distribuicaoDiaSemanaTitulo: 'Distribution by day of week',
+      ritmoEnvioTitulo: 'Pace between submissions (same session)',
+      ritmoDadosInsuficientes: 'Not enough submissions in the same session yet to calculate pace.',
+      ritmoBaseadoEm: 'based on {n} intervals, across {sessoes} work sessions',
+      evolucaoDuracaoTitulo: 'Average track duration over time',
+      evolucaoDuracaoDadosInsuficientes: 'Not enough duration data in this period to compare yet.',
+      evolucaoDuracaoEstavel: 'Average duration stable over the last few months',
+      evolucaoDuracaoMaisCurtas: 'Tracks {tempo} shorter, on average, than in {mes}',
+      evolucaoDuracaoMaisLongas: 'Tracks {tempo} longer, on average, than in {mes}',
+      // customize sections window for the Detailed Log panel (show/hide
+      // and reorder each metric by dragging).
+      personalizarPainelDetalhado: 'Customize sections',
+      personalizarPainelDetalhadoTitulo: 'Customize panel',
+      personalizarPainelDetalhadoDescricao: 'Choose what shows up here and drag the ⠿ icon to reorder.',
+      personalizarSecaoMostrar: 'Show section',
+      personalizarSecaoOcultar: 'Hide section',
+      personalizarRestaurarPadrao: 'Restore default',
+      personalizarConcluido: 'Done',
+      personalizarTodasOcultas: 'All sections are hidden — turn on at least one to see anything here.',
+      arrastarParaReordenar: 'Drag to reorder',
+      moverParaCima: 'Move up',
+      moverParaBaixo: 'Move down',
+      avisoDadosLocais:
+        "All the data on this page is estimated from this extension's own locally captured log — it does not come from MXM's servers, protected APIs, or partners. Some numbers may be inaccurate; treat this as a reference, not as absolute truth.",
+      atividadePorDia: 'Weekly activity',
+      atividadePorMes: 'Monthly activity',
+      mesAtualVsAnterior: 'Current vs previous month',
+      comparativoPeriodo: 'Period comparison',
+      mesAtual: 'Current month',
+      mesAnterior: 'Previous month',
+      emRelacaoAoMesAnterior: 'vs previous month',
+      semMudanca: 'No change from previous month',
+      semDadosMesAnterior: 'No previous month data to compare',
+      modoComparacaoMensal: 'Monthly',
+      modoComparacaoCiclo: 'Cycle',
+      cicloAnterior: 'Previous cycle',
+      emRelacaoAoCicloAnterior: 'vs previous cycle',
+      semMudancaCiclo: 'No change from previous cycle',
+      semDadosCicloAnterior: 'No previous cycle data to compare',
+      diaVsDiaEquivalente: 'Today vs same day last month',
+      diaEquivalenteMesPassado: 'Same day (last month)',
+      emRelacaoAoDiaEquivalente: 'vs same day last month',
+      semDadosDiaEquivalente: 'No data for the equivalent day to compare',
+      mostrarNumeroEnvios: 'Show submission count on the icon',
+      mostrarImagem: 'Show track artwork in the log',
+      ativarAnimacoes: 'Opening and chart animations',
+      ativarSons: 'Interface sound effects',
+      notificarPeloWindows: 'Notify via Windows (disables the extension popup)',
+      esquemaDestaque: 'Accent scheme',
+      esquemaFundo: 'Background scheme',
+      esquemaCorRoxo: 'Purple',
+      esquemaCorAzul: 'Blue',
+      esquemaCorVerde: 'Green',
+      esquemaCorRosa: 'Pink',
+      esquemaCorLaranja: 'Orange',
+      esquemaCorVermelho: 'Red',
+      esquemaCorCiano: 'Teal',
+      esquemaCorAmarelo: 'Yellow',
+      esquemaCorCoral: 'Coral',
+      esquemaCorLima: 'Lime',
+      esquemaCorEsmeralda: 'Emerald',
+      esquemaCorIndigo: 'Indigo',
+      esquemaCorVioleta: 'Violet',
+      esquemaCorMagenta: 'Magenta',
+      esquemaFundoNeutro: 'Neutral',
+      esquemaFundoQuente: 'Warm',
+      esquemaFundoFrio: 'Cool',
+      esquemaFundoVerde: 'Green',
+      esquemaFundoRosa: 'Pink',
+      esquemaFundoAzul: 'Blue',
+      esquemaFundoRoxo: 'Purple',
+      esquemaFundoPreto: 'Pure black (AMOLED)',
+      esquemaFundoVinho: 'Wine',
+      esquemaFundoAreia: 'Sand',
+      esquemaFundoMenta: 'Mint',
+      esquemaFundoOceano: 'Ocean',
+      esquemaFundoAmeixa: 'Plum',
+      escolhaTemaTitulo: 'Choose your theme',
+      escolhaTemaMensagem: 'This only shows once — you can change it anytime later in Settings.',
+      escolhaTemaConfirmar: 'Confirm',
+      escolhaTemaUsarPadrao: 'Use default',
+      termosTitulo: 'Terms of use and legal notices',
+      termosMensagemIntro: 'Before continuing, please read the notices below carefully.',
+      termosParagrafo1:
+        'Nature of the project: this is an independent, non-profit extension, built by a curator to help other curators organize and track their own time and activity within Musixmatch Studio.',
+      termosParagrafo2:
+        'How it works: this extension does not use, access, or connect to the official Musixmatch API. It works solely by reading and measuring information already shown on screen by the user\u2019s own browser, without intercepting, automating, or altering submissions on the curator\u2019s behalf. It was not built to defraud, bypass, or grant any unfair advantage in the platform\u2019s curation or reward processes.',
+      termosParagrafo3:
+        'Disclaimer of liability: use of this extension is entirely the user\u2019s own responsibility. The developer is not liable for any misuse of the tool, for decisions made based on the information displayed, or for any consequences, penalties, suspensions, or losses arising from its use.',
+      termosParagrafo4:
+        '"Musixmatch", its logo, and related trademarks are the exclusive property of Musixmatch. This extension is not an official product and is not affiliated with, sponsored by, or endorsed by the company \u2014 it is an independent project made only to help curators manage their time on the platform.',
+      termosLinkEula: 'Musixmatch Terms of Use (EULA)',
+      termosLinkSuporte: 'Musixmatch Help Center',
+      termosCheckboxLabel: 'I have read and agree to the terms and notices above.',
+      termosBotaoAceitar: 'Accept and continue',
+      termosBotaoRecusar: 'I do not accept',
+      termosRecusaTitulo: 'Terms not accepted',
+      termosRecusaMensagem: 'Without agreeing to the terms above, this extension cannot be used. This panel will now close.',
+      termosRecusaBotaoFechar: 'Close',
+      boasVindasIdiomaTitulo: 'Choose your language',
+      boasVindasIdiomaMensagem: 'Which language do you want to use the extension in?',
+      boasVindasNomeTitulo: 'What should we call you?',
+      boasVindasNomeMensagem: 'This name replaces "Curator" on your panel — you can change it anytime later.',
+      boasVindasNomePlaceholder: 'Your name',
+      boasVindasFotoTitulo: 'Make your profile yours',
+      boasVindasFotoMensagem: 'Add a profile photo and a cover for your panel, or skip and set it up later.',
+      boasVindasFotoBotaoAdicionar: 'Add profile photo',
+      boasVindasFotoBotaoTrocar: 'Change profile photo',
+      boasVindasCapaBotaoAdicionar: 'Add cover',
+      boasVindasCapaBotaoTrocar: 'Change cover',
+      continuar: 'Continue',
+      voltar: 'Back',
+      reverBoasVindas: 'Replay welcome screen',
+      modoMarcacaoManual: 'Manual marking mode',
+      nomeExtensao: 'MXM Studio',
+      idiomaIngles: 'English interface',
+      dicaModoManual: 'With manual mode on: click a row in the list = lyrics · Shift+click = instrumental.',
+      categoriaManualLabel: 'Manually marked',
+      cicloLabel: 'Cycle',
+      inicioNovoCiclo: 'New cycle begins',
+      cicloEncerrado: 'ended',
+      cicloIniciado: 'started',
+      pausarModoManual: 'Pause manual mode',
+      marcandoManualmenteLabel: 'Marking manually',
+      nenhumEnvioRegistradoAinda: 'No submissions logged yet.',
+      confirmarLimpar: 'Are you sure you want to clear the entire submission log? This cannot be undone.',
+      logApagado: 'Log cleared.',
+      debugAtivado: 'Debug mode enabled — capture logs in the console.',
+      debugDesativado: 'Debug mode disabled.',
+      opcoesDebugSecao: 'Debug mode — date simulator',
+      debugSimuladorDescricao:
+        'Simulates another date/time for everything the extension computes from "now" (mission cycle, timer, day summary, month rollover, etc.) — without touching the device\'s real clock. Time keeps flowing normally from the value you pick.',
+      debugSimuladorStatusAtivo: 'Simulation active',
+      debugSimuladorStatusInativo: 'Using the device\'s real date/time',
+      debugSimuladorAplicar: 'Apply simulated date',
+      debugSimuladorRestaurar: 'Return to real date',
+      debugSimuladorPreencherAgora: 'Fill with now',
+      debugSimuladorAtivadoToast: 'Simulated date applied — the extension now reads this as "now".',
+      debugSimuladorDesativadoToast: 'Simulation turned off — back to the real date/time.',
+      debugSimuladorSelecioneData: 'Pick a date and time before applying.',
+      debugForcarSemDetalhes: 'Force a "No details" log entry (test)',
+      debugForcarTelaIntegracaoPayflow: 'Force the Payflow integration screen (test)',
+      debugForcarSplashBoasVindas: 'Replay welcome screen (initial splash)',
+      debugSimuladorListaDescricao:
+        'Simulates, on screen only, how the list looks with 0 or 1 song — without deleting or touching your real log. Useful for testing the empty state or the "End of list" marker/short-list tips without wiping real history.',
+      debugSimuladorListaOff: 'Real list (no simulation)',
+      debugSimuladorListaVazia: 'Simulate empty list',
+      debugSimuladorListaUma: 'Simulate list with 1 song',
+      debugSimuladorListaAtivadoToast: 'List simulation active — your real log stays untouched.',
+      debugSimuladorListaDesativadoToast: 'List simulation off — back to the real list.',
+      debugAvisoBannerTexto: "If you don't know what you're doing, I'd advise leaving this mode.",
+      debugAvisoBannerBotaoSair: 'Leave debug mode',
+      avisoEntradaDemonstracaoDebug: 'This is a demo entry from the simulation — not a real song in your log.',
+      duracaoLabel: 'Duration',
+      missaoLabel: 'Mission',
+      tentativasLabel: 'attempts',
+      verLogDeEnvios: 'View submission log (right-click for options)',
+      trocarIdiomaPara: 'Language',
+      configuracoes: 'Settings',
+      layoutResumoDia: 'Today summary layout',
+      mostrarResumoDia: 'Show today summary',
+      girarResumoAutomaticamente: 'Auto-rotate summary',
+      layoutLadoLado: 'Side by side',
+      layoutTipografia: 'Text',
+      layoutChip: 'Chip',
+      importarTxt: 'Import .txt',
+      confirmarExclusaoTitulo: 'Confirm deletion',
+      confirmarExclusaoRegistro: 'Are you sure you want to remove this entry? This action cannot be undone.',
+      confirmarExclusaoLetra: 'Are you sure you want to delete the captured lyrics for this entry? This action cannot be undone.',
+      cancelar: 'Cancel',
+      ok: 'OK',
+      confirmar: 'Confirm',
+      excluir: 'Delete',
+      maisOpcoes: 'More options',
+      abrirNoSite: 'Open on site',
+      abrirNoStudio: 'Open in Studio',
+      importadosSucesso: 'entry(ies) imported',
+      ignoradosLabel: 'skipped',
+      arquivoInvalido: "Couldn't find any valid entries in that file.",
+      // full backup (.json) — data + settings.
+      backupModalTitulo: 'Restore full backup',
+      backupResumoTitulo: 'What this backup will change',
+      backupNovosRegistros: 'new song(s) in the log',
+      backupLetrasAlteradas: 'lyric(s) different from the currently saved version',
+      backupDiffsSalvosNovos: 'new saved diff(s)',
+      backupConfigsAlteradas: 'different setting(s)',
+      backupNenhumaMudanca: 'This file is identical to the data you already have — nothing to restore.',
+      backupImportarMesmoAssim: 'Import anyway',
+      backupConteudoTitulo: 'Contents of this backup',
+      backupResumoMusicas: 'Tracks',
+      backupResumoLetras: 'Saved lyrics',
+      backupVerDiferencas: 'View differences',
+      backupOcultarDiferencas: 'Hide',
+      backupBotaoRestaurar: 'Restore backup',
+      backupSucesso: 'Backup restored successfully. Reload the page to apply all visual settings.',
+      backupArquivoInvalido: "This file doesn't look like a valid full backup for this script.",
+      backupGeradoEm: 'Backup generated on',
+      backupVersaoScript: 'version',
+      backupSemLetraSalva: '(no lyrics currently saved)',
+      backupExportarCurto: 'Export full backup',
+      backupImportarCurto: 'Import full backup',
+      selecionarVarias: 'Select multiple',
+      redimensionar: 'Drag to resize',
+      selecionarBtn: 'Select',
+      sairSelecao: 'Exit selection',
+      selecionarTodas: 'Select all',
+      desmarcarTodas: 'Deselect all',
+      nenhumaSelecionada: 'No items selected',
+      itemSelecionado: 'item selected',
+      itensSelecionados: 'items selected',
+      excluirSelecionados: 'Delete selected',
+      confirmarExclusaoMultipla: 'Are you sure you want to remove the selected items? This action cannot be undone.',
+      opcoesPerfilUso: 'Usage profile',
+      perfilCompletoTitulo: 'Full',
+      perfilCompletoDescricao: 'Shows everything: general log, Today summary, Detailed panel, Reward and Compare.',
+      perfilMinimalistaTitulo: 'Minimal',
+      perfilMinimalistaDescricao:
+        'Hides Today summary, Detailed, Reward and Compare, and turns off Achievements — just the general submissions log and the lyrics tools.',
+      avisoModoMinimalista:
+        'You\'re in Minimal mode — Today summary, Detailed, Reward and Compare are hidden, and Achievements is off. Change it under "Usage profile" below.',
+      resumoDiaBloqueadoMinimalista: 'Turned off by the Minimal profile — switch to Full to adjust it.',
+      opcoesDeVisualizacao: 'Display',
+      opcoesResumoDia: 'Today summary',
+      opcoesAparencia: 'Appearance',
+      opcoesGerais: 'General',
+      buscarConfiguracao: 'Search settings...',
+      verificarAtualizacoes: 'Check for updates',
+      verificando: 'Checking...',
+      versaoAtualizada: 'You are on the latest version',
+      novaVersaoDisponivel: 'New version available',
+      baixarAtualizacao: 'Download update',
+      atualizarAgora: 'Update now',
+      novidadesVersao: "What's new in this version",
+      aplicandoAtualizacao: 'Applying update...',
+      atualizacaoAindaNaoPronta: 'Firefox is still preparing this version. Try again in a moment.',
+      atualizacaoLimitada: 'Please wait a bit before checking again.',
+      retryAtualizacaoContagem: 'Retrying in {s}s… ({n}/{max})',
+      retryAtualizacaoToqueAgora: 'Tap to retry now',
+      retryAtualizacaoEsgotado: "Couldn't update automatically after several tries. Try again later or from the AMO page.",
+      atualizacaoInstalacaoTemporaria: "This install is temporary (developer mode) — Firefox doesn't manage automatic updates for it. Download the new version from the extension's page.",
+      atualizacaoSemForcarChecagem: "Firefox doesn't allow forcing this check from here — but it's already listening in the background and will apply on its own as soon as Firefox finds the new version (on its own, or if you click \"Check for Updates\" in about:addons).",
+      abrirPaginaExtensao: "Open extension page",
+      abrirReleasesGithub: 'View Releases on GitHub',
+      copiarAboutAddons: 'Copy "about:addons"',
+      aboutAddonsCopiado: 'Copied! Paste it in the address bar and press Enter.',
+      buscandoXpiGithub: 'Looking for the .xpi on GitHub...',
+      atualizacaoAindaNaoSincronizadaGithub: "GitHub hasn't synced this version yet (sync runs periodically).",
+      erroConsultarGithub: "Couldn't reach GitHub right now.",
+      erroVerificarAtualizacao: "Couldn't check right now. Try again later.",
+      versaoInstalada: 'Installed version',
+      versaoTabsV3: 'Tabs V3 version',
+      notificarAtualizacaoAuto: 'Automatically notify about updates',
+      opcoesNotificacoes: 'Notifications',
+      notifDicasAtivar: 'Usage tips in the notification bell',
+      notifDicasAtivarDesc: 'Shows usage tips every now and then in the notification bell.',
+      extensaoAtualizada: 'Extension updated',
+      verNotasVersao: 'View extension page',
+      confirmarEnvioAtivar: 'Confirm submission before logging',
+      confirmarEnvioDesc:
+        'Waits for the green success window to appear before logging (safer, but can take a bit longer). Turn off to log as soon as you click "Submit", like before.',
+      sistemaConquistas: 'Achievement system',
+      sistemaConquistasDesc: 'Badges for milestones like song count, day streaks, and saved diffs.',
+      ferramentasUteis: 'Useful tools',
+      diffFixarTagsBeta: 'Pin tags in place',
+      betaTag: 'BETA',
+      // "Reward" tab
+      reward: 'Reward',
+      verReward: 'Reward',
+      logReward: 'Reward Log',
+      totalGanho: 'Total earned',
+      historicoDias: 'last {dias} days',
+      cotacaoAtual: 'Current rate',
+      buscandoCotacao: 'Fetching exchange rate...',
+      cotacaoIndisponivel: 'Exchange rate unavailable — using reference value',
+      rewardPorMissao: 'Reward by mission',
+      taxaEstimada: 'estimated rate',
+      tarefasAbrev: 'tasks',
+      semReward: 'No submissions with an identified mission yet.',
+      fonteWidget: 'Live data via Payflow',
+      fonteWidgetCurta: 'Live',
+      fonteLog: 'Estimated from this log — install the Payflow extension for exact data',
+      fonteLogCurta: 'Estimated',
+      poweredByPayflow: 'Powered by Payflow',
+      descontoManual: '$ {amount} deduction applied manually in the widget',
+      avisoExtensaoRewardAusente:
+        'The Payflow extension isn\'t installed, is disabled, or hasn\'t logged any mission yet — the values below are just an estimate based on this log. Install/enable the extension to see the real numbers.',
+      baixarExtensaoTotalUsdBrl: 'Download the Payflow extension on Firefox Add-ons',
+      // prompt shown when the month rolls over, offering to save
+      // the summary (song count + amount earned) of the month that ended.
+      resumoMensalTitulo: 'Save month summary',
+      resumoMensalMensagem:
+        '{mes} just ended. Want to save its summary — {qtd} song(s) submitted and {usd} ({brl}) in reward — to compare with other months later?',
+      resumoMensalBotaoSalvar: 'Save summary',
+      resumoMensalAgoraNao: 'Not now',
+      resumoMensalSalvoToast: '{mes} summary saved.',
+      // banner (no longer a popup) shown above the search bar from
+      // 21h Brasília time on the last day of the month, until the user
+      // clicks "Change cycle".
+      avisoTrocaCicloTitulo: 'Has the mission cycle already rolled over?',
+      avisoTrocaCicloMensagem:
+        "This month's mission cycle should have already rolled over (9 PM, Brasília time) even if the calendar still shows today. Confirm once you notice the change on Musixmatch.",
+      avisoTrocaCicloBotaoConfirmar: 'Change cycle',
+      avisoTrocaCicloConfirmadoToast: 'Got it — cycle changed, summary available if you want to save it.',
+      avisoDiffManualMinimizadoMensagem: 'You have a minimized Manual diff, with the comparison waiting where you left off.',
+      avisoDiffManualMinimizadoBotaoVoltar: 'Back to Manual diff',
+      // list of saved monthly summaries, shown on the Reward tab.
+      resumosMensaisTitulo: 'Saved monthly summaries',
+      resumosMensaisVazio: 'No summary saved yet — once a month rolls over, you\'ll be able to save its summary here.',
+      resumosMensaisApagar: 'Delete this summary',
+      resumosMensaisRever: 'Review this summary',
+      resumosMensaisConfirmarApagar: 'Delete this month\'s saved summary? This can\'t be undone.',
+      resumosMensaisVerAgora: 'View summary now',
+      resumosMensaisIndisponivel: 'Summary unavailable',
+      resumoAtualTitulo: 'This month\'s summary (so far)',
+      resumoAtualVerSlides: 'View as slides',
+      resumoSlidesVerCompleto: 'View full summary',
+      resumoAtualBotaoSalvar: 'Save this summary now',
+      resumoAtualBotaoAtualizar: 'Update saved summary',
+      resumoAtualFechar: 'Close',
+      resumoAtualConfirmarSobrescrever:
+        'You already have a saved summary for this month — saving again will replace it with the current numbers. Continue?',
+      resumoAtualDetalhesTitulo: 'More details for the month',
+      resumoAtualMusicaMaisLonga: 'Longest song',
+      resumoAtualMusicaMaisCurta: 'Shortest song',
+      resumoAtualLetraMaisLonga: 'Longest lyrics',
+      resumoAtualLetraMaisCurta: 'Shortest lyrics',
+      resumoAtualInstrumentais: 'Instrumentals this month',
+      resumoAtualMissaoMais: 'Mission with most submissions',
+      resumoAtualMissaoMenos: 'Mission with fewest submissions',
+      resumoAtualCaractere: '1 character',
+      resumoAtualCaracteres: '{n} characters',
+      resumoAtualVerSlides: 'View as slides',
+      resumoSlidesBRL: 'Total in Reais',
+      resumoSlidesMoedaGenerica: 'Total in {moeda}',
+      resumoSlidesUSD: 'Total in Dollars',
+      resumoSlidesTarefas: 'Tasks submitted',
+      resumoPreviewCarregando: 'Looking up preview…',
+      resumoPreviewOuvir: 'Play preview',
+      resumoPreviewTocando: 'Playing…',
+      logCapaOuvirPreviaTooltip: 'Play 30s preview',
+      logCapaPreviaIndisponivel: 'No preview found for this track.',
+      resumoSlidesCapaTitulo: 'Your {mes} recap',
+      resumoSlidesFinalTitulo: 'That was {mes}!',
+      resumoSlidesFinalTexto: "Here's to closing out another month like this.",
+      resumoSlidesAnterior: 'Previous',
+      resumoSlidesProximo: 'Next',
+      resumoSlidesComecar: 'Start',
+      resumoMusicaSilenciar: 'Mute music',
+      resumoMusicaAtivar: 'Unmute music',
+      // "Backup" settings section — automatic backup to disk, to
+      // protect data from the extension being uninstalled.
+      opcoesBackup: 'Backup',
+      backupMudouDescricao: 'Backups moved! You can now find and manage all of them in one place.',
+      backupMudouAcao: 'Open Backup & Restore',
+      // V3.5.52: standalone "Backup & Restore" panel in the "Useful
+      // tools" grid — brings together what used to be spread out
+      // (Settings → Backup, FAB menu) into one place, styled as a
+      // "safe area" for the user's data.
+      backupRestauracaoTitulo: 'Backup & Restore',
+      backupAreaSeguraTitulo: 'Your data, protected',
+      backupAreaSeguraDescricao:
+        "Nothing leaves here without you asking. Disk backup stays only on your computer; cloud backup is only sent when you enable it or click send.",
+      backupResumoMusicasProtegidas: 'track(s) in the log',
+      backupResumoDiffsProtegidos: 'saved diff(s)',
+      backupResumoResumosProtegidos: 'monthly summary(ies)',
+      backupSecaoArquivoCompleto: 'Full backup (file)',
+      backupSecaoArquivoCompletoDescricao:
+        'Generates a .json file with your entire log, saved diffs, monthly summaries and settings — to keep yourself or move to another computer.',
+      backupSecaoDisco: 'Automatic backup to disk',
+      backupSecaoNuvem: 'Cloud backup (Google)',
+      backupSecaoTextoSimples: 'Plain text log (.txt)',
+      backupSecaoTextoSimplesDescricao:
+        'Simpler format, with just the submission log as plain text — no diffs, summaries or settings. Handy for a quick read or pasting elsewhere.',
+      backupZonaRiscoTitulo: 'Danger zone',
+      backupAutomaticoAtivar: 'Automatic backup to disk',
+      backupAutomaticoDescricao:
+        "Saves a copy of your data every so often to the Downloads/MXMBackups folder, so you don't lose everything if you uninstall the extension.",
+      backupAutomaticoFazerAgora: 'Back up now',
+      backupAutomaticoRestaurar: 'Restore full backup',
+      backupAutomaticoSucesso: 'Backup saved to Downloads/MXMBackups.',
+      backupAutomaticoErro: 'Couldn\'t save the automatic backup — check the extension\'s download permissions.',
+      // cloud backup (Firebase) — complements the automatic disk
+      // backup, allowing restoring on another computer/browser.
+      nuvemDescricao: 'Sends a backup to the cloud, tied to your Google account, so you can restore it on another computer.',
+      nuvemEnviar: 'Send backup to the cloud',
+      nuvemRestaurar: 'Restore from the cloud',
+      backupNuvemAutomaticoAtivar: 'Automatic cloud backup',
+      backupNuvemAutomaticoDescricao:
+        'Sends the backup to the cloud on its own from time to time, no need to click "Send backup to the cloud". Requires having signed in with Google at least once.',
+      nuvemUltimoBackup: 'Last cloud backup: {data}',
+      nuvemUltimoBackupNunca: "You haven't made a cloud backup yet.",
+      nuvemFrequenciaTitulo: 'Automatic backup frequency',
+      nuvemFrequenciaDiaria: 'Daily',
+      nuvemFrequenciaSemanal: 'Weekly',
+      nuvemFrequenciaMensal: 'Monthly',
+      nuvemEnvioSucesso: 'Backup sent to the cloud.',
+      nuvemEnvioSucessoPartes: 'Backup sent to the cloud in {n} parts.',
+      nuvemEnvioErro: "Couldn't send the backup to the cloud — check your connection and try again.",
+      nuvemNenhumBackup: 'No backup found in the cloud yet.',
+      nuvemRestaurarErro: "Couldn't fetch the backup from the cloud — check your connection and try again.",
+      // Google Drive backup — third backup destination, separate from
+      // Firestore. Saved to a dedicated "Echoform Backups" folder in the
+      // user's own Drive.
+      backupSecaoDrive: 'Google Drive backup',
+      backupSecaoDriveDescricao:
+        "Sends a backup to your Google Drive account, in the extension's own folder, so you can restore it on another computer.",
+      driveEnviar: 'Send backup to Drive',
+      driveRestaurar: 'Restore from Drive',
+      driveRequerGoogle: 'Requires signing in with your Google account',
+      backupDriveAutomaticoAtivar: 'Automatic Drive backup',
+      backupDriveAutomaticoDescricao:
+        'Sends the backup to Drive on its own from time to time, no need to click "Send backup to Drive". Requires having signed in with Google at least once.',
+      // mission menu (right-click a track in the log)
+      definirMissao: 'Set mission',
+      outraMissao: 'Other mission...',
+      menuInstrumentalMarcar: 'Mark as instrumental',
+      menuInstrumentalDesmarcar: 'Unmark instrumental',
+      digitarNomeMissao: 'Type the mission name:',
+      // editable curator name and log comparison system
+      curator: 'Curator',
+      editarNomeCurator: 'Click to use your own name',
+      mashupMagico: 'Magic Mashup',
+      mashupMagicoAtivar: 'Roll Magic Mashup',
+      mashupMagicoIndisponivel: 'Submit more songs with saved lyrics to unlock Magic Mashup',
+      digitarNomeCurator: 'Type your name (leave blank to go back to "Curator"):',
+      // custom profile photo in the detailed log panel
+      editarFotoCurator: 'Click to change the photo',
+      alterarFoto: 'Change photo',
+      usarFotoPadrao: 'Use MXM default photo',
+      cliqueDireito: 'right-click',
+      fotoInvalida: "Couldn't use that image — try another file.",
+      // custom cover/banner + crop editor (photo and cover, both
+      // accept animated GIFs)
+      editarCapaCurator: 'Click to change the cover · right-click: more options',
+      alterarCapa: 'Change cover',
+      removerCapa: 'Remove cover',
+      recorteArrasteAviso: 'Drag the image to position it, and use the zoom to adjust the crop.',
+      recorteSalvar: 'Save crop',
+      ajustarRecorte: 'Adjust crop',
+      imagemGrandeDemais: "That image is too large — pick a file up to 8MB.",
+      comparar: 'Compare',
+      logComparacao: 'Compare Log',
+      exportarComparacao: 'Export my log',
+      importarComparacao: "Import someone else's file",
+      comparacaoSemImportacao:
+        'Export your log and ask someone else to do the same — then import their .json file here to see a side-by-side comparison.',
+      arquivoComparacaoInvalido: "That file isn't a valid comparison log.",
+      vc: 'You',
+      totalDeEnvios: 'Total submissions',
+      duracaoMedia: 'Average duration',
+      diasAtivos: 'Active days',
+      naoDisponivelAbrev: 'N/A',
+      comparadoEm: 'Comparing with',
+      trocarArquivoComparacao: 'Change file',
+      // settings menu reorganized into sections
+      opcoesComportamento: 'Behavior',
+      opcoesAtualizacoes: 'Updates',
+      opcoesExperimental: 'Experimental',
+      // new "Help" section in settings, with the option to replay
+      // the initial tutorial manually.
+      opcoesAjuda: 'Help',
+      reverTutorial: 'Replay initial tutorial',
+      // first-mount splash — empty screen (logo + phrase only) shown
+      // briefly before the real panel "assembles" over it, the very first
+      // time the user opens the extension (see mostrarSplashPrimeiraMontagem).
+      splashBoasVindasFrase: 'Welcome to Echoform',
+      splashBoasVindasLegenda: "Let's give you a quick look at how everything works here.",
+      splashBoasVindasAprender: 'Learn',
+      // initial tour (tutorial balloons, shown only once)
+      tourMissao: 'Right-click a track in the list to choose (or fix) which mission it was made for.',
+      tourFerramentas:
+        'This is where the extra tools live: Manual diff and Saved diffs (compare lyrics), switch language, Compare with another curator, Cycles, Notepad and Backup & Restore — plus Detailed and Reward, which get their own step next.',
+      tourDetalhado: 'Click here for detailed logs: tracks per mission, shortest/longest track, and peak hours.',
+      tourReward: 'Click here for payment details: total earned and estimated reward per mission.',
+      // final tour tip, pointing out where the settings live.
+      tourConfiguracoes: "This is where the script's settings live — appearance, behavior, and more. You can replay this tutorial anytime from here.",
+      // extra step showing the window is resizable — the header
+      // icon row can look "broken"/cut off in a narrower window if no one
+      // knows this corner can be dragged for more space.
+      tourRedimensionar: 'This window is resizable — drag this corner to make it bigger or smaller.',
+      tourProximo: 'Next',
+      tourEntendi: 'Got it',
+      tourPular: 'Skip',
+      diffCheck: 'Diff Check',
+      diffCheckDesc: 'Compare with last saved version',
+      diffCheckTitulo: 'Diff Check — lyrics comparison',
+      diffAvisoRecarregarTitulo: 'Before opening Diff Check',
+      diffAvisoRecarregarMensagem:
+        'For the lyrics to load more cleanly (avoiding broken comparisons), reload the page before using Diff Check.',
+      diffAvisoRecarregarBotao: 'Reload page',
+      diffAvisoRecarregarContinuar: 'Continue anyway',
+      diffAvisoRecarregarAtivarLabel: 'Warn before opening Diff Check to reload',
+      diffAvisoRecarregarDesativadoModoRede: 'Not applicable in "Network" capture mode — lyrics already load correctly straight from the network, no reload needed.',
+      diffIndoParaSincronizacao: 'Opening the Sync tab (more reliable for reading the full lyrics)...',
+      diffIndoParaTraducao: 'Opening the Translation tab...',
+      diffSemFaixa: "Couldn't identify the track on this page.",
+      diffSemVersaoSalva: "There's no saved version of these lyrics to compare yet. Submit this track at least once.",
+      diffSemCapturaAtual: "Couldn't capture the lyrics on this screen right now. Scroll until the lyrics show up and try again.",
+      diffCarregandoLetra: 'Loading the lyrics from this screen...',
+      diffAdicionadas: 'added',
+      diffRemovidas: 'removed',
+      diffVersaoAnterior: 'Previous version (saved)',
+      diffVersaoAtual: 'Current version (this screen)',
+      diffCopiar: 'Copy diff',
+      diffCopiarEstaLetra: 'Copy this lyrics',
+      diffCopiado: 'Diff copied!',
+      diffLinhas: 'line(s)',
+      diffVerComoDigitada: 'View as typed',
+      diffVerComparacao: 'View comparison',
+      diffAlinharLinhasAtivar: 'Align lines (old mode)',
+      diffAlinharLinhasDesativar: 'Independent columns (default)',
+      diffAlinharLinhasLabel: 'Align lines',
+      diffEspacoDiferenca: 'Whitespace — part of the difference',
+      diffEspacoUnidade: 'space',
+      diffEspacoUnidadePlural: 'spaces',
+      diffSalvar: 'Save',
+      diffSalvo: 'Diff saved!',
+      diffExportarHtml: 'Export HTML',
+      diffExportado: 'Diff exported!',
+      diffCompartilharLink: 'Share link',
+      diffLinkCopiado: 'Link copied! Paste it to share.',
+      diffLinkCopiadoNuvem: 'Short link copied! It expires on its own after 30 days.',
+      diffLinkCopiadoCurto: 'Short link copied! Paste it to share.',
+      diffLinkCopiadoGrande: "Link copied! (it's long — if some app cuts it off, send it another way)",
+      diffLinkErro: 'Could not generate the link. Try again.',
+      diffSalvarNomePrompt: 'Name for this diff:',
+      diffTornarBase: 'Set as base',
+      diffTornarBaseTooltip:
+        'Saves the current version (shown on this screen) as the new base version in the log, replacing the previously saved one',
+      diffTornarBaseConfirmarTitulo: 'Set current version as base?',
+      diffTornarBaseConfirmarMensagem:
+        'The current version (shown on this screen) will replace the previously saved version in the log. This action cannot be undone.',
+      diffTornarBaseConfirmarBotao: 'Set as base',
+      diffTornarBaseSucesso: 'Current version saved as base',
+      fechar: 'Close',
+      minimizar: 'Minimize',
+      diffManualRestaurarPainel: 'Back to Manual diff',
+      diffManualMinimizadoAviso: 'There is a minimized Manual diff — click to return',
+      brincadeiraInstrumentalOutra: 'Another one',
+      diffsSalvosTitulo: 'Saved diffs',
+      diffsSalvosVazio: 'No saved diffs yet. Use the "Save" button inside a Diff Check or manual Diff to keep a comparison here.',
+      diffsSalvosExcluirConfirmar: 'Delete this saved diff? This cannot be undone.',
+      diffsSalvosAbrirTooltip: 'Open',
+      diffsSalvosExcluirTooltip: 'Delete',
+      diffsSalvosVoltar: 'Back to list',
+      blocoDeNotasTitulo: 'Notepad',
+      blocoDeNotasVazio: 'No notes yet. Tap "New note" to write the first one.',
+      blocoDeNotasNovaNota: 'New note',
+      blocoDeNotasEditarTooltip: 'Edit',
+      blocoDeNotasExcluirTooltip: 'Delete',
+      blocoDeNotasExcluirConfirmar: 'Delete this note? This cannot be undone.',
+      blocoDeNotasPlaceholderTexto: 'Write your note here...',
+      blocoDeNotasMusicaLabel: 'Track (optional)',
+      blocoDeNotasMusicaPlaceholder: 'Search a track by title...',
+      blocoDeNotasMusicaLimpar: 'Remove track link',
+      blocoDeNotasCicloLabel: 'Cycle (optional)',
+      blocoDeNotasCicloNenhum: 'No cycle',
+      blocoDeNotasSalvar: 'Save note',
+      blocoDeNotasCancelar: 'Cancel',
+      blocoDeNotasVoltar: 'Back to list',
+      blocoDeNotasSemTexto: 'Write something before saving the note.',
+      ciclosTitulo: 'Cycles',
+      cicloNumeroPadraoPrefixo: 'Cycle',
+      cicloAtualBadge: 'Current',
+      cicloRenomearTooltip: 'Rename cycle',
+      cicloVerNoLogTooltip: 'View in log — jumps to this cycle\'s first song',
+      cicloRenomearPrompt: 'Cycle name',
+      cicloMusicaSingular: 'track',
+      cicloMusicaPlural: 'tracks',
+      diffAvisoTelaRecomendada:
+        'Diff Check works best on the Transcribe and Synchronization screens — on this screen, the captured lyrics may be incomplete or incorrect.',
+      diffModoCapturaLabel: 'Diff Check capture mode',
+      diffModoCapturaDesc:
+        'Chooses how Diff Check grabs the lyrics to compare. Leave it on "Network" (recommended) — the other modes are for specific cases only.',
+      diffModoCapturaRede: 'Network (recommended)',
+      diffModoCapturaAuto: 'Automatic',
+      diffModoCapturaAtual: 'Current screen',
+      diffModoCapturaSincronizacao: 'Synchronization',
+      diffModoCapturaTraducao: 'Translation',
+      diffModoCapturaAvisoTrocaManual:
+        'Network is the only reliable mode for structure tags. Switching to another mode is considered misuse of Diff Check — tags may come out incomplete or wrong.',
+      diffModoCapturaAvisoTituloPopup: 'Are you sure you want to switch modes?',
+      diffPriorizarSincronizacaoLabel: 'Prioritize Synchronization for automatic switch',
+      diffPriorizarSincronizacaoDesc:
+        "When the Network/Automatic modes still need to switch tabs to fetch tags, this decides whether that switch goes to Synchronization (default — more reliable for tags and instrumentals) or Translation (newer path, but no instrumental tags and less reliable for other tags).",
+      // see PT comment above — now just a short banner shown above
+      // the diff (the comparison still renders normally, with tag lines
+      // stripped from the saved side).
+      diffAvisoTagsIgnoradas:
+        "Structure tags (#Verse, #Chorus, etc.) don't show on this screen and were left out of this comparison.",
+      diffAvisoInstrumentalIgnorado:
+        "This screen has no way to show instrumental sections — the \"Instrumental\" tag was left out of this comparison.",
+      copiarLetra: 'Copy lyrics',
+      copiarLetraDesc: 'Copy the lyrics currently on screen',
+      letraCopiada: 'Lyrics copied!',
+      editarLetra: 'Edit',
+      salvarLetra: 'Save',
+      letraAtualizada: 'Lyrics updated!',
+      editarLetraPlaceholder: 'Edit the lyrics here...',
+      ordenarFiltrarTitulo: 'Sort / filter',
+      adicionarEntradaVaziaTitulo: 'Add an empty track to fill in by hand',
+      adicionarEntradaVaziaBotao: 'Add empty track',
+      entradaVaziaAdicionadaToast: 'Empty track added. Click it in the log to fill in title and artist.',
+      ordenarPorData: 'Date (most recent)',
+      ordenarPorMissao: 'Mission',
+      ordenarAlfabetica: 'Alphabetical order',
+      semMissaoLabel: 'No mission',
+      opcoesBotaoBarra: 'Options',
+      diffManual: 'Manual diff',
+      diffManualDesc: 'Compare two pasted-in lyrics',
+      diffManualTitulo: 'Manual diff — compare two lyrics',
+      diffManualLetra1: 'Lyrics 1',
+      diffManualLetra2: 'Lyrics 2',
+      diffManualPlaceholder1: 'Paste the first lyrics here...',
+      diffManualPlaceholder2: 'Paste the second lyrics here...',
+      diffManualComparar: 'Compare',
+      diffManualNovaComparacao: 'New comparison',
+      diffManualPreencherAmbas: 'Paste both lyrics in the fields above to compare.',
+      diffManualSemDiferencas: 'The two pasted lyrics are identical — no differences found.',
+      diffManualVersao1: 'Lyrics 1',
+      diffManualVersao2: 'Lyrics 2',
+      // achievements system — see PT comment above.
+      conquistasTitulo: 'Achievements',
+      conquistasProgresso: 'unlocked',
+      conquistaDesbloqueadaToast: 'Achievement unlocked',
+      conquistaDesbloqueadaEm: 'Unlocked on',
+      conquistaBloqueada: 'Not unlocked yet',
+      conquistaVerTodas: 'See all',
+      conquistaMusicasTitulo: '{n} song(s) in the log',
+      conquistaMusicasDesc: 'Log {n} song(s) in your submission log.',
+      conquistaRecordeTitulo: 'Record of {n} in a single day',
+      conquistaRecordeDesc: 'Log {n} song(s) in a single day.',
+      conquistaSequenciaTitulo: '{n} day(s) in a row submitting',
+      conquistaSequenciaDesc: 'Log at least 1 song on {n} day(s) in a row.',
+      conquistaDiffsTitulo: '{n} saved diff(s)',
+      conquistaDiffsDesc: 'Save {n} diff comparison(s) to check later.',
+      conquistaPerfilTitulo: 'A profile that looks like you',
+      conquistaPerfilDesc: 'Set a custom name and photo on your profile.',
+      conquistaNuvemTitulo: 'Cloud backup',
+      conquistaNuvemDesc: 'Send a full backup to the cloud for the first time.',
+    },
+    // grego, adicionado como novo idioma suportado — mesmas chaves de pt/en.
+    el: {
+      envioRegistrado: 'Η υποβολή καταγράφηκε',
+      reenvioRegistrado: 'Η επανυποβολή καταγράφηκε',
+      instrumentalMarcado: 'Σημειώθηκε ως ορχηστρικό',
+      instrumentalAtualizado: 'Το ορχηστρικό ενημερώθηκε',
+      manual: 'χειροκίνητο',
+      tentativa: 'προσπάθεια',
+      id: 'Abstrack',
+      as: 'στις',
+      logDeEnvios: 'Echoform',
+      integracaoPayflowTitulo: 'Echoform + Payflow',
+      integracaoPayflowTexto:
+        'Εντοπίσαμε και τις δύο επεκτάσεις ενεργές στο Curators Studio. Ενεργοποιήστε την ενσωμάτωση για να δείτε τα κέρδη σε USD/BRL απευθείας στο αρχείο υποβολών σας.',
+      integracaoPayflowBadge: 'Νέα ενσωμάτωση διαθέσιμη',
+      integracaoPayflowFeature1: 'Οι τιμές της αποστολής μεταφέρονται αυτόματα στο αρχείο',
+      integracaoPayflowFeature2: 'Η ισοτιμία σε πραγματικό χρόνο συγχρονίζεται και στους δύο πίνακες',
+      integracaoPayflowFeature3: 'Χωρίς διπλό υπολογισμό — μία και μοναδική πηγή αλήθειας',
+      integracaoPayflowBotaoAtivar: 'Ενεργοποίηση ενσωμάτωσης',
+      integracaoPayflowBotaoAgoraNao: 'Όχι τώρα',
+      sobreTitulo: 'Σχετικά με το Echoform',
+      sobreDescricao:
+        'Το Echoform είναι μια ανεξάρτητη, μη κερδοσκοπική επέκταση, φτιαγμένη από έναν curator για να βοηθά άλλους curators να οργανώνουν και να παρακολουθούν τον δικό τους χρόνο και δραστηριότητα στο Musixmatch Studio. Δεν χρησιμοποιεί, δεν έχει πρόσβαση ούτε συνδέεται με το επίσημο API της Musixmatch — απλώς διαβάζει πληροφορίες που ήδη εμφανίζονται στην οθόνη από το ίδιο το πρόγραμμα περιήγησης του χρήστη. Ανοιχτού κώδικα, διαθέσιμο στο GitHub.',
+      sobreLinkGithub: 'Προβολή πηγαίου κώδικα στο GitHub',
+      tabsV3Titulo: 'Tabs V3',
+      tabsV3Subtitulo: 'Νέο layout, ίδιος ρυθμός με το Echoform.',
+      tabsV3Changelog: [
+        'Νέο εικονίδιο για το θέμα του πίνακα, στην ίδια παλέτα του Echoform.',
+        'Βελτιώσεις χρωμάτων και αποστάσεων στις τονικές επιφάνειες.',
+        'Θεμέλια για τα επόμενα χρωματικά σχήματα (beta).',
+      ],
+      detalhado: 'Λεπτομέρειες',
+      buscarPlaceholder: 'Αναζήτηση με τίτλο, καλλιτέχνη ή ID...',
+      limparBusca: 'Εκκαθάριση αναζήτησης',
+      avisoFimMesTextoPlural: 'Απομένουν {dias} ημέρες μέχρι το τέλος του μήνα — τι λες να ελέγξεις τη σύνοψη Reward;',
+      avisoFimMesTextoSingular: 'Απομένει 1 ημέρα μέχρι το τέλος του μήνα — τι λες να ελέγξεις τη σύνοψη Reward;',
+      avisoFimMesTextoHoje: 'Σήμερα είναι η τελευταία ημέρα του μήνα — μην ξεχάσεις να ελέγξεις τη σύνοψη Reward.',
+      avisoFimMesVerResumo: 'Προβολή σύνοψης',
+      avisoFimMesSuspender: 'Απόρριψη',
+      avisoFimMesSuspensoToast: 'Η ειδοποίηση αποσιωπήθηκε μέχρι τον επόμενο μήνα.',
+      avisoResumoMesTitulo: 'Η σύνοψη του {mes} κλείνει σε λίγο',
+      avisoResumoMesTexto: 'Απομένουν μόνο λίγες ώρες για το τέλος του μήνα — ρίξε μια ματιά σε όσα υπέβαλες.',
+      tarefasHoje: 'Εργασίες σήμερα',
+      tarefasEnviadasHoje: 'εργασίες που υποβλήθηκαν σήμερα',
+      emRelacaoAoDiaAnterior: 'σε σχέση με χθες',
+      semMudancaOntem: 'Καμία αλλαγή σε σχέση με χθες',
+      recorde: 'Ρεκόρ',
+      nenhumAinda: 'κανένα ακόμα',
+      em: 'στις',
+      tarefa: 'εργασία',
+      nenhumEnvioEncontrado: 'Δεν βρέθηκε καμία υποβολή.',
+      fimDaLista: 'Τέλος λίστας',
+      dicasListaCurtaTitulo: 'Στο μεταξύ, μερικές συμβουλές',
+      logVazioTitulo: 'Δεν υπάρχει ακόμα καμία καταγεγραμμένη υποβολή εδώ.',
+      logVazioDescricao:
+        'Αν χρησιμοποιούσες ήδη αυτή την επέκταση παλιότερα (σε άλλον υπολογιστή, browser, ή μετά από επανεγκατάσταση), μπορείς να εισαγάγεις ένα αντίγραφο ασφαλείας για να επαναφέρεις το ιστορικό σου τώρα.',
+      logVazioImportarLocal: 'Εισαγωγή αντιγράφου (αρχείο)',
+      logVazioImportarNuvem: 'Εισαγωγή από το cloud',
+      nuvemRequerGoogle: 'Απαιτεί σύνδεση με τον λογαριασμό σας Google',
+      instrumentalTag: 'Ορχηστρικό',
+      instrumentalTagTooltip: 'Κλικ για μια περιέργεια σχετικά με τα ορχηστρικά',
+      manualTag: 'Χειροκίνητο',
+      semDetalhesTitulo: 'Χωρίς λεπτομέρειες',
+      semDetalhesTag: 'Χωρίς λεπτομέρειες',
+      semDetalhesTagTooltip: 'Δεν ήταν δυνατός ο εντοπισμός τίτλου/καλλιτέχνη αυτής της υποβολής. Κάντε κλικ για να το συμπληρώσετε χειροκίνητα.',
+      envioSemDetalhesToast: 'Η υποβολή καταγράφηκε χωρίς τίτλο/καλλιτέχνη. Κάντε κλικ στο τραγούδι στο log για να το συμπληρώσετε.',
+      editarDetalhesTitulo: 'Συμπλήρωση στοιχείων υποβολής',
+      editarDetalhesTituloMensagem: 'Ποιος είναι ο τίτλος του τραγουδιού;',
+      editarDetalhesTituloPlaceholder: 'Τίτλος τραγουδιού',
+      editarDetalhesArtistaMensagem: 'Και ο καλλιτέχνης;',
+      editarDetalhesArtistaPlaceholder: 'Καλλιτέχνης (προαιρετικό)',
+      detalhesAdicionadosToast: 'Τα στοιχεία προστέθηκαν στην υποβολή.',
+      novaEntradaCanceladaToast: 'Η δημιουργία του νέου τραγουδιού ακυρώθηκε.',
+      editarDataHoraTitulo: 'Αλλαγή ημερομηνίας και ώρας',
+      editarDataHoraMensagem: 'Προσαρμόστε πότε καταγράφηκε αυτή η υποβολή.',
+      editarDataHoraDataLabel: 'Ημερομηνία',
+      editarDataHoraHoraLabel: 'Ώρα',
+      editarDataHoraToast: 'Η ημερομηνία και ώρα ενημερώθηκαν.',
+      editarDataHoraErro: 'Συμπληρώστε έγκυρη ημερομηνία και ώρα.',
+      painelMusicaDataHoraLabel: 'Ημερομηνία και ώρα',
+      painelMusicaEditarDataHoraTitulo: 'Αλλαγή',
+      painelMusicaDuracaoLabel: 'Διάρκεια',
+      painelMusicaDuracaoIndisponivel: 'Μη διαθέσιμο',
+      painelMusicaMissaoLabel: 'Αποστολή',
+      painelMusicaEditarMissaoTitulo: 'Αλλαγή',
+      painelMusicaLetraLabel: 'Στίχοι',
+      painelMusicaVerLetra: 'Προβολή πλήρων στίχων',
+      painelMusicaSemLetra: 'Δεν έχουν καταγραφεί στίχοι για αυτήν την υποβολή.',
+      painelMusicaAdicionarLetra: 'Προσθήκη στίχων',
+      painelMusicaCopiarIdTitulo: 'Αντιγραφή Abstrack',
+      painelMusicaIdCopiadoToast: 'Το Abstrack αντιγράφηκε.',
+      painelMusicaAbrirPaginaLabel: 'Σελίδα του τραγουδιού',
+      painelMusicaAbrirPaginaValor: 'Προβολή στο Musixmatch',
+      painelMusicaAbrirPaginaTitulo: 'Άνοιγμα της σελίδας αυτού του τραγουδιού',
+      painelMusicaAbrirPaginaErro: 'Δεν ήταν δυνατό το άνοιγμα της σελίδας αυτού του τραγουδιού.',
+      painelMusicaAbrirStudioLabel: 'Άνοιγμα στο Studio',
+      painelMusicaAbrirStudioValor: 'Προβολή στο Curators Studio',
+      painelMusicaAbrirStudioTitulo: 'Άνοιγμα αυτού του τραγουδιού στο Curators Studio',
+      painelMusicaAbrirStudioErro: 'Δεν ήταν δυνατό το άνοιγμα αυτού του τραγουδιού στο Studio.',
+      ativarTemaClaro: 'Ενεργοποίηση φωτεινού θέματος',
+      voltarTemaEscuro: 'Επιστροφή στο σκοτεινό θέμα',
+      temaClaro: 'Φωτεινό θέμα',
+      // σύστημα ειδοποιήσεων στην κεφαλίδα του κύριου πίνακα (καμπανάκι
+      // δίπλα στο avatar) — ενημερώσεις, μηνιαία σύνοψη έτοιμη, υπενθύμιση
+      // backup στο cloud, και εναλλασσόμενες συμβουλές λειτουργιών.
+      notificacoes: 'Ειδοποιήσεις',
+      notificacoesNenhuma: 'Καμία ειδοποίηση προς το παρόν.',
+      notificacoesMarcarLidas: 'Σήμανση όλων ως αναγνωσμένα',
+      notificacoesDispensar: 'Απόρριψη',
+      notifUpdateTitulo: 'Νέα έκδοση διαθέσιμη',
+      notifResumoMensalTitulo: 'Η μηνιαία σύνοψη είναι έτοιμη',
+      notifResumoMensalDesc: 'Η σύνοψη του {mes} είναι έτοιμη για έλεγχο και αποθήκευση.',
+      notifResumoMensalAcao: 'Προβολή σύνοψης',
+      notifBackupAutoTitulo: 'Το αυτόματο backup αποθηκεύτηκε',
+      notifBackupAutoDesc: 'Ένα αντίγραφο του ιστορικού σου αποθηκεύτηκε στο Downloads/MXMBackups στις {data}.',
+      notifBackupAutoAcao: 'Μάθε περισσότερα',
+      notifBackupNuvemTitulo: 'Ενεργοποίησε το backup στο cloud',
+      notifBackupNuvemDesc: 'Το ιστορικό σου υπάρχει μόνο σε αυτό το πρόγραμμα περιήγησης. Ενεργοποίησε το backup στο cloud για να μην το χάσεις.',
+      notifBackupNuvemAcao: 'Ενεργοποίηση backup',
+      notifNovidadeBackupTitulo: 'Νέο: πίνακας Αντίγραφο & Επαναφορά',
+      notifNovidadeBackupDesc:
+        'Όλα τα αντίγραφα ασφαλείας σου (αρχείο, δίσκος, cloud και κείμενο) βρίσκονται πλέον σε ένα μέρος, μέσα στα Χρήσιμα εργαλεία.',
+      notifNovidadeBackupAcao: 'Προβολή πίνακα',
+      notifDicaTitulo: 'Συμβουλή',
+      notifDicaTemas: 'Μπορείς να αλλάξεις μεταξύ πολλών χρωματικών συνδυασμών Tabs V3 (ακόμα και φωτεινό θέμα) στις Ρυθμίσεις.',
+      notifDicaDiffCheck: 'Το Diff Check συγκρίνει τους στίχους της τρέχουσας οθόνης με την προηγούμενη έκδοση — ιδανικό για να βρεις τι άλλαξε πριν ξαναστείλεις.',
+      notifDicaCopiarLetra: 'Μπορείς να αντιγράψεις ολόκληρους τους στίχους με ένα κλικ, απευθείας από την οθόνη Μεταγραφής ή Συγχρονισμού.',
+      notifDicaSons: 'Αν σε ενοχλούν οι ήχοι κλικ/επιτυχίας/σφάλματος, μπορείς να τους απενεργοποιήσεις στις Ρυθμίσεις.',
+      notifDicaDiffManual: 'Το "Diff manual" σου επιτρέπει να συγκρίνεις δύο στίχους που επικολλάς εσύ, χωρίς να χρειάζεται να είσαι σε συγκεκριμένο κομμάτι.',
+      notifDicaResumoDia: 'Η μπάρα "Σήμερα vs Ρεκόρ" στον Αναλυτικό πίνακα δείχνει πόσο απέχεις από το να σπάσεις το ημερήσιο ρεκόρ σου.',
+      // σταθερή ειδοποίηση που εξηγεί τι είναι ο "κύκλος αποστολών" και
+      // γιατί μια συγκεκριμένη αποστολή μπορεί να λήξει πριν το τέλος
+      // του μήνα (βλ. abrirExplicacaoCiclosMissoes, ανοίγει και από το
+      // παράθυρο αντίστροφης μέτρησης του επόμενου κύκλου).
+      notifCicloMissoesTitulo: 'Κύκλοι αποστολών',
+      notifCicloMissoesDesc: 'Τι είναι αυτό; Δες πώς λειτουργεί η αλλαγή κύκλου και η προθεσμία κάθε αποστολής.',
+      notifCicloMissoesAcao: 'Μάθε περισσότερα',
+      cicloMissoesPopupTitulo: 'Τι είναι οι κύκλοι αποστολών;',
+      cicloMissoesPopupIntro:
+        'Η αντίστροφη μέτρηση του επόμενου κύκλου δείχνει τη μηνιαία αλλαγή του ημερολογίου αυτής της επέκτασης — συμβαίνει αυτόματα στις 21:00 (ώρα Μπραζίλια) την τελευταία μέρα του μήνα.',
+      cicloMissoesPopupPonto1:
+        'Αυτός ο κύκλος του ημερολογίου αποφασίζει μόνο σε ποιον μήνα μετράει ένα τραγούδι που στάλθηκε εδώ στο ιστορικό σου — είναι σταθερός και διαρκεί πάντα όλο τον μήνα.',
+      cicloMissoesPopupPonto2:
+        'Οι ίδιες οι αποστολές της Musixmatch (αυτές που εμφανίζονται στις κάρτες του site) έχουν τη δική τους προθεσμία: η καθεμία παίρνει τη δική της ημερομηνία έναρξης και λήξης όταν ξεκλειδώνεται για εσένα, όχι απαραίτητα ευθυγραμμισμένη με το ημερολογιακό μήνα.',
+      cicloMissoesPopupPonto3:
+        'Γι\' αυτό είναι συνηθισμένο μια συγκεκριμένη αποστολή να εξαφανίζεται από την οθόνη μερικές μέρες πριν το τέλος του μήνα — η δική της προθεσμία είναι μικρότερη και ανεξάρτητη από την αλλαγή κύκλου του ημερολογίου, ακόμη κι αν βρίσκεται μέσα στον ίδιο μήνα.',
+      cicloMissoesPopupPonto4:
+        'Συνοπτικά: αυτή η αντίστροφη μέτρηση δείχνει την αλλαγή του ΜΗΝΑ· η προθεσμία κάθε αποστολής μπορεί να λήξει νωρίτερα — παρακολούθησε τις κάρτες αποστολών στο ίδιο το site για να ξέρεις πότε λήγει πραγματικά η καθεμία.',
+      cicloMissoesDiagramaLog: 'Κύκλος του αρχείου',
+      cicloMissoesDiagramaLogLegenda: 'πάντα όλος ο μήνας',
+      cicloMissoesDiagramaMissao: 'Προθεσμία αποστολής',
+      cicloMissoesDiagramaMissaoLegenda: 'μπορεί να λήξει νωρίτερα',
+      cicloMissoesDiagramaDia1: '1η μέρα',
+      cicloMissoesDiagramaFimMes: '21:00 · τέλος μήνα',
+      cicloMissoesPopupBotao: 'Κατάλαβα',
+      abrirLogDetalhado: 'Άνοιγμα λεπτομερούς αρχείου',
+      abrirDiffCheckAcao: 'Άνοιγμα Diff Check',
+      abrirDiffManualAcao: 'Άνοιγμα χειροκίνητου Diff',
+      letraCapturadaTag: 'Στίχοι',
+      letraCapturadaTooltip: 'Πλήρεις στίχοι καταγράφηκαν — κλικ για προβολή',
+      letraSuspeitaTooltip: 'Οι καταγεγραμμένοι στίχοι περιέχουν έναν όρο που υποδηλώνει πιθανό σφάλμα (π.χ. "Undetermined", "English", "Portuguese", "Reward" ή "task completed") — αξίζει να το ελέγξετε.',
+      confirmarFalsoPositivoLetraTitulo: 'Επισήμανση ως εσφαλμένη ειδοποίηση;',
+      confirmarFalsoPositivoLetraMensagem: 'Οι στίχοι θα εξακολουθούν να περιέχουν τον ύποπτο όρο, αλλά η προειδοποίηση δεν θα εμφανίζεται πλέον για αυτήν την καταχώρηση. Μπορείτε να δείτε τους στίχους ανά πάσα στιγμή κάνοντας κλικ στην ετικέτα.',
+      confirmarFalsoPositivoLetraBotao: 'Επισήμανση',
+      falsoPositivoLetraMarcado: 'Η προειδοποίηση αφαιρέθηκε — επισημάνθηκε ως εσφαλμένη.',
+      verLetraTitulo: 'Πλήρεις στίχοι',
+      copiarLetra: 'Αντιγραφή',
+      letraCopiada: 'Οι στίχοι αντιγράφηκαν!',
+      tamanhoLetra: 'Μέγεθος',
+      usoMemoriaInterna: 'Εσωτερική μνήμη σε χρήση',
+      usoMemoriaDetalhe: '{tamanho} · {n} καταχώρηση(εις) αποθηκευμένη(ες)',
+      exportarTxt: 'Εξαγωγή .txt',
+      limparTudo: 'Εκκαθάριση όλων',
+      hoje: 'Σήμερα',
+      ontem: 'Χθες',
+      remover: 'Αφαίρεση',
+      logDetalhado: 'Λεπτομερές Αρχείο',
+      hojeVsRecorde: 'Σήμερα vs Ρεκόρ',
+      progressoRecorde: 'Πρόοδος προς το ρεκόρ',
+      musicasPorMissao: 'Τραγούδια ανά αποστολή',
+      filtroTotal: 'Σύνολο',
+      filtroCicloAtual: 'Τρέχων κύκλος',
+      proximoCicloTitulo: 'Επόμενος κύκλος σε',
+      proximoCicloDescricao: 'Νέος κύκλος αποστολών ξεκινά στις 21:00 (ώρα Μπραζίλια)',
+      cronometroEstiloSiteLabel: 'στυλ ιστότοπου',
+      cronometroEstiloSiteTooltip:
+        'Πώς η Musixmatch εμφανίζει προθεσμίες αποστολών στις κάρτες (π.χ. "29 days") — αυτός ο αριθμός αλλάζει μόνο μία φορά την ημέρα, στις 9 π.μ., σε αντίθεση με το χρονόμετρο πραγματικού χρόνου παραπάνω.',
+      resumoFixarSlide: 'Καρφίτσωμα εδώ (διακοπή αυτόματης εναλλαγής)',
+      resumoDesfixarSlide: 'Ξεκαρφίτσωμα (συνέχιση αυτόματης εναλλαγής)',
+      resumoSetaAnterior: 'Προηγούμενη διαφάνεια',
+      resumoSetaProxima: 'Επόμενη διαφάνεια',
+      cronometroCicloMainAtivar: 'Χρονόμετρο κύκλου στο καρουζέλ',
+      cronometroCicloMainDescricao: 'Εμφανίζει αντίστροφη μέτρηση για τον επόμενο κύκλο αποστολών, κάτω από τη γραμμή αναζήτησης.',
+      popupPinoCronometroTitulo: 'Αντίστροφη μέτρηση καρφιτσωμένη εδώ',
+      popupPinoCronometroMensagem: 'Αφήσαμε αυτή την πλακέτα ενεργή και καρφιτσωμένη από προεπιλογή, ώστε να εμφανίζεται πάντα. Κάντε ξανά κλικ στην καρφίτσα για να την ξεκαρφιτσώσετε και να επιστρέψετε στην εναλλαγή μεταξύ πλακετών.',
+      popupPinoCronometroBotao: 'Κατάλαβα',
+      nenhumRegistroAinda: 'Καμία καταχώρηση ακόμα.',
+      semMissaoIdentificada: 'Δεν εντοπίστηκε αποστολή',
+      duracaoDasFaixas: 'Διάρκεια κομματιών',
+      maisCurta: 'Συντομότερο',
+      maisLonga: 'Μακρύτερο',
+      nenhumaFaixaComDuracao:
+        'Δεν υπάρχει ακόμα κομμάτι με καταγεγραμμένη διάρκεια (ισχύει μόνο για υποβολές από τώρα και μετά).',
+      horarioDePico: 'Ώρες αιχμής (ανά ώρα της ημέρας)',
+      sequenciaTitulo: 'Σερί υποβολών',
+      sequenciaAtualLabel: 'Τρέχον',
+      sequenciaRecordeLabel: 'Ρεκόρ',
+      progressoSequenciaRecorde: 'Πρόοδος προς το ρεκόρ',
+      distribuicaoDiaSemanaTitulo: 'Κατανομή ανά ημέρα εβδομάδας',
+      ritmoEnvioTitulo: 'Ρυθμός μεταξύ υποβολών (ίδια συνεδρία)',
+      ritmoDadosInsuficientes: 'Δεν υπάρχουν ακόμα αρκετές υποβολές στην ίδια συνεδρία για να υπολογιστεί ο ρυθμός.',
+      ritmoBaseadoEm: 'με βάση {n} διαστήματα, σε {sessoes} συνεδρίες εργασίας',
+      evolucaoDuracaoTitulo: 'Εξέλιξη μέσης διάρκειας τραγουδιών',
+      evolucaoDuracaoDadosInsuficientes: 'Δεν υπάρχουν ακόμα αρκετά δεδομένα διάρκειας σε αυτή την περίοδο για σύγκριση.',
+      evolucaoDuracaoEstavel: 'Σταθερή μέση διάρκεια τους τελευταίους μήνες',
+      evolucaoDuracaoMaisCurtas: 'Τραγούδια κατά {tempo} πιο σύντομα, κατά μέσο όρο, σε σχέση με {mes}',
+      evolucaoDuracaoMaisLongas: 'Τραγούδια κατά {tempo} πιο μακρά, κατά μέσο όρο, σε σχέση με {mes}',
+      // παράθυρο προσαρμογής ενοτήτων του πίνακα Λεπτομερούς Αρχείου
+      // (εμφάνιση/απόκρυψη και αναδιάταξη κάθε μετρικής με μεταφορά).
+      personalizarPainelDetalhado: 'Προσαρμογή ενοτήτων',
+      personalizarPainelDetalhadoTitulo: 'Προσαρμογή πίνακα',
+      personalizarPainelDetalhadoDescricao: 'Επιλέξτε τι εμφανίζεται εδώ και σύρετε το εικονίδιο ⠿ για αλλαγή σειράς.',
+      personalizarSecaoMostrar: 'Εμφάνιση ενότητας',
+      personalizarSecaoOcultar: 'Απόκρυψη ενότητας',
+      personalizarRestaurarPadrao: 'Επαναφορά προεπιλογής',
+      personalizarConcluido: 'Ολοκληρώθηκε',
+      personalizarTodasOcultas: 'Όλες οι ενότητες είναι κρυφές — ενεργοποιήστε τουλάχιστον μία για να δείτε κάτι εδώ.',
+      arrastarParaReordenar: 'Σύρετε για αναδιάταξη',
+      moverParaCima: 'Μετακίνηση επάνω',
+      moverParaBaixo: 'Μετακίνηση κάτω',
+      avisoDadosLocais:
+        'Όλα τα δεδομένα σε αυτή τη σελίδα εκτιμώνται από το αρχείο που καταγράφεται τοπικά από αυτή την επέκταση — δεν προέρχονται από τους διακομιστές του MXM, τα προστατευμένα API του ή συνεργάτες. Ορισμένοι αριθμοί μπορεί να είναι ανακριβείς· χρησιμοποιήστε τα ως αναφορά, όχι ως απόλυτη αλήθεια.',
+      atividadePorDia: 'Εβδομαδιαία δραστηριότητα',
+      atividadePorMes: 'Μηνιαία δραστηριότητα',
+      mesAtualVsAnterior: 'Τρέχων μήνας vs προηγούμενος',
+      comparativoPeriodo: 'Σύγκριση περιόδου',
+      mesAtual: 'Τρέχων μήνας',
+      mesAnterior: 'Προηγούμενος μήνας',
+      emRelacaoAoMesAnterior: 'σε σχέση με τον προηγούμενο μήνα',
+      semMudanca: 'Καμία αλλαγή σε σχέση με τον προηγούμενο μήνα',
+      semDadosMesAnterior: 'Δεν υπάρχουν δεδομένα προηγούμενου μήνα για σύγκριση',
+      modoComparacaoMensal: 'Μηνιαίο',
+      modoComparacaoCiclo: 'Κύκλος',
+      cicloAnterior: 'Προηγούμενος κύκλος',
+      emRelacaoAoCicloAnterior: 'σε σχέση με τον προηγούμενο κύκλο',
+      semMudancaCiclo: 'Καμία αλλαγή σε σχέση με τον προηγούμενο κύκλο',
+      semDadosCicloAnterior: 'Δεν υπάρχουν δεδομένα προηγούμενου κύκλου για σύγκριση',
+      diaVsDiaEquivalente: 'Σήμερα vs ίδια μέρα τον προηγούμενο μήνα',
+      diaEquivalenteMesPassado: 'Ίδια μέρα (προηγούμενος μήνας)',
+      emRelacaoAoDiaEquivalente: 'σε σχέση με την ίδια μέρα τον προηγούμενο μήνα',
+      semDadosDiaEquivalente: 'Δεν υπάρχουν δεδομένα για την αντίστοιχη μέρα για σύγκριση',
+      mostrarNumeroEnvios: 'Εμφάνιση αριθμού υποβολών στο εικονίδιο',
+      mostrarImagem: 'Εμφάνιση εξωφύλλου τραγουδιού στο αρχείο',
+      ativarAnimacoes: 'Κινούμενα εφέ ανοίγματος και γραφημάτων',
+      ativarSons: 'Ηχητικά εφέ διεπαφής',
+      notificarPeloWindows: 'Ειδοποίηση μέσω Windows (απενεργοποιεί το αναδυόμενο παράθυρο)',
+      esquemaDestaque: 'Χρώμα έμφασης',
+      esquemaFundo: 'Χρώμα φόντου',
+      esquemaCorRoxo: 'Μοβ',
+      esquemaCorAzul: 'Μπλε',
+      esquemaCorVerde: 'Πράσινο',
+      esquemaCorRosa: 'Ροζ',
+      esquemaCorLaranja: 'Πορτοκαλί',
+      esquemaCorVermelho: 'Κόκκινο',
+      esquemaCorCiano: 'Τιρκουάζ',
+      esquemaCorAmarelo: 'Κίτρινο',
+      esquemaCorCoral: 'Κοραλλί',
+      esquemaCorLima: 'Λάιμ',
+      esquemaCorEsmeralda: 'Σμαραγδί',
+      esquemaCorIndigo: 'Λουλακί',
+      esquemaCorVioleta: 'Βιολετί',
+      esquemaCorMagenta: 'Ματζέντα',
+      esquemaFundoNeutro: 'Ουδέτερο',
+      esquemaFundoQuente: 'Θερμό',
+      esquemaFundoFrio: 'Ψυχρό',
+      esquemaFundoVerde: 'Πράσινο',
+      esquemaFundoRosa: 'Ροζ',
+      esquemaFundoAzul: 'Μπλε',
+      esquemaFundoRoxo: 'Μοβ',
+      esquemaFundoPreto: 'Καθαρό μαύρο (AMOLED)',
+      esquemaFundoVinho: 'Μπορντό',
+      esquemaFundoAreia: 'Άμμος',
+      esquemaFundoMenta: 'Μέντα',
+      esquemaFundoOceano: 'Ωκεανός',
+      esquemaFundoAmeixa: 'Δαμάσκηνο',
+      escolhaTemaTitulo: 'Επιλέξτε το θέμα σας',
+      escolhaTemaMensagem: 'Αυτό εμφανίζεται μόνο μία φορά — μπορείτε να το αλλάξετε αργότερα στις Ρυθμίσεις.',
+      escolhaTemaConfirmar: 'Επιβεβαίωση',
+      escolhaTemaUsarPadrao: 'Χρήση προεπιλογής',
+      termosTitulo: 'Όροι χρήσης και νομικές ειδοποιήσεις',
+      termosMensagemIntro: 'Πριν συνεχίσετε, διαβάστε προσεκτικά τις παρακάτω ειδοποιήσεις.',
+      termosParagrafo1:
+        'Φύση του έργου: πρόκειται για μια ανεξάρτητη, μη κερδοσκοπική επέκταση, φτιαγμένη από έναν curator για να βοηθά άλλους curators να οργανώνουν και να παρακολουθούν τον δικό τους χρόνο και δραστηριότητα στο Musixmatch Studio.',
+      termosParagrafo2:
+        'Τρόπος λειτουργίας: η επέκταση δεν χρησιμοποιεί, δεν έχει πρόσβαση και δεν συνδέεται με το επίσημο API της Musixmatch. Λειτουργεί αποκλειστικά διαβάζοντας και μετρώντας πληροφορίες που ήδη εμφανίζονται στην οθόνη από το πρόγραμμα περιήγησης του χρήστη, χωρίς να παρεμβαίνει, να αυτοματοποιεί ή να μεταβάλλει υποβολές εκ μέρους του curator. Δεν δημιουργήθηκε με σκοπό την απάτη, την καταστρατήγηση ή την παροχή αθέμιτου πλεονεκτήματος στις διαδικασίες επιμέλειας ή ανταμοιβής της πλατφόρμας.',
+      termosParagrafo3:
+        'Αποποίηση ευθύνης: η χρήση αυτής της επέκτασης γίνεται με αποκλειστική ευθύνη του χρήστη. Ο δημιουργός δεν φέρει ευθύνη για τυχόν κακή χρήση του εργαλείου, για αποφάσεις που λαμβάνονται με βάση τις εμφανιζόμενες πληροφορίες, ούτε για οποιεσδήποτε συνέπειες, ποινές, αναστολές ή απώλειες που προκύπτουν από τη χρήση της επέκτασης.',
+      termosParagrafo4:
+        'Το "Musixmatch", το λογότυπό του και τα σχετικά εμπορικά σήματα ανήκουν αποκλειστικά στη Musixmatch. Αυτή η επέκταση δεν είναι επίσημο προϊόν και δεν συνδέεται, δεν χορηγείται ούτε εγκρίνεται από την εταιρεία — είναι ένα ανεξάρτητο έργο που φτιάχτηκε μόνο για να βοηθά τον curator να διαχειρίζεται καλύτερα τον χρόνο του στην πλατφόρμα.',
+      termosLinkEula: 'Όροι Χρήσης (EULA) της Musixmatch',
+      termosLinkSuporte: 'Κέντρο Υποστήριξης της Musixmatch',
+      termosCheckboxLabel: 'Διάβασα και συμφωνώ με τους παραπάνω όρους και ειδοποιήσεις.',
+      termosBotaoAceitar: 'Αποδοχή και συνέχεια',
+      termosBotaoRecusar: 'Δεν αποδέχομαι',
+      termosRecusaTitulo: 'Οι όροι δεν έγιναν αποδεκτοί',
+      termosRecusaMensagem: 'Χωρίς αποδοχή των παραπάνω όρων, δεν είναι δυνατή η χρήση αυτής της επέκτασης. Αυτό το παράθυρο θα κλείσει τώρα.',
+      termosRecusaBotaoFechar: 'Κλείσιμο',
+      boasVindasIdiomaTitulo: 'Επιλέξτε τη γλώσσα σας',
+      boasVindasIdiomaMensagem: 'Σε ποια γλώσσα θέλετε να χρησιμοποιήσετε την επέκταση;',
+      boasVindasNomeTitulo: 'Πώς να σας αποκαλούμε;',
+      boasVindasNomeMensagem: 'Αυτό το όνομα αντικαθιστά το "Curator" στον πίνακά σας — μπορείτε να το αλλάξετε αργότερα.',
+      boasVindasNomePlaceholder: 'Το όνομά σας',
+      boasVindasFotoTitulo: 'Κάντε το προφίλ σας δικό σας',
+      boasVindasFotoMensagem: 'Προσθέστε μια φωτογραφία προφίλ και ένα εξώφυλλο για τον πίνακά σας, ή παραλείψτε και ρυθμίστε το αργότερα.',
+      boasVindasFotoBotaoAdicionar: 'Προσθήκη φωτογραφίας προφίλ',
+      boasVindasFotoBotaoTrocar: 'Αλλαγή φωτογραφίας προφίλ',
+      boasVindasCapaBotaoAdicionar: 'Προσθήκη εξωφύλλου',
+      boasVindasCapaBotaoTrocar: 'Αλλαγή εξωφύλλου',
+      continuar: 'Συνέχεια',
+      voltar: 'Πίσω',
+      reverBoasVindas: 'Επανάληψη οθόνης καλωσορίσματος',
+      modoMarcacaoManual: 'Λειτουργία χειροκίνητης σήμανσης',
+      idiomaIngles: 'Διεπαφή στα αγγλικά',
+      dicaModoManual: 'Με τη χειροκίνητη λειτουργία ενεργή: κλικ σε γραμμή της λίστας = στίχοι · Shift+κλικ = ορχηστρικό.',
+      categoriaManualLabel: 'Επισημασμένα χειροκίνητα',
+      cicloLabel: 'Κύκλος',
+      inicioNovoCiclo: 'Έναρξη νέου κύκλου',
+      cicloEncerrado: 'ολοκληρώθηκε',
+      cicloIniciado: 'ξεκίνησε',
+      pausarModoManual: 'Παύση χειροκίνητης λειτουργίας',
+      marcandoManualmenteLabel: 'Χειροκίνητη σήμανση',
+      nomeExtensao: 'MXM Studio',
+      nenhumEnvioRegistradoAinda: 'Καμία υποβολή δεν έχει καταγραφεί ακόμα.',
+      confirmarLimpar: 'Είστε σίγουρος/η ότι θέλετε να διαγράψετε όλο το αρχείο υποβολών; Αυτή η ενέργεια δεν μπορεί να αναιρεθεί.',
+      logApagado: 'Το αρχείο διαγράφηκε.',
+      debugAtivado: 'Λειτουργία εντοπισμού σφαλμάτων ενεργή — logs στην κονσόλα.',
+      debugDesativado: 'Λειτουργία εντοπισμού σφαλμάτων ανενεργή.',
+      opcoesDebugSecao: 'Λειτουργία εντοπισμού σφαλμάτων — προσομοιωτής ημερομηνίας',
+      debugSimuladorDescricao:
+        'Προσομοιώνει άλλη ημερομηνία/ώρα για ό,τι η επέκταση υπολογίζει από το "τώρα" (κύκλος αποστολών, χρονόμετρο, περίληψη ημέρας, αλλαγή μήνα κ.λπ.) — χωρίς να πειράξει το πραγματικό ρολόι της συσκευής. Ο χρόνος συνεχίζει να τρέχει κανονικά από την τιμή που επιλέξατε.',
+      debugSimuladorStatusAtivo: 'Η προσομοίωση είναι ενεργή',
+      debugSimuladorStatusInativo: 'Χρησιμοποιείται η πραγματική ημερομηνία/ώρα της συσκευής',
+      debugSimuladorAplicar: 'Εφαρμογή προσομοιωμένης ημερομηνίας',
+      debugSimuladorRestaurar: 'Επιστροφή στην πραγματική ημερομηνία',
+      debugSimuladorPreencherAgora: 'Συμπλήρωση με το τώρα',
+      debugSimuladorAtivadoToast: 'Η προσομοιωμένη ημερομηνία εφαρμόστηκε — η επέκταση τη διαβάζει πλέον ως "τώρα".',
+      debugSimuladorDesativadoToast: 'Η προσομοίωση απενεργοποιήθηκε — επιστροφή στην πραγματική ημερομηνία/ώρα.',
+      debugSimuladorSelecioneData: 'Επιλέξτε ημερομηνία και ώρα πριν εφαρμόσετε.',
+      debugForcarSemDetalhes: 'Εξαναγκασμός εγγραφής "Χωρίς λεπτομέρειες" στο log (δοκιμή)',
+      debugForcarTelaIntegracaoPayflow: 'Εξαναγκασμός οθόνης ενσωμάτωσης με το Payflow (δοκιμή)',
+      debugForcarSplashBoasVindas: 'Επανάληψη οθόνης καλωσορίσματος (αρχική οθόνη)',
+      debugSimuladorListaDescricao:
+        'Προσομοιώνει, μόνο στην οθόνη, πώς φαίνεται η λίστα με 0 ή 1 τραγούδι — χωρίς διαγραφή ή αλλαγή του πραγματικού σας ιστορικού. Χρήσιμο για δοκιμή της κενής κατάστασης ή της ένδειξης "Τέλος λίστας"/συμβουλών μικρής λίστας χωρίς να διαγράψετε το πραγματικό ιστορικό.',
+      debugSimuladorListaOff: 'Πραγματική λίστα (χωρίς προσομοίωση)',
+      debugSimuladorListaVazia: 'Προσομοίωση κενής λίστας',
+      debugSimuladorListaUma: 'Προσομοίωση λίστας με 1 τραγούδι',
+      debugSimuladorListaAtivadoToast: 'Η προσομοίωση λίστας είναι ενεργή — το πραγματικό σας ιστορικό παραμένει ανέπαφο.',
+      debugSimuladorListaDesativadoToast: 'Η προσομοίωση λίστας απενεργοποιήθηκε — επιστροφή στην πραγματική λίστα.',
+      debugAvisoBannerTexto: 'Αν δεν ξέρετε τι κάνετε, σας συνιστώ να βγείτε από αυτή τη λειτουργία.',
+      debugAvisoBannerBotaoSair: 'Έξοδος από τη λειτουργία εντοπισμού σφαλμάτων',
+      avisoEntradaDemonstracaoDebug: 'Αυτή είναι μια εικονική καταχώρηση της προσομοίωσης — όχι πραγματικό τραγούδι από το ιστορικό σας.',
+      duracaoLabel: 'Διάρκεια',
+      missaoLabel: 'Αποστολή',
+      tentativasLabel: 'προσπάθειες',
+      verLogDeEnvios: 'Προβολή αρχείου υποβολών (δεξί κλικ για επιλογές)',
+      trocarIdiomaPara: 'Γλώσσα',
+      configuracoes: 'Ρυθμίσεις',
+      layoutResumoDia: 'Διάταξη ημερήσιας σύνοψης',
+      mostrarResumoDia: 'Εμφάνιση ημερήσιας σύνοψης',
+      girarResumoAutomaticamente: 'Αυτόματη εναλλαγή σύνοψης',
+      layoutLadoLado: 'Δίπλα-δίπλα',
+      layoutTipografia: 'Κείμενο',
+      layoutChip: 'Chip',
+      importarTxt: 'Εισαγωγή .txt',
+      confirmarExclusaoTitulo: 'Επιβεβαίωση διαγραφής',
+      confirmarExclusaoRegistro: 'Είστε σίγουρος/η ότι θέλετε να αφαιρέσετε αυτή την καταχώρηση; Αυτή η ενέργεια δεν μπορεί να αναιρεθεί.',
+      confirmarExclusaoLetra:
+        'Είστε σίγουρος/η ότι θέλετε να διαγράψετε τους καταγεγραμμένους στίχους αυτής της καταχώρησης; Αυτή η ενέργεια δεν μπορεί να αναιρεθεί.',
+      cancelar: 'Ακύρωση',
+      ok: 'OK',
+      confirmar: 'Επιβεβαίωση',
+      excluir: 'Διαγραφή',
+      maisOpcoes: 'Περισσότερες επιλογές',
+      abrirNoSite: 'Άνοιγμα στον ιστότοπο',
+      abrirNoStudio: 'Άνοιγμα στο Studio',
+      importadosSucesso: 'καταχώρηση(εις) εισήχθη(σαν)',
+      ignoradosLabel: 'παραλείφθηκε(αν)',
+      arquivoInvalido: 'Δεν βρέθηκε καμία έγκυρη καταχώρηση σε αυτό το αρχείο.',
+      // πλήρες αντίγραφο ασφαλείας (.json) — δεδομένα + ρυθμίσεις.
+      backupModalTitulo: 'Επαναφορά πλήρους αντιγράφου ασφαλείας',
+      backupResumoTitulo: 'Τι θα αλλάξει αυτό το αντίγραφο ασφαλείας',
+      backupNovosRegistros: 'νέο(α) τραγούδι(α) στο αρχείο',
+      backupLetrasAlteradas: 'στίχοι διαφορετικοί από την τρέχουσα αποθηκευμένη έκδοση',
+      backupDiffsSalvosNovos: 'νέα αποθηκευμένη σύγκριση(εις)',
+      backupConfigsAlteradas: 'διαφορετική(ές) ρύθμιση(εις)',
+      backupNenhumaMudanca: 'Αυτό το αρχείο είναι πανομοιότυπο με τα δεδομένα που ήδη έχετε — τίποτα για επαναφορά.',
+      backupImportarMesmoAssim: 'Εισαγωγή ούτως ή άλλως',
+      backupConteudoTitulo: 'Περιεχόμενο αυτού του αντιγράφου',
+      backupResumoMusicas: 'Τραγούδια',
+      backupResumoLetras: 'Αποθηκευμένοι στίχοι',
+      backupVerDiferencas: 'Προβολή διαφορών',
+      backupOcultarDiferencas: 'Απόκρυψη',
+      backupBotaoRestaurar: 'Επαναφορά αντιγράφου',
+      backupSucesso: 'Το αντίγραφο ασφαλείας επαναφέρθηκε με επιτυχία. Ανανεώστε τη σελίδα για να εφαρμοστούν όλες οι οπτικές ρυθμίσεις.',
+      backupArquivoInvalido: 'Αυτό το αρχείο δεν φαίνεται να είναι έγκυρο πλήρες αντίγραφο ασφαλείας αυτού του script.',
+      backupGeradoEm: 'Το αντίγραφο δημιουργήθηκε στις',
+      backupVersaoScript: 'έκδοση',
+      backupSemLetraSalva: '(δεν υπάρχουν αποθηκευμένοι στίχοι αυτή τη στιγμή)',
+      backupExportarCurto: 'Εξαγωγή πλήρους αντιγράφου',
+      backupImportarCurto: 'Εισαγωγή πλήρους αντιγράφου',
+      selecionarVarias: 'Επιλογή πολλών',
+      redimensionar: 'Σύρετε για αλλαγή μεγέθους',
+      selecionarBtn: 'Επιλογή',
+      sairSelecao: 'Έξοδος από την επιλογή',
+      selecionarTodas: 'Επιλογή όλων',
+      desmarcarTodas: 'Αποεπιλογή όλων',
+      nenhumaSelecionada: 'Κανένα στοιχείο επιλεγμένο',
+      itemSelecionado: 'στοιχείο επιλεγμένο',
+      itensSelecionados: 'στοιχεία επιλεγμένα',
+      excluirSelecionados: 'Διαγραφή επιλεγμένων',
+      confirmarExclusaoMultipla: 'Είστε σίγουρος/η ότι θέλετε να αφαιρέσετε τα επιλεγμένα στοιχεία; Αυτή η ενέργεια δεν μπορεί να αναιρεθεί.',
+      opcoesPerfilUso: 'Προφίλ χρήσης',
+      perfilCompletoTitulo: 'Πλήρες',
+      perfilCompletoDescricao:
+        'Εμφανίζει τα πάντα: γενικό αρχείο, Σύνοψη ημέρας, πίνακα Λεπτομερειών, Reward και Σύγκριση.',
+      perfilMinimalistaTitulo: 'Μινιμαλιστικό',
+      perfilMinimalistaDescricao:
+        'Αποκρύπτει τη Σύνοψη ημέρας, Λεπτομέρειες, Reward και Σύγκριση, και απενεργοποιεί τα Επιτεύγματα — μόνο το γενικό αρχείο υποβολών και τα εργαλεία στίχων.',
+      avisoModoMinimalista:
+        'Βρίσκεστε στη Μινιμαλιστική λειτουργία — η Σύνοψη ημέρας, οι Λεπτομέρειες, το Reward και η Σύγκριση είναι κρυμμένα, και τα Επιτεύγματα είναι απενεργοποιημένα. Αλλάξτε το στο "Προφίλ χρήσης" παρακάτω.',
+      resumoDiaBloqueadoMinimalista: 'Απενεργοποιημένο από το Μινιμαλιστικό προφίλ — αλλάξτε σε Πλήρες για να το ρυθμίσετε.',
+      opcoesDeVisualizacao: 'Εμφάνιση',
+      opcoesResumoDia: 'Σύνοψη ημέρας',
+      opcoesAparencia: 'Εμφάνιση θέματος',
+      opcoesGerais: 'Γενικά',
+      buscarConfiguracao: 'Αναζήτηση στις ρυθμίσεις...',
+      verificarAtualizacoes: 'Έλεγχος για ενημερώσεις',
+      verificando: 'Έλεγχος...',
+      versaoAtualizada: 'Έχετε την πιο πρόσφατη έκδοση',
+      novaVersaoDisponivel: 'Διαθέσιμη νέα έκδοση',
+      baixarAtualizacao: 'Λήψη ενημέρωσης',
+      atualizarAgora: 'Ενημέρωση τώρα',
+      novidadesVersao: 'Τι νέο υπάρχει σε αυτήν την έκδοση',
+      aplicandoAtualizacao: 'Εφαρμογή ενημέρωσης...',
+      atualizacaoAindaNaoPronta: 'Το Firefox ακόμα προετοιμάζει αυτήν την έκδοση. Δοκιμάστε ξανά σε λίγο.',
+      atualizacaoLimitada: 'Περιμένετε λίγο πριν ελέγξετε ξανά.',
+      retryAtualizacaoContagem: 'Νέα προσπάθεια σε {s}δ… ({n}/{max})',
+      retryAtualizacaoToqueAgora: 'Πατήστε για άμεση προσπάθεια',
+      retryAtualizacaoEsgotado: 'Δεν ήταν δυνατή η αυτόματη ενημέρωση μετά από αρκετές προσπάθειες. Δοκιμάστε ξανά αργότερα ή από τη σελίδα του AMO.',
+      atualizacaoInstalacaoTemporaria: 'Αυτή η εγκατάσταση είναι προσωρινή (λειτουργία προγραμματιστή) — το Firefox δεν διαχειρίζεται αυτόματες ενημερώσεις για αυτήν. Κατεβάστε τη νέα έκδοση από τη σελίδα της επέκτασης.',
+      atualizacaoSemForcarChecagem: 'Το Firefox δεν επιτρέπει να αναγκάσετε αυτόν τον έλεγχο από εδώ — αλλά ήδη παρακολουθεί στο παρασκήνιο και θα εφαρμόσει μόνο του μόλις το Firefox βρει τη νέα έκδοση (μόνο του, ή αν πατήσετε "Έλεγχος για ενημερώσεις" στο about:addons).',
+      abrirPaginaExtensao: 'Άνοιγμα σελίδας επέκτασης',
+      abrirReleasesGithub: 'Δείτε τα Releases στο GitHub',
+      copiarAboutAddons: 'Αντιγραφή "about:addons"',
+      aboutAddonsCopiado: 'Αντιγράφηκε! Επικολλήστε το στη γραμμή διευθύνσεων και πατήστε Enter.',
+      buscandoXpiGithub: 'Αναζήτηση του .xpi στο GitHub...',
+      atualizacaoAindaNaoSincronizadaGithub: 'Το GitHub δεν έχει συγχρονίσει ακόμα αυτήν την έκδοση (ο συγχρονισμός τρέχει περιοδικά).',
+      erroConsultarGithub: 'Δεν ήταν δυνατή η επικοινωνία με το GitHub αυτή τη στιγμή.',
+      erroVerificarAtualizacao: 'Δεν ήταν δυνατός ο έλεγχος αυτή τη στιγμή. Δοκιμάστε ξανά αργότερα.',
+      versaoInstalada: 'Εγκατεστημένη έκδοση',
+      versaoTabsV3: 'Έκδοση Tabs V3',
+      notificarAtualizacaoAuto: 'Αυτόματη ειδοποίηση για ενημερώσεις',
+      opcoesNotificacoes: 'Ειδοποιήσεις',
+      notifDicasAtivar: 'Συμβουλές χρήσης στο κουδούνι ειδοποιήσεων',
+      notifDicasAtivarDesc: 'Εμφανίζει συμβουλές χρήσης κατά καιρούς στο κουδούνι ειδοποιήσεων.',
+      extensaoAtualizada: 'Η επέκταση ενημερώθηκε',
+      verNotasVersao: 'Δείτε τη σελίδα της επέκτασης',
+      confirmarEnvioAtivar: 'Επιβεβαίωση υποβολής πριν την καταγραφή',
+      confirmarEnvioDesc:
+        'Περιμένει να εμφανιστεί το πράσινο παράθυρο επιτυχίας πριν καταγράψει (πιο ασφαλές, αλλά μπορεί να καθυστερήσει λίγο). Απενεργοποιήστε για καταγραφή αμέσως μόλις κάνετε κλικ στο "Υποβολή", όπως πριν.',
+      sistemaConquistas: 'Σύστημα επιτευγμάτων',
+      sistemaConquistasDesc: 'Παράσημα για ορόσημα όπως αριθμός τραγουδιών, συνεχόμενες ημέρες και αποθηκευμένα diffs.',
+      ferramentasUteis: 'Χρήσιμα εργαλεία',
+      diffFixarTagsBeta: 'Καρφίτσωμα ετικετών στη θέση τους',
+      betaTag: 'BETA',
+      reward: 'Reward',
+      verReward: 'Reward',
+      logReward: 'Αρχείο Reward',
+      totalGanho: 'Συνολικά κέρδη',
+      historicoDias: 'τελευταίες {dias} ημέρες',
+      cotacaoAtual: 'Τρέχουσα ισοτιμία',
+      buscandoCotacao: 'Ανάκτηση ισοτιμίας...',
+      cotacaoIndisponivel: 'Η ισοτιμία δεν είναι διαθέσιμη — χρήση τιμής αναφοράς',
+      rewardPorMissao: 'Reward ανά αποστολή',
+      taxaEstimada: 'εκτιμώμενη αμοιβή',
+      tarefasAbrev: 'εργασίες',
+      semReward: 'Καμία υποβολή με εντοπισμένη αποστολή ακόμα.',
+      fonteWidget: 'Δεδομένα σε πραγματικό χρόνο μέσω Payflow',
+      fonteWidgetCurta: 'Ζωντανά',
+      fonteLog: 'Εκτιμάται από αυτό το αρχείο — εγκαταστήστε την επέκταση Payflow για ακριβή δεδομένα',
+      fonteLogCurta: 'Εκτίμηση',
+      poweredByPayflow: 'Powered by Payflow',
+      descontoManual: 'Έκπτωση $ {amount} εφαρμοσμένη χειροκίνητα στο widget',
+      avisoExtensaoRewardAusente:
+        'Η επέκταση Payflow δεν είναι εγκατεστημένη, είναι απενεργοποιημένη, ή δεν έχει καταγράψει ακόμα καμία αποστολή — οι παρακάτω τιμές είναι απλώς μια εκτίμηση με βάση αυτό το αρχείο. Εγκαταστήστε/ενεργοποιήστε την επέκταση για να δείτε τις πραγματικές τιμές.',
+      baixarExtensaoTotalUsdBrl: 'Λήψη της επέκτασης Payflow από το Firefox Add-ons',
+      // μήνυμα που εμφανίζεται όταν αλλάζει ο μήνας, προσφέροντας
+      // αποθήκευση της σύνοψης (αριθμός τραγουδιών + κέρδη) του μήνα που έληξε.
+      resumoMensalTitulo: 'Αποθήκευση σύνοψης μήνα',
+      resumoMensalMensagem:
+        'Ο μήνας {mes} μόλις τελείωσε. Θέλετε να αποθηκεύσετε τη σύνοψή του — {qtd} τραγούδι(α) που στάλθηκαν και {usd} ({brl}) σε αμοιβή — για σύγκριση με άλλους μήνες αργότερα;',
+      resumoMensalBotaoSalvar: 'Αποθήκευση σύνοψης',
+      resumoMensalAgoraNao: 'Όχι τώρα',
+      resumoMensalSalvoToast: 'Η σύνοψη του {mes} αποθηκεύτηκε.',
+      // banner (deixou de ser popup), mostrado acima da barra de
+      // busca a partir das 21h (hora de Brasília) do último dia do mês, até
+      // o usuário clicar em "Mudar ciclo".
+      avisoTrocaCicloTitulo: 'Ο κύκλος αποστολών άλλαξε ήδη;',
+      avisoTrocaCicloMensagem:
+        'Ο κύκλος αποστολών αυτού του μήνα πρέπει να έχει ήδη αλλάξει (21:00, ώρα Μπραζίλια) ακόμη κι αν το ημερολόγιο δείχνει ακόμα σήμερα. Επιβεβαιώστε μόλις παρατηρήσετε την αλλαγή στο Musixmatch.',
+      avisoTrocaCicloBotaoConfirmar: 'Αλλαγή κύκλου',
+      avisoTrocaCicloConfirmadoToast: 'Εντάξει — ο κύκλος άλλαξε, η σύνοψη είναι διαθέσιμη αν θέλετε να την αποθηκεύσετε.',
+      avisoDiffManualMinimizadoMensagem: 'Έχετε ένα ελαχιστοποιημένο Χειροκίνητο diff, με τη σύγκριση να περιμένει εκεί που σταματήσατε.',
+      avisoDiffManualMinimizadoBotaoVoltar: 'Επιστροφή στο Χειροκίνητο diff',
+      // λίστα αποθηκευμένων μηνιαίων συνόψεων, στην καρτέλα Reward.
+      resumosMensaisTitulo: 'Αποθηκευμένες μηνιαίες συνόψεις',
+      resumosMensaisVazio: 'Καμία σύνοψη αποθηκευμένη ακόμα — όταν αλλάξει ο μήνας, θα μπορείτε να αποθηκεύσετε τη σύνοψή του εδώ.',
+      resumosMensaisApagar: 'Διαγραφή αυτής της σύνοψης',
+      resumosMensaisRever: 'Επανεξέταση αυτής της σύνοψης',
+      resumosMensaisConfirmarApagar: 'Διαγραφή της αποθηκευμένης σύνοψης αυτού του μήνα; Δεν μπορεί να αναιρεθεί.',
+      resumosMensaisVerAgora: 'Προβολή σύνοψης τώρα',
+      resumosMensaisIndisponivel: 'Σύνοψη μη διαθέσιμη',
+      resumoAtualTitulo: 'Σύνοψη αυτού του μήνα (μέχρι στιγμής)',
+      resumoAtualVerSlides: 'Προβολή σε διαφάνειες',
+      resumoSlidesVerCompleto: 'Προβολή πλήρους σύνοψης',
+      resumoAtualBotaoSalvar: 'Αποθήκευση αυτής της σύνοψης τώρα',
+      resumoAtualBotaoAtualizar: 'Ενημέρωση αποθηκευμένης σύνοψης',
+      resumoAtualFechar: 'Κλείσιμο',
+      resumoAtualConfirmarSobrescrever:
+        'Έχετε ήδη μια αποθηκευμένη σύνοψη για αυτόν τον μήνα — η νέα αποθήκευση θα την αντικαταστήσει με τους τρέχοντες αριθμούς. Συνέχεια;',
+      resumoAtualDetalhesTitulo: 'Περισσότερες λεπτομέρειες του μήνα',
+      resumoAtualMusicaMaisLonga: 'Πιο μακρύ τραγούδι',
+      resumoAtualMusicaMaisCurta: 'Πιο σύντομο τραγούδι',
+      resumoAtualLetraMaisLonga: 'Πιο μακρείς στίχοι',
+      resumoAtualLetraMaisCurta: 'Πιο σύντομοι στίχοι',
+      resumoAtualInstrumentais: 'Ορχηστρικά αυτόν τον μήνα',
+      resumoAtualMissaoMais: 'Αποστολή με τις περισσότερες υποβολές',
+      resumoAtualMissaoMenos: 'Αποστολή με τις λιγότερες υποβολές',
+      resumoAtualCaractere: '1 χαρακτήρας',
+      resumoAtualCaracteres: '{n} χαρακτήρες',
+      resumoAtualVerSlides: 'Προβολή σε διαφάνειες',
+      resumoSlidesBRL: 'Σύνολο σε Ρεάλ',
+      resumoSlidesMoedaGenerica: 'Σύνολο σε {moeda}',
+      resumoSlidesUSD: 'Σύνολο σε Δολάρια',
+      resumoSlidesTarefas: 'Υποβληθείσες εργασίες',
+      resumoPreviewCarregando: 'Αναζήτηση προεπισκόπησης…',
+      resumoPreviewOuvir: 'Αναπαραγωγή προεπισκόπησης',
+      resumoPreviewTocando: 'Αναπαράγεται…',
+      logCapaOuvirPreviaTooltip: 'Αναπαραγωγή προεπισκόπησης 30 δευτ.',
+      logCapaPreviaIndisponivel: 'Δεν βρέθηκε προεπισκόπηση για αυτό το κομμάτι.',
+      resumoSlidesCapaTitulo: 'Η σύνοψή σου για {mes}',
+      resumoSlidesFinalTitulo: 'Αυτός ήταν ο {mes}!',
+      resumoSlidesFinalTexto: 'Ας κλείσουμε κι έναν ακόμα τέτοιο μήνα.',
+      resumoSlidesAnterior: 'Προηγούμενο',
+      resumoSlidesProximo: 'Επόμενο',
+      resumoSlidesComecar: 'Έναρξη',
+      resumoMusicaSilenciar: 'Σίγαση μουσικής',
+      resumoMusicaAtivar: 'Ενεργοποίηση μουσικής',
+      // ενότητα "Αντίγραφο ασφαλείας" στις Ρυθμίσεις — αυτόματο
+      // αντίγραφο ασφαλείας στον δίσκο, για προστασία από την απεγκατάσταση
+      // της επέκτασης.
+      opcoesBackup: 'Αντίγραφο ασφαλείας',
+      backupMudouDescricao: 'Τα αντίγραφα ασφαλείας άλλαξαν θέση — τώρα τα βρίσκετε όλα οργανωμένα σε ένα μέρος!',
+      backupMudouAcao: 'Άνοιγμα Αντιγράφου & Επαναφοράς',
+      // V3.5.52: αυτόνομος πίνακας "Αντίγραφο & Επαναφορά" στο πλέγμα
+      // "Χρήσιμα εργαλεία" — συγκεντρώνει ό,τι πριν ήταν διάσπαρτο
+      // (Ρυθμίσεις → Αντίγραφο ασφαλείας, μενού FAB) σε ένα μέρος, με
+      // εμφάνιση "ασφαλούς ζώνης" για τα δεδομένα του χρήστη.
+      backupRestauracaoTitulo: 'Αντίγραφο & Επαναφορά',
+      backupAreaSeguraTitulo: 'Τα δεδομένα σας, προστατευμένα',
+      backupAreaSeguraDescricao:
+        'Τίποτα δεν φεύγει από εδώ χωρίς να το ζητήσετε. Το αντίγραφο στον δίσκο μένει μόνο στον υπολογιστή σας· το αντίγραφο στο cloud στέλνεται μόνο όταν το ενεργοποιήσετε ή πατήσετε αποστολή.',
+      backupResumoMusicasProtegidas: 'τραγούδι(α) στο αρχείο',
+      backupResumoDiffsProtegidos: 'αποθηκευμένο(α) diff',
+      backupResumoResumosProtegidos: 'μηνιαία περίληψη(εις)',
+      backupSecaoArquivoCompleto: 'Πλήρες αντίγραφο (αρχείο)',
+      backupSecaoArquivoCompletoDescricao:
+        'Δημιουργεί ένα αρχείο .json με όλο το αρχείο σας, τα αποθηκευμένα diffs, τις μηνιαίες περιλήψεις και τις ρυθμίσεις — για να το κρατήσετε εσείς ή να το μεταφέρετε σε άλλον υπολογιστή.',
+      backupSecaoDisco: 'Αυτόματο αντίγραφο στον δίσκο',
+      backupSecaoNuvem: 'Αντίγραφο στο cloud (Google)',
+      backupSecaoTextoSimples: 'Αρχείο απλού κειμένου (.txt)',
+      backupSecaoTextoSimplesDescricao:
+        'Απλούστερη μορφή, μόνο με το αρχείο υποβολών σε απλό κείμενο — χωρίς diffs, περιλήψεις ή ρυθμίσεις. Χρήσιμο για γρήγορη ανάγνωση ή επικόλληση αλλού.',
+      backupZonaRiscoTitulo: 'Ζώνη κινδύνου',
+      backupAutomaticoAtivar: 'Αυτόματο αντίγραφο ασφαλείας στον δίσκο',
+      backupAutomaticoDescricao:
+        'Αποθηκεύει αντίγραφο των δεδομένων σας κατά διαστήματα στον φάκελο Downloads/MXMBackups, ώστε να μην τα χάσετε αν απεγκαταστήσετε την επέκταση.',
+      backupAutomaticoFazerAgora: 'Δημιουργία αντιγράφου τώρα',
+      backupAutomaticoRestaurar: 'Επαναφορά πλήρους αντιγράφου',
+      backupAutomaticoSucesso: 'Το αντίγραφο ασφαλείας αποθηκεύτηκε στο Downloads/MXMBackups.',
+      backupAutomaticoErro: 'Δεν ήταν δυνατή η αποθήκευση του αυτόματου αντιγράφου — ελέγξτε τα δικαιώματα λήψης της επέκτασης.',
+      // αντίγραφο ασφαλείας στο cloud (Firebase).
+      nuvemDescricao: 'Στέλνει αντίγραφο ασφαλείας στο cloud, συνδεδεμένο με τον λογαριασμό σας Google, για επαναφορά σε άλλον υπολογιστή.',
+      nuvemEnviar: 'Αποστολή αντιγράφου στο cloud',
+      nuvemRestaurar: 'Επαναφορά από το cloud',
+      backupNuvemAutomaticoAtivar: 'Αυτόματο αντίγραφο ασφαλείας στο cloud',
+      backupNuvemAutomaticoDescricao:
+        'Στέλνει το αντίγραφο ασφαλείας στο cloud μόνο του κατά διαστήματα, χωρίς να χρειάζεται να πατήσετε "Αποστολή αντιγράφου στο cloud". Απαιτεί να έχετε συνδεθεί με Google τουλάχιστον μία φορά.',
+      nuvemUltimoBackup: 'Τελευταίο αντίγραφο στο cloud: {data}',
+      nuvemUltimoBackupNunca: 'Δεν έχετε κάνει ακόμα αντίγραφο ασφαλείας στο cloud.',
+      nuvemFrequenciaTitulo: 'Συχνότητα αυτόματου αντιγράφου',
+      nuvemFrequenciaDiaria: 'Καθημερινά',
+      nuvemFrequenciaSemanal: 'Εβδομαδιαία',
+      nuvemFrequenciaMensal: 'Μηνιαία',
+      nuvemEnvioSucesso: 'Το αντίγραφο στάλθηκε στο cloud.',
+      nuvemEnvioSucessoPartes: 'Το αντίγραφο στάλθηκε στο cloud σε {n} μέρη.',
+      nuvemEnvioErro: 'Δεν ήταν δυνατή η αποστολή στο cloud — ελέγξτε τη σύνδεσή σας και δοκιμάστε ξανά.',
+      nuvemNenhumBackup: 'Δεν βρέθηκε ακόμα αντίγραφο στο cloud.',
+      nuvemRestaurarErro: 'Δεν ήταν δυνατή η ανάκτηση από το cloud — ελέγξτε τη σύνδεσή σας και δοκιμάστε ξανά.',
+      // αντίγραφο ασφαλείας στο Google Drive — τρίτος προορισμός,
+      // ξεχωριστός από το Firestore. Αποθηκεύεται σε δικό του φάκελο
+      // "Echoform Backups" στο Drive του χρήστη.
+      backupSecaoDrive: 'Αντίγραφο στο Google Drive',
+      backupSecaoDriveDescricao:
+        'Στέλνει αντίγραφο ασφαλείας στον λογαριασμό σας Google Drive, σε δικό του φάκελο της επέκτασης, για επαναφορά σε άλλον υπολογιστή.',
+      driveEnviar: 'Αποστολή αντιγράφου στο Drive',
+      driveRestaurar: 'Επαναφορά από το Drive',
+      driveRequerGoogle: 'Απαιτεί σύνδεση με τον λογαριασμό σας Google',
+      backupDriveAutomaticoAtivar: 'Αυτόματο αντίγραφο ασφαλείας στο Drive',
+      backupDriveAutomaticoDescricao:
+        'Στέλνει το αντίγραφο ασφαλείας στο Drive μόνο του κατά διαστήματα, χωρίς να χρειάζεται να πατήσετε "Αποστολή αντιγράφου στο Drive". Απαιτεί να έχετε συνδεθεί με Google τουλάχιστον μία φορά.',
+      definirMissao: 'Ορισμός αποστολής',
+      outraMissao: 'Άλλη αποστολή...',
+      menuInstrumentalMarcar: 'Σήμανση ως ορχηστρικό',
+      menuInstrumentalDesmarcar: 'Αφαίρεση σήμανσης ορχηστρικού',
+      digitarNomeMissao: 'Πληκτρολογήστε το όνομα της αποστολής:',
+      curator: 'Curator',
+      editarNomeCurator: 'Κλικ για να χρησιμοποιήσετε το δικό σας όνομα',
+      mashupMagico: 'Μαγικό Mashup',
+      mashupMagicoAtivar: 'Τραβήξτε το Μαγικό Mashup',
+      mashupMagicoIndisponivel: 'Στείλτε περισσότερα τραγούδια με αποθηκευμένους στίχους για να ξεκλειδώσετε το Μαγικό Mashup',
+      digitarNomeCurator: 'Πληκτρολογήστε το όνομά σας (αφήστε κενό για επιστροφή στο "Curator"):',
+      editarFotoCurator: 'Κλικ για αλλαγή φωτογραφίας',
+      alterarFoto: 'Αλλαγή φωτογραφίας',
+      usarFotoPadrao: 'Χρήση προεπιλεγμένης φωτογραφίας MXM',
+      cliqueDireito: 'δεξί κλικ',
+      fotoInvalida: 'Δεν ήταν δυνατή η χρήση αυτής της εικόνας — δοκιμάστε άλλο αρχείο.',
+      // προσαρμοσμένο εξώφυλλο/banner + επεξεργαστής περικοπής
+      // (φωτογραφία και εξώφυλλο, και τα δύο δέχονται κινούμενα GIF)
+      editarCapaCurator: 'Κλικ για αλλαγή εξωφύλλου · δεξί κλικ: περισσότερες επιλογές',
+      alterarCapa: 'Αλλαγή εξωφύλλου',
+      removerCapa: 'Αφαίρεση εξωφύλλου',
+      recorteArrasteAviso: 'Σύρετε την εικόνα για να την τοποθετήσετε και χρησιμοποιήστε το ζουμ για να ρυθμίσετε την περικοπή.',
+      recorteSalvar: 'Αποθήκευση περικοπής',
+      ajustarRecorte: 'Προσαρμογή περικοπής',
+      imagemGrandeDemais: 'Αυτή η εικόνα είναι πολύ μεγάλη — επιλέξτε αρχείο έως 8MB.',
+      comparar: 'Σύγκριση',
+      logComparacao: 'Σύγκριση Αρχείου',
+      exportarComparacao: 'Εξαγωγή του αρχείου μου',
+      importarComparacao: 'Εισαγωγή αρχείου άλλου χρήστη',
+      comparacaoSemImportacao:
+        'Εξάγετε το αρχείο σας και ζητήστε από κάποιον άλλο να κάνει το ίδιο — έπειτα εισάγετε το αρχείο .json του εδώ για να δείτε τη σύγκριση δίπλα-δίπλα.',
+      arquivoComparacaoInvalido: 'Αυτό το αρχείο δεν είναι έγκυρο αρχείο σύγκρισης.',
+      vc: 'Εσείς',
+      totalDeEnvios: 'Σύνολο υποβολών',
+      duracaoMedia: 'Μέση διάρκεια',
+      diasAtivos: 'Ενεργές ημέρες',
+      naoDisponivelAbrev: 'Δ/Υ',
+      comparadoEm: 'Σύγκριση με',
+      trocarArquivoComparacao: 'Αλλαγή αρχείου',
+      opcoesComportamento: 'Συμπεριφορά',
+      opcoesAtualizacoes: 'Ενημερώσεις',
+      opcoesExperimental: 'Πειραματικό',
+      opcoesAjuda: 'Βοήθεια',
+      reverTutorial: 'Επανάληψη αρχικού οδηγού',
+      splashBoasVindasFrase: 'Καλώς ήρθατε στο Echoform',
+      splashBoasVindasLegenda: 'Ας σας δείξουμε γρήγορα πώς λειτουργούν όλα εδώ.',
+      splashBoasVindasAprender: 'Μάθετε',
+      tourMissao: 'Κάντε δεξί κλικ σε ένα τραγούδι της λίστας για να επιλέξετε (ή να διορθώσετε) για ποια αποστολή έγινε.',
+      tourFerramentas:
+        'Εδώ βρίσκονται τα επιπλέον εργαλεία: Χειροκίνητο diff και Αποθηκευμένα diffs (σύγκριση στίχων), αλλαγή γλώσσας, Σύγκριση με άλλον curator, Κύκλοι, Σημειωματάριο και Αντίγραφο & Επαναφορά — μαζί με τα Λεπτομερή και Reward, που έχουν δικό τους βήμα παρακάτω.',
+      tourDetalhado: 'Κάντε κλικ εδώ για λεπτομερή αρχεία: τραγούδια ανά αποστολή, συντομότερο/μακρύτερο κομμάτι και ώρες αιχμής.',
+      tourReward: 'Κάντε κλικ εδώ για λεπτομέρειες πληρωμών: συνολικά κέρδη και εκτιμώμενο reward ανά αποστολή.',
+      tourConfiguracoes:
+        'Εδώ βρίσκονται οι ρυθμίσεις του script — εμφάνιση, συμπεριφορά και άλλα. Μπορείτε να επαναλάβετε αυτόν τον οδηγό όποτε θέλετε από εδώ.',
+      tourRedimensionar: 'Αυτό το παράθυρο έχει ρυθμιζόμενο μέγεθος — σύρετε αυτή τη γωνία για να το μεγαλώσετε ή να το μικρύνετε.',
+      tourProximo: 'Επόμενο',
+      tourEntendi: 'Κατάλαβα',
+      tourPular: 'Παράλειψη',
+      diffCheck: 'Diff Check',
+      diffCheckDesc: 'Σύγκριση με την τελευταία αποθηκευμένη έκδοση',
+      diffCheckTitulo: 'Diff Check — σύγκριση στίχων',
+      diffAvisoRecarregarTitulo: 'Πριν ανοίξετε το Diff Check',
+      diffAvisoRecarregarMensagem:
+        'Για να φορτωθεί ο στίχος πιο καθαρά (αποφεύγοντας εσφαλμένες συγκρίσεις), κάντε ανανέωση της σελίδας πριν χρησιμοποιήσετε το Diff Check.',
+      diffAvisoRecarregarBotao: 'Ανανέωση σελίδας',
+      diffAvisoRecarregarContinuar: 'Συνέχεια ούτως ή άλλως',
+      diffAvisoRecarregarAtivarLabel: 'Προειδοποίηση για ανανέωση πριν το Diff Check',
+      diffAvisoRecarregarDesativadoModoRede: 'Δεν ισχύει στη λειτουργία καταγραφής "Δίκτυο" — ο στίχος φορτώνει ήδη σωστά απευθείας από το δίκτυο, χωρίς να χρειάζεται ανανέωση.',
+      diffIndoParaSincronizacao: 'Άνοιγμα της καρτέλας Συγχρονισμός (πιο αξιόπιστη για την ανάγνωση όλου του στίχου)...',
+      diffIndoParaTraducao: 'Άνοιγμα της καρτέλας Μετάφραση...',
+      diffSemFaixa: 'Δεν ήταν δυνατός ο εντοπισμός του τραγουδιού σε αυτή τη σελίδα.',
+      diffSemVersaoSalva:
+        'Δεν υπάρχει ακόμα αποθηκευμένη έκδοση αυτών των στίχων για σύγκριση. Υποβάλετε αυτό το τραγούδι τουλάχιστον μία φορά.',
+      diffSemCapturaAtual: 'Δεν ήταν δυνατή η καταγραφή των στίχων σε αυτή την οθόνη τώρα. Κάντε κύλιση μέχρι να εμφανιστούν οι στίχοι και δοκιμάστε ξανά.',
+      diffCarregandoLetra: 'Φόρτωση των στίχων από αυτή την οθόνη...',
+      diffAdicionadas: 'προστέθηκε(αν)',
+      diffRemovidas: 'αφαιρέθηκε(αν)',
+      diffVersaoAnterior: 'Προηγούμενη έκδοση (αποθηκευμένη)',
+      diffVersaoAtual: 'Τρέχουσα έκδοση (σε αυτή την οθόνη)',
+      diffCopiar: 'Αντιγραφή diff',
+      diffCopiarEstaLetra: 'Αντιγραφή αυτών των στίχων',
+      diffCopiado: 'Το diff αντιγράφηκε!',
+      diffLinhas: 'γραμμή(ές)',
+      diffVerComoDigitada: 'Προβολή όπως πληκτρολογήθηκε',
+      diffVerComparacao: 'Προβολή σύγκρισης',
+      diffAlinharLinhasAtivar: 'Ευθυγράμμιση γραμμών (παλιά λειτουργία)',
+      diffAlinharLinhasDesativar: 'Ανεξάρτητες στήλες (προεπιλογή)',
+      diffAlinharLinhasLabel: 'Ευθυγράμμιση γραμμών',
+      diffEspacoDiferenca: 'Κενό διάστημα — μέρος της διαφοράς',
+      diffEspacoUnidade: 'κενό',
+      diffEspacoUnidadePlural: 'κενά',
+      diffSalvar: 'Αποθήκευση',
+      diffSalvo: 'Το diff αποθηκεύτηκε!',
+      diffExportarHtml: 'Εξαγωγή HTML',
+      diffExportado: 'Το diff εξήχθη!',
+      diffCompartilharLink: 'Κοινοποίηση συνδέσμου',
+      diffLinkCopiado: 'Ο σύνδεσμος αντιγράφηκε! Επικολλήστε τον για κοινή χρήση.',
+      diffLinkCopiadoNuvem: 'Ο σύντομος σύνδεσμος αντιγράφηκε! Λήγει μόνος του σε 30 ημέρες.',
+      diffLinkCopiadoCurto: 'Ο σύντομος σύνδεσμος αντιγράφηκε! Επικολλήστε τον για κοινή χρήση.',
+      diffLinkCopiadoGrande: 'Ο σύνδεσμος αντιγράφηκε! (είναι μεγάλος — αν κάποια εφαρμογή τον κόψει, στείλτε τον αλλιώς)',
+      diffLinkErro: 'Δεν ήταν δυνατή η δημιουργία του συνδέσμου. Δοκιμάστε ξανά.',
+      diffSalvarNomePrompt: 'Όνομα για αυτό το diff:',
+      diffTornarBase: 'Ορισμός ως βάση',
+      diffTornarBaseTooltip:
+        'Αποθηκεύει την τρέχουσα έκδοση (σε αυτή την οθόνη) ως τη νέα βασική έκδοση στο αρχείο καταγραφής, αντικαθιστώντας την προηγουμένως αποθηκευμένη',
+      diffTornarBaseConfirmarTitulo: 'Ορισμός τρέχουσας έκδοσης ως βάση;',
+      diffTornarBaseConfirmarMensagem:
+        'Η τρέχουσα έκδοση (σε αυτή την οθόνη) θα αντικαταστήσει την προηγουμένως αποθηκευμένη έκδοση στο αρχείο καταγραφής. Αυτή η ενέργεια δεν μπορεί να αναιρεθεί.',
+      diffTornarBaseConfirmarBotao: 'Ορισμός ως βάση',
+      diffTornarBaseSucesso: 'Η τρέχουσα έκδοση αποθηκεύτηκε ως βάση',
+      fechar: 'Κλείσιμο',
+      minimizar: 'Ελαχιστοποίηση',
+      diffManualRestaurarPainel: 'Επιστροφή στο Χειροκίνητο diff',
+      diffManualMinimizadoAviso: 'Υπάρχει ένα ελαχιστοποιημένο Χειροκίνητο diff — κάντε κλικ για επιστροφή',
+      brincadeiraInstrumentalOutra: 'Άλλη μία',
+      diffsSalvosTitulo: 'Αποθηκευμένα diffs',
+      diffsSalvosVazio: 'Δεν υπάρχουν αποθηκευμένα diffs ακόμα. Χρησιμοποίησε το κουμπί "Αποθήκευση" μέσα σε ένα Diff Check ή χειροκίνητο Diff για να κρατήσεις μια σύγκριση εδώ.',
+      diffsSalvosExcluirConfirmar: 'Διαγραφή αυτού του αποθηκευμένου diff; Η ενέργεια αυτή δεν αναιρείται.',
+      diffsSalvosAbrirTooltip: 'Άνοιγμα',
+      diffsSalvosExcluirTooltip: 'Διαγραφή',
+      diffsSalvosVoltar: 'Πίσω στη λίστα',
+      blocoDeNotasTitulo: 'Σημειωματάριο',
+      blocoDeNotasVazio: 'Δεν υπάρχουν σημειώσεις ακόμα. Πάτησε "Νέα σημείωση" για να γράψεις την πρώτη.',
+      blocoDeNotasNovaNota: 'Νέα σημείωση',
+      blocoDeNotasEditarTooltip: 'Επεξεργασία',
+      blocoDeNotasExcluirTooltip: 'Διαγραφή',
+      blocoDeNotasExcluirConfirmar: 'Διαγραφή αυτής της σημείωσης; Η ενέργεια αυτή δεν αναιρείται.',
+      blocoDeNotasPlaceholderTexto: 'Γράψε τη σημείωσή σου εδώ...',
+      blocoDeNotasMusicaLabel: 'Τραγούδι (προαιρετικό)',
+      blocoDeNotasMusicaPlaceholder: 'Αναζήτηση τραγουδιού με τίτλο...',
+      blocoDeNotasMusicaLimpar: 'Αφαίρεση σύνδεσης με τραγούδι',
+      blocoDeNotasCicloLabel: 'Κύκλος (προαιρετικό)',
+      blocoDeNotasCicloNenhum: 'Κανένας κύκλος',
+      blocoDeNotasSalvar: 'Αποθήκευση σημείωσης',
+      blocoDeNotasCancelar: 'Ακύρωση',
+      blocoDeNotasVoltar: 'Πίσω στη λίστα',
+      blocoDeNotasSemTexto: 'Γράψε κάτι πριν αποθηκεύσεις τη σημείωση.',
+      ciclosTitulo: 'Κύκλοι',
+      cicloNumeroPadraoPrefixo: 'Κύκλος',
+      cicloAtualBadge: 'Τρέχων',
+      cicloRenomearTooltip: 'Μετονομασία κύκλου',
+      cicloVerNoLogTooltip: 'Δείτε στο log — πάει στο πρώτο τραγούδι αυτού του κύκλου',
+      cicloRenomearPrompt: 'Όνομα κύκλου',
+      cicloMusicaSingular: 'τραγούδι',
+      cicloMusicaPlural: 'τραγούδια',
+      diffAvisoTelaRecomendada:
+        'Το Diff Check λειτουργεί καλύτερα στις οθόνες Μεταγραφής και Συγχρονισμού — σε αυτή την οθόνη η καταγραφή των στίχων μπορεί να είναι ελλιπής ή λανθασμένη.',
+      diffModoCapturaLabel: 'Λειτουργία καταγραφής του Diff Check',
+      diffModoCapturaDesc:
+        'Επιλέγει πώς το Diff Check παίρνει τους στίχους για σύγκριση. Αφήστε το σε «Δίκτυο» (προτείνεται) — οι άλλες λειτουργίες είναι μόνο για ειδικές περιπτώσεις.',
+      diffModoCapturaRede: 'Δίκτυο (προτείνεται)',
+      diffModoCapturaAuto: 'Αυτόματο',
+      diffModoCapturaAtual: 'Τρέχουσα οθόνη',
+      diffModoCapturaSincronizacao: 'Συγχρονισμός',
+      diffModoCapturaTraducao: 'Μετάφραση',
+      diffModoCapturaAvisoTrocaManual:
+        'Το Δίκτυο είναι ο μόνος αξιόπιστος τρόπος για ετικέτες δομής. Η αλλαγή σε άλλη λειτουργία θεωρείται κακή χρήση του Diff Check — οι ετικέτες μπορεί να βγουν ελλιπείς ή λανθασμένες.',
+      diffModoCapturaAvisoTituloPopup: 'Είστε σίγουροι ότι θέλετε να αλλάξετε λειτουργία;',
+      diffPriorizarSincronizacaoLabel: 'Προτεραιότητα στον Συγχρονισμό κατά την αυτόματη αλλαγή',
+      diffPriorizarSincronizacaoDesc:
+        'Όταν οι λειτουργίες Δίκτυο/Αυτόματο χρειάζεται ακόμα να αλλάξουν καρτέλα για να βρουν ετικέτες, αυτό καθορίζει αν η αλλαγή πηγαίνει στον Συγχρονισμό (προεπιλογή — πιο αξιόπιστο για ετικέτες και ορχηστρικά) ή στη Μετάφραση (νεότερη προσέγγιση, αλλά χωρίς ετικέτες ορχηστρικού και λιγότερο αξιόπιστο για τις υπόλοιπες ετικέτες).',
+      diffAvisoTagsIgnoradas:
+        'Οι ετικέτες δομής (#Verse, #Chorus κ.λπ.) δεν εμφανίζονται σε αυτή την οθόνη και παραλείφθηκαν από αυτή τη σύγκριση.',
+      diffAvisoInstrumentalIgnorado:
+        'Αυτή η οθόνη δεν έχει τρόπο να εμφανίσει ορχηστρικά τμήματα — η ετικέτα «Instrumental» παραλείφθηκε από αυτή τη σύγκριση.',
+      copiarLetra: 'Αντιγραφή στίχων',
+      copiarLetraDesc: 'Αντιγραφή των τρεχόντων στίχων στην οθόνη',
+      letraCopiada: 'Οι στίχοι αντιγράφηκαν!',
+      editarLetra: 'Επεξεργασία',
+      salvarLetra: 'Αποθήκευση',
+      letraAtualizada: 'Οι στίχοι ενημερώθηκαν!',
+      editarLetraPlaceholder: 'Επεξεργαστείτε τους στίχους εδώ...',
+      ordenarFiltrarTitulo: 'Ταξινόμηση / φίλτρο',
+      adicionarEntradaVaziaTitulo: 'Προσθήκη κενού τραγουδιού για χειροκίνητη συμπλήρωση',
+      adicionarEntradaVaziaBotao: 'Προσθήκη κενού τραγουδιού',
+      entradaVaziaAdicionadaToast: 'Κενό τραγούδι προστέθηκε. Κάντε κλικ σε αυτό στο log για να συμπληρώσετε τίτλο και καλλιτέχνη.',
+      ordenarPorData: 'Ημερομηνία (πιο πρόσφατη)',
+      ordenarPorMissao: 'Αποστολή',
+      ordenarAlfabetica: 'Αλφαβητική σειρά',
+      semMissaoLabel: 'Χωρίς αποστολή',
+      opcoesBotaoBarra: 'Επιλογές',
+      diffManual: 'Χειροκίνητο diff',
+      diffManualDesc: 'Σύγκριση δύο επικολλημένων στίχων',
+      diffManualTitulo: 'Χειροκίνητο diff — σύγκριση δύο στίχων',
+      diffManualLetra1: 'Στίχοι 1',
+      diffManualLetra2: 'Στίχοι 2',
+      diffManualPlaceholder1: 'Επικολλήστε εδώ τους πρώτους στίχους...',
+      diffManualPlaceholder2: 'Επικολλήστε εδώ τους δεύτερους στίχους...',
+      diffManualComparar: 'Σύγκριση',
+      diffManualNovaComparacao: 'Νέα σύγκριση',
+      diffManualPreencherAmbas: 'Επικολλήστε και τους δύο στίχους στα παραπάνω πεδία για σύγκριση.',
+      diffManualSemDiferencas: 'Οι δύο επικολλημένοι στίχοι είναι πανομοιότυποι — δεν βρέθηκαν διαφορές.',
+      diffManualVersao1: 'Στίχοι 1',
+      diffManualVersao2: 'Στίχοι 2',
+      // σύστημα επιτευγμάτων — δείτε το σχόλιο στα πορτογαλικά (PT) παραπάνω.
+      conquistasTitulo: 'Επιτεύγματα',
+      conquistasProgresso: 'ξεκλειδωμένα',
+      conquistaDesbloqueadaToast: 'Επίτευγμα ξεκλειδώθηκε',
+      conquistaDesbloqueadaEm: 'Ξεκλειδώθηκε στις',
+      conquistaBloqueada: 'Δεν έχει ξεκλειδωθεί ακόμα',
+      conquistaVerTodas: 'Δείτε όλα',
+      conquistaMusicasTitulo: '{n} τραγούδι(α) στο log',
+      conquistaMusicasDesc: 'Καταγράψτε {n} τραγούδι(α) στο log υποβολών σας.',
+      conquistaRecordeTitulo: 'Ρεκόρ {n} σε μία μόνο ημέρα',
+      conquistaRecordeDesc: 'Καταγράψτε {n} τραγούδι(α) σε μία μόνο ημέρα.',
+      conquistaSequenciaTitulo: '{n} συνεχόμενη(ες) ημέρα(ες) υποβολών',
+      conquistaSequenciaDesc: 'Καταγράψτε τουλάχιστον 1 τραγούδι για {n} συνεχόμενη(ες) ημέρα(ες).',
+      conquistaDiffsTitulo: '{n} αποθηκευμένο(α) diff(s)',
+      conquistaDiffsDesc: 'Αποθηκεύστε {n} σύγκριση(εις) diff για να τις δείτε αργότερα.',
+      conquistaPerfilTitulo: 'Ένα προφίλ στο στυλ σας',
+      conquistaPerfilDesc: 'Ορίστε ένα προσαρμοσμένο όνομα και φωτογραφία στο προφίλ σας.',
+      conquistaNuvemTitulo: 'Αντίγραφο ασφαλείας στο cloud',
+      conquistaNuvemDesc: 'Στείλτε ένα πλήρες αντίγραφο ασφαλείας στο cloud για πρώτη φορά.',
+    },
   };
 
   // idiomas disponíveis no menuzinho do ícone de idioma — cada um
@@ -1502,44 +4145,20 @@ browser.storage.onChanged.addListener((changes, area) => {
     { codigo: 'pt', rotulo: 'PT', nome: 'Português' },
     { codigo: 'en', rotulo: 'EN', nome: 'English' },
     { codigo: 'el', rotulo: 'EL', nome: 'Ελληνικά' },
-    { codigo: 'id', rotulo: 'ID', nome: 'Bahasa Indonesia' },
   ];
-
-  function detectarIdiomaPadrao() {
-    try {
-      const navLang = (
-        (typeof browser !== 'undefined' &&
-          browser.i18n &&
-          typeof browser.i18n.getUILanguage === 'function' &&
-          browser.i18n.getUILanguage()) ||
-        navigator.language ||
-        navigator.userLanguage ||
-        ''
-      ).toLowerCase();
-
-      if (navLang.startsWith('id') || navLang.startsWith('in')) return 'id';
-      if (navLang.startsWith('pt')) return 'pt';
-      if (navLang.startsWith('el')) return 'el';
-    } catch (e) {}
-    return 'en';
-  }
 
   function getIdioma() {
     const salvo = localStorage.getItem(STORAGE_LANG_KEY);
-    return salvo && STRINGS[salvo] ? salvo : detectarIdiomaPadrao();
+    return STRINGS[salvo] ? salvo : 'en';
   }
 
   function setIdioma(idioma) {
-    localStorage.setItem(STORAGE_LANG_KEY, STRINGS[idioma] ? idioma : 'en');
+    localStorage.setItem(STORAGE_LANG_KEY, STRINGS[idioma] ? idioma : 'pt');
   }
 
   function t(chave) {
-    const idiomaAtual = getIdioma();
-    const dict = STRINGS[idiomaAtual] || STRINGS.en || STRINGS.pt;
-    if (dict && dict[chave] !== undefined) return dict[chave];
-    if (STRINGS.en && STRINGS.en[chave] !== undefined) return STRINGS.en[chave];
-    if (STRINGS.pt && STRINGS.pt[chave] !== undefined) return STRINGS.pt[chave];
-    return chave;
+    const dict = STRINGS[getIdioma()] || STRINGS.pt;
+    return dict[chave] !== undefined ? dict[chave] : chave;
   }
 
   // Reabre (re-renderiza) os painéis que estiverem abertos no momento em
@@ -1738,7 +4357,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     if (!notasObj || typeof notasObj !== 'object') return '';
     const idioma = getIdioma() || 'pt';
     const candidatos =
-      idioma === 'pt' ? ['pt-BR', 'pt-PT', 'pt'] : idioma === 'el' ? ['el'] : idioma === 'id' ? ['id-ID', 'id', 'en-US', 'en'] : ['en-US', 'en-GB', 'en'];
+      idioma === 'pt' ? ['pt-BR', 'pt-PT', 'pt'] : idioma === 'el' ? ['el'] : ['en-US', 'en-GB', 'en'];
     let bruto = '';
     for (const chave of candidatos) {
       if (notasObj[chave]) {
@@ -1815,27 +4434,6 @@ browser.storage.onChanged.addListener((changes, area) => {
     { chave: 'notifDicaSons', acaoChave: 'configuracoes', acao: () => abrirPainelConfiguracoes('sons') },
     { chave: 'notifDicaDiffManual', acaoChave: 'abrirDiffManualAcao', acao: () => abrirDiffManual() },
     { chave: 'notifDicaResumoDia', acaoChave: 'abrirLogDetalhado', acao: () => abrirPainelDetalhado() },
-    // ---- dicas pra quem está começando (mesma fonte pro sino e pro bloco
-    // "Enquanto isso, algumas dicas" da lista curta — ver renderPainelLista).
-    // As sem ação são só informativas: descrevem gestos direto na lista.
-    { chave: 'notifDicaClicarMusica' },
-    { chave: 'notifDicaBotaoDireitoMissao' },
-    { chave: 'notifDicaPreviaCapa' },
-    { chave: 'notifDicaModoManual' },
-    { chave: 'notifDicaSelecionarVarias' },
-    { chave: 'notifDicaSemDetalhes' },
-    { chave: 'notifDicaMusicaVazia' },
-    { chave: 'notifDicaOrdenar' },
-    { chave: 'notifDicaBusca' },
-    { chave: 'notifDicaRecolherGrupos' },
-    { chave: 'notifDicaRedimensionar' },
-    { chave: 'notifDicaCiclos', acaoChave: 'abrirCiclosAcao', acao: () => abrirPainelCiclos() },
-    { chave: 'notifDicaReward', acaoChave: 'abrirRewardAcao', acao: () => abrirPainelReward() },
-    { chave: 'notifDicaBlocoDeNotas', acaoChave: 'abrirBlocoDeNotasAcao', acao: () => abrirBlocoDeNotas() },
-    { chave: 'notifDicaBackup', acaoChave: 'abrirBackupAcao', acao: () => abrirPainelBackup() },
-    { chave: 'notifDicaComparar', acaoChave: 'abrirCompararAcao', acao: () => abrirPainelComparar() },
-    { chave: 'notifDicaConquistas', acaoChave: 'configuracoes', acao: () => abrirPainelConfiguracoes('conquistas') },
-    { chave: 'notifDicaCronometroCiclo', acaoChave: 'configuracoes', acao: () => abrirPainelConfiguracoes('cronometroCicloMain') },
   ];
 
   function isDicasNotificacaoAtiva() {
@@ -1893,16 +4491,6 @@ browser.storage.onChanged.addListener((changes, area) => {
   // uma nova embaralhada com todos os índices de novo.
   function getDicaRotativaIndice() {
     let fila = GM_getValue(STORAGE_DICAS_RESTANTES_KEY, null);
-    // descarta índices que não apontam mais pra nenhuma dica (fila salva
-    // por uma versão anterior) — sem isso DICAS_ROTATIVAS[indice] viraria
-    // undefined e o sino quebraria ao montar a notificação.
-    if (Array.isArray(fila)) {
-      const filaValida = fila.filter((i) => Number.isInteger(i) && i >= 0 && i < DICAS_ROTATIVAS.length);
-      if (filaValida.length !== fila.length) {
-        fila = filaValida;
-        GM_setValue(STORAGE_DICAS_RESTANTES_KEY, fila);
-      }
-    }
     if (!Array.isArray(fila) || !fila.length) {
       fila = embaralhar(DICAS_ROTATIVAS.map((_, i) => i));
       GM_setValue(STORAGE_DICAS_RESTANTES_KEY, fila);
@@ -4071,7 +6659,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       .join('\n');
   }
   const TAG_INSTRUMENTAL_LINHA_REGEX = /^#\s*instrumental\s*\d*\b.*$/i;
-  const TEXTO_UI_NAO_LETRA_REGEX = /^(\.{2,}|fim da letra|end of lyrics|akhir lirik|akhir dari lirik)$/i;
+  const TEXTO_UI_NAO_LETRA_REGEX = /^(\.{2,}|fim da letra|end of lyrics)$/i;
   const TEXTO_SENTINELA_FIM_FIBER_REGEX = /^end$/i;
 
   const LYRIC_LINE_CLASS_SEL = 'div[dir="auto"].r-1inkyih.r-1l694y9';
@@ -4084,18 +6672,11 @@ browser.storage.onChanged.addListener((changes, area) => {
     'assistant', 'todas as faixas', 'all tracks',
     'significado', 'meaning', 'temas', 'themes', 'humor', 'mood',
     'gerado por ia', 'generated by ai', 'ai generated',
-    // Bahasa Indonesia
-    'transkripsi', 'transkripsikan', 'sinkronisasi', 'sinkron',
-    'terjemahkan', 'terjemahan', 'kredit', 'struktur',
-    'penampil', 'artis', 'analisis', 'kirim', 'kirimkan',
-    'asisten', 'semua trek', 'semua lagu', 'semua',
-    'makna', 'arti', 'tema', 'suasana hati',
-    'dibuat oleh ai', 'dihasilkan oleh ai',
   ];
-  const STATUS_MISSAO_REGEX = /^(em progresso|concluíd[oa]|concluido|completed|in progress|sedang berlangsung|dalam proses|selesai|gagal|kesalahan)(\s*[·•].*)?$/i;
+  const STATUS_MISSAO_REGEX = /^(em progresso|concluíd[oa]|concluido|completed|in progress)(\s*[·•].*)?$/i;
   const REWARD_LINE_REGEX = /^reward:\s*[\d.,]+\s*usd/i;
   const CURATORS_MISSION_REGEX = /^\(curators\)/i;
-  const PRAZO_MISSAO_REGEX = /^\d+\s*(dias?|days?|hari)$/i;
+  const PRAZO_MISSAO_REGEX = /^\d+\s*(dias?|days?)$/i;
   const DURACAO_IDIOMA_REGEX = /^\d{1,2}:\d{2}\s*[·•]\s*\S+/;
 
   function ehLinhaNaoLetra(texto) {
@@ -4114,26 +6695,13 @@ browser.storage.onChanged.addListener((changes, area) => {
   function getPainelMissoesParaExcluir() {
     for (const el of document.querySelectorAll('div[dir="auto"]')) {
       const texto = el.textContent.trim().toLowerCase();
-      if (
-        !texto.startsWith('todas as faixas') &&
-        !texto.startsWith('all tracks') &&
-        !texto.startsWith('semua trek') &&
-        !texto.startsWith('semua lagu') &&
-        !texto.startsWith('semua')
-      )
-        continue;
+      if (!texto.startsWith('todas as faixas') && !texto.startsWith('all tracks')) continue;
       let cur = el;
       for (let i = 0; i < 6 && cur; i++) {
         cur = cur.parentElement;
         if (!cur) break;
         const t = cur.textContent.toLowerCase();
-        if (
-          t.includes('em progresso') ||
-          t.includes('in progress') ||
-          t.includes('sedang berlangsung') ||
-          t.includes('dalam proses')
-        )
-          return cur;
+        if (t.includes('em progresso') || t.includes('in progress')) return cur;
       }
       return el.parentElement || el;
     }
@@ -4514,7 +7082,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     return melhor;
   }
 
-  const TEXTOS_MARCADOR_FIM_LETRA = ['fim da letra', 'end of lyrics', 'akhir lirik', 'akhir dari lirik'];
+  const TEXTOS_MARCADOR_FIM_LETRA = ['fim da letra', 'end of lyrics'];
   function encontrarMarcadorFimDaLetra(escopo) {
     try {
       const candidatos = (escopo || document).querySelectorAll('div[dir="auto"]');
@@ -4557,15 +7125,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     return linhasAcumuladas.concat(linhasNovas);
   }
 
-  const TEXTOS_ABA_SINCRONIZACAO = [
-    'sincronização',
-    'sincronizacao',
-    'sync',
-    'synchronization',
-    'synchronisation',
-    'sinkronisasi',
-    'sinkron',
-  ];
+  const TEXTOS_ABA_SINCRONIZACAO = ['sincronização', 'sincronizacao', 'sync', 'synchronization', 'synchronisation'];
 
   function encontrarAbaSincronizacao() {
     const candidatosTexto = document.querySelectorAll('[dir="auto"]');
@@ -4650,17 +7210,7 @@ browser.storage.onChanged.addListener((changes, area) => {
   }
 
   // ---------- navegação até a aba de Tradução ----------
-  const TEXTOS_ABA_TRADUCAO = [
-    'tradução',
-    'traducao',
-    'traduzir',
-    'translate',
-    'translation',
-    'traducción',
-    'traduccion',
-    'terjemahan',
-    'terjemahkan',
-  ];
+  const TEXTOS_ABA_TRADUCAO = ['tradução', 'traducao', 'traduzir', 'translate', 'translation', 'traducción', 'traduccion'];
 
   function textoBateComAba(texto, listaPalavras) {
     if (!texto) return false;
@@ -6191,50 +8741,11 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   let modoManualAtivo = false;
 
-  // O modo manual só faz sentido na lista de tasks (/tasks): o seletor das
-  // linhas (ROW_SELECTOR) é uma classe genérica do React Native Web e, em
-  // outras telas — página de missões (/missions) e o próprio Studio
-  // (/tool) —, casa com elementos que NÃO são músicas e acabava registrando
-  // lixo no log. Como o site é uma SPA (a rota muda sem recarregar a
-  // página), isso é consultado em tempo real, a cada clique/hover, e não
-  // uma vez só no carregamento.
-  function paginaPermiteModoManual() {
-    try {
-      return /^\/tasks(\/|$)/.test(window.location.pathname);
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // Aplica/retira a classe que ativa o destaque visual (hover laranja) nas
-  // linhas — só fica ligada se o modo estiver ativo E a página atual permitir.
-  function sincronizarClasseModoManual() {
-    document.body.classList.toggle('mxm-log-modo-manual', modoManualAtivo && paginaPermiteModoManual());
-  }
-
   function alternarModoManual(forcar) {
-    const ligar = forcar !== undefined ? forcar : !modoManualAtivo;
-    // recusa ligar fora da lista de tasks (desligar é sempre permitido)
-    if (ligar && !paginaPermiteModoManual()) {
-      if (typeof mostrarToastSimples === 'function') mostrarToastSimples(t('modoManualSoNaListaTasks'), 'erro');
-      return;
-    }
-    modoManualAtivo = ligar;
-    sincronizarClasseModoManual();
+    modoManualAtivo = forcar !== undefined ? forcar : !modoManualAtivo;
+    document.body.classList.toggle('mxm-log-modo-manual', modoManualAtivo);
     aplicarIndicadorModoManual();
   }
-
-  // Se o usuário navegar (SPA) pra fora da lista de tasks com o modo ligado,
-  // desliga sozinho em vez de ficar armado numa tela onde ele não vale.
-  // Sem pushState/popstate confiável no código, um checador leve por
-  // intervalo cobre todos os jeitos de trocar de rota.
-  setInterval(() => {
-    if (modoManualAtivo && !paginaPermiteModoManual()) {
-      alternarModoManual(false);
-    } else {
-      sincronizarClasseModoManual();
-    }
-  }, 500);
 
   // V2.NEW4: abandonado o efeito visual piscando no botão de logs — a
   // pedido do usuário, o indicativo agora reaproveita o mesmo badge que
@@ -6544,8 +9055,7 @@ browser.storage.onChanged.addListener((changes, area) => {
   // o document.title primeiro (cada missão tem um título de aba diferente),
   // cai pro h1 e depois pro h2, ignorando textos que batem com o blocklist
   // (banners de cookie/privacidade que às vezes usam h1/h2 também).
-  const MISSION_LABEL_BLOCKLIST =
-    /privacy|cookie|consent|preference center|terms|política de privacidade|termos|kebijakan privasi|syarat|ketentuan/i;
+  const MISSION_LABEL_BLOCKLIST = /privacy|cookie|consent|preference center|terms|política de privacidade|termos/i;
 
   function isValidMissionText(text) {
     if (!text) return false;
@@ -7517,59 +10027,13 @@ browser.storage.onChanged.addListener((changes, area) => {
     const marcandoManualmente = modoManualAtivo;
     const mostrar = marcandoManualmente || (isBadgeVisible() && total > 0);
     badges.forEach((badge) => {
-      const ehBadgeQuadrado = badge.id === 'mxm-log-badge';
-      if (marcandoManualmente) {
-        // Só remonta o conteúdo se ainda não estiver no formato "manual"
-        // (evita recriar o botão a cada atualização — atualizarBadge roda
-        // toda vez que o total de envios muda).
-        if (!badge.querySelector('.mxm-badge-pausa-btn')) {
-          badge.textContent = '';
-          if (!ehBadgeQuadrado) {
-            const rotulo = document.createElement('span');
-            rotulo.className = 'mxm-badge-manual-rotulo';
-            rotulo.textContent = t('marcandoManualmenteLabel');
-            badge.appendChild(rotulo);
-          }
-          badge.appendChild(criarBotaoPausaBadge());
-        } else {
-          const rotulo = badge.querySelector('.mxm-badge-manual-rotulo');
-          if (rotulo) rotulo.textContent = t('marcandoManualmenteLabel');
-        }
-      } else if (badge.querySelector('.mxm-badge-pausa-btn') || badge.textContent !== String(total)) {
-        badge.textContent = total;
-      }
+      badge.textContent = marcandoManualmente ? t('marcandoManualmenteLabel') : total;
       badge.classList.toggle('mxm-badge-texto-manual', marcandoManualmente);
       badge.style.display = mostrar ? 'flex' : 'none';
     });
     // mantém a barrinha de "tarefas hoje / recorde" sempre em dia,
     // sempre que o total de envios muda (se o painel estiver aberto).
     atualizarResumoDia();
-  }
-
-  // Botãozinho de pausa dentro do badge "Marcando manualmente" — mesmo
-  // efeito de clicar no FAB com o modo ligado (ver o listener de
-  // #mxm-log-fab-btn): desliga o modo direto, sem abrir menu. Precisa
-  // parar a propagação, senão o clique subiria pro botão/pill do Log e
-  // abriria o painel por trás.
-  function criarBotaoPausaBadge() {
-    const btn = document.createElement('span');
-    btn.className = 'mxm-badge-pausa-btn';
-    btn.title = t('pausarModoManual');
-    btn.setAttribute('role', 'button');
-    btn.setAttribute('aria-label', t('pausarModoManual'));
-    btn.innerHTML = icone('pause', 9, 'currentColor', 2.5);
-    const parar = (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-    };
-    btn.addEventListener('mousedown', parar);
-    btn.addEventListener('mouseup', parar);
-    btn.addEventListener('click', (ev) => {
-      parar(ev);
-      tocarSom('clique');
-      alternarModoManual(false);
-    });
-    return btn;
   }
 
   function apagarEntrada(key) {
@@ -13707,10 +16171,9 @@ browser.storage.onChanged.addListener((changes, area) => {
   // nomes curtos de mês, pra rotular o gráfico de atividade por mês
   // sem depender de Intl/locale do navegador.
   const MESES_ABREV = {
-    pt: (globalThis.MXM_LOCALES && globalThis.MXM_LOCALES.pt && globalThis.MXM_LOCALES.pt.mesesAbrev) || [],
-    en: (globalThis.MXM_LOCALES && globalThis.MXM_LOCALES.en && globalThis.MXM_LOCALES.en.mesesAbrev) || [],
-    el: (globalThis.MXM_LOCALES && globalThis.MXM_LOCALES.el && globalThis.MXM_LOCALES.el.mesesAbrev) || [],
-    id: (globalThis.MXM_LOCALES && globalThis.MXM_LOCALES.id && globalThis.MXM_LOCALES.id.mesesAbrev) || [],
+    pt: ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'],
+    en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+    el: ['Ιαν', 'Φεβ', 'Μάρ', 'Απρ', 'Μάι', 'Ιούν', 'Ιούλ', 'Αύγ', 'Σεπ', 'Οκτ', 'Νοέ', 'Δεκ'],
   };
 
   // Formata uma chave "MM/AAAA" pro rótulo curto do gráfico (ex: "ago/26").
@@ -13740,10 +16203,9 @@ browser.storage.onChanged.addListener((changes, area) => {
   // semanal — mesmo esquema do MESES_ABREV acima, sem depender de
   // Intl/locale do navegador.
   const DIAS_SEMANA_ABREV = {
-    pt: (globalThis.MXM_LOCALES && globalThis.MXM_LOCALES.pt && globalThis.MXM_LOCALES.pt.diasSemanaAbrev) || [],
-    en: (globalThis.MXM_LOCALES && globalThis.MXM_LOCALES.en && globalThis.MXM_LOCALES.en.diasSemanaAbrev) || [],
-    el: (globalThis.MXM_LOCALES && globalThis.MXM_LOCALES.el && globalThis.MXM_LOCALES.el.diasSemanaAbrev) || [],
-    id: (globalThis.MXM_LOCALES && globalThis.MXM_LOCALES.id && globalThis.MXM_LOCALES.id.diasSemanaAbrev) || [],
+    pt: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'],
+    en: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    el: ['Δευ', 'Τρί', 'Τετ', 'Πέμ', 'Παρ', 'Σάβ', 'Κυρ'],
   };
 
   function rotulosDiaSemana() {
@@ -13757,7 +16219,6 @@ browser.storage.onChanged.addListener((changes, area) => {
     let unidade;
     if (idioma === 'en') unidade = n === 1 ? 'day' : 'days';
     else if (idioma === 'el') unidade = n === 1 ? 'ημέρα' : 'ημέρες';
-    else if (idioma === 'id') unidade = 'hari';
     else unidade = n === 1 ? 'dia' : 'dias';
     return `${n} ${unidade}`;
   }
@@ -14115,7 +16576,6 @@ browser.storage.onChanged.addListener((changes, area) => {
       let unidade;
       if (idioma === 'en') unidade = dias === 1 ? 'day' : 'days';
       else if (idioma === 'el') unidade = dias === 1 ? 'ημέρα' : 'ημέρες';
-      else if (idioma === 'id') unidade = 'hari';
       else unidade = dias === 1 ? 'dia' : 'dias';
       return `${dias} ${unidade}`;
     }
@@ -14129,7 +16589,6 @@ browser.storage.onChanged.addListener((changes, area) => {
       let unidadeHora;
       if (idioma === 'en') unidadeHora = horas === 1 ? 'hour' : 'hours';
       else if (idioma === 'el') unidadeHora = horas === 1 ? 'ώρα' : 'ώρες';
-      else if (idioma === 'id') unidadeHora = 'jam';
       else unidadeHora = horas === 1 ? 'hora' : 'horas';
       return `${horas} ${unidadeHora}`;
     }
@@ -14137,7 +16596,6 @@ browser.storage.onChanged.addListener((changes, area) => {
     let unidadeMinuto;
     if (idioma === 'en') unidadeMinuto = minutos === 1 ? 'minute' : 'minutes';
     else if (idioma === 'el') unidadeMinuto = minutos === 1 ? 'λεπτό' : 'λεπτά';
-    else if (idioma === 'id') unidadeMinuto = 'menit';
     else unidadeMinuto = minutos === 1 ? 'minuto' : 'minutos';
     return `${minutos} ${unidadeMinuto}`;
   }
@@ -22912,7 +25370,6 @@ browser.storage.onChanged.addListener((changes, area) => {
     'wyślij', // pl
     'gönder', // tr
     'kirim', // id
-    'kirimkan', // id
     'gửi', // vi
     'отправить', // ru
     'υποβολή', // el
@@ -22933,15 +25390,6 @@ browser.storage.onChanged.addListener((changes, area) => {
     'approve',
     'rejeitar',
     'reject',
-    // Bahasa Indonesia
-    'batal',
-    'batalkan',
-    'kembali',
-    'tutup',
-    'lewati',
-    'tandai sebagai instrumental',
-    'setujui',
-    'tolak',
   ]);
 
   function textoEhEnviar(texto) {
@@ -22951,15 +25399,11 @@ browser.storage.onChanged.addListener((changes, area) => {
   }
 
   // mesmo princípio, mas pro botão "Marcar como instrumental" ("Mark as
-  // instrumental" em inglês, "Tandai sebagai instrumental" em indonésio).
+  // instrumental" em inglês).
   function textoEhInstrumental(texto) {
     if (!texto) return false;
     const limpo = texto.trim().toLowerCase();
-    return (
-      limpo === 'marcar como instrumental' ||
-      limpo === 'mark as instrumental' ||
-      limpo === 'tandai sebagai instrumental'
-    );
+    return limpo === 'marcar como instrumental' || limpo === 'mark as instrumental';
   }
 
   // reforço estrutural (ver comentário acima): true se o label usa a cor
@@ -23064,73 +25508,23 @@ browser.storage.onChanged.addListener((changes, area) => {
     return el === encontrarBotaoEnviar();
   }
 
-  // mesmo problema do botão "Enviar" — as abas da tela de tasks
-  // ("Todas as faixas", "Em andamento", "Concluídas", "Falha") mudam de
-  // nome em outros idiomas (ex: "All tracks", "Error" em inglês;
-  // "Semua trek", "Gagal" em indonésio). Procurar qualquer uma das abas
-  // conhecidas permite encontrar o container da barra com segurança.
-  const ROTULOS_ABA_TODAS = [
-    'todas as faixas',
-    'all tracks',
-    'semua trek',
-    'semua lagu',
-    'semua',
-    'todas las pistas',
-    'toutes les pistes',
-    'tutti i brani',
-    'tutte le tracce',
-    'alle titel',
-  ];
-
-  const ROTULOS_ABAS_TASKS = [
-    // Todas as faixas
-    ...ROTULOS_ABA_TODAS,
-    // Em andamento / In progress
-    'em andamento',
-    'em progresso',
-    'in progress',
-    'sedang berlangsung',
-    'dalam proses',
-    'en cours',
-    'en progreso',
-    'in bearbeitung',
-    // Concluídas / Completed
-    'concluídas',
-    'concluidas',
-    'concluído',
-    'concluido',
-    'completed',
-    'selesai',
-    'terminé',
-    'termine',
-    'completado',
-    'abgeschlossen',
-    // Erro / Error / Falha / Gagal
-    'error',
-    'erro',
-    'falha',
-    'gagal',
-    'kesalahan',
-    'erreur',
-    'fehler',
-  ];
+  // mesmo problema do botão "Enviar" — a aba "Todas as faixas" da
+  // tela de tasks vira "All tracks" em contas configuradas em inglês.
+  const ROTULOS_ABA_TODAS = ['todas as faixas', 'all tracks'];
 
   function encontrarContainerAbas() {
-    const candidatos = Array.from(document.querySelectorAll('div[dir="auto"]'));
-    for (const rotulo of ROTULOS_ABAS_TASKS) {
-      const aba = candidatos.find(
-        (el) => (el.textContent || '').trim().toLowerCase() === rotulo
-      );
-      if (!aba) continue;
+    const aba = Array.from(document.querySelectorAll('div[dir="auto"]')).find((el) =>
+      ROTULOS_ABA_TODAS.includes(el.textContent.trim().toLowerCase())
+    );
+    if (!aba) return null;
 
-      // sobe na árvore até achar o container cujos filhos são as várias abas clicáveis
-      let el = aba;
-      for (let i = 0; i < 6 && el; i++) {
-        el = el.parentElement;
-        if (!el) break;
-        const filhosComTab = Array.from(el.children).filter((c) => c.querySelector('div[tabindex="0"]'));
-        if (filhosComTab.length >= 3) return el;
-      }
+    // sobe na árvore até achar o container cujos filhos são as várias abas clicáveis
+    let el = aba;
+    for (let i = 0; i < 6 && el; i++) {
+      el = el.parentElement;
+      if (!el) break;
+      const filhosComTab = Array.from(el.children).filter((c) => c.querySelector('div[tabindex="0"]'));
+      if (filhosComTab.length >= 3) return el;
     }
     return null;
   }
@@ -24472,7 +26866,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     dicaConquistas.style.cssText = 'padding:4px 10px 8px; font-size:11px; color:var(--md-sys-color-outline); line-height:1.5;';
     dicaConquistas.textContent = t('sistemaConquistasDesc');
     criarBloco(
-      criarItemSwitch(t('sistemaConquistas'), 'star', isConquistasAtivo, () => setConquistasAtivo(!isConquistasAtivo()), false, 'conquistas'),
+      criarItemSwitch(t('sistemaConquistas'), 'star', isConquistasAtivo, () => setConquistasAtivo(!isConquistasAtivo())),
       dicaConquistas
     );
 
@@ -26872,41 +29266,13 @@ browser.storage.onChanged.addListener((changes, area) => {
       transform: translateX(-50%);
       min-width: max-content;
       white-space: nowrap;
-      padding: 2px 4px;
+      padding: 2px 7px;
       font-size: 8.5px;
     }
     .mxm-log-badge-el.mxm-badge-texto-manual {
       white-space: nowrap;
-      padding: 1px 4px 1px 7px;
-      gap: 5px;
+      padding: 1px 7px;
     }
-    /* botão de pausa dentro do badge "Marcando manualmente" */
-    .mxm-badge-pausa-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
-      cursor: pointer;
-      color: inherit;
-      background: color-mix(in srgb, currentColor 18%, transparent);
-      transition: background-color .12s ease, transform .12s ease;
-    }
-    .mxm-badge-pausa-btn:hover {
-      background: color-mix(in srgb, currentColor 34%, transparent);
-      transform: scale(1.12);
-    }
-    .mxm-badge-pausa-btn:active {
-      transform: scale(0.94);
-    }
-    /* no badge do botão quadrado (pequeno, sem texto) só cabe o ícone */
-    #mxm-log-badge.mxm-badge-texto-manual .mxm-badge-pausa-btn {
-      width: 12px;
-      height: 12px;
-    }
-
     #mxm-log-fab-manual.mxm-modo-manual-on {
       background: var(--md-sys-color-tertiary-container) !important;
       color: var(--md-sys-color-on-tertiary-container) !important;
@@ -26924,9 +29290,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     (e) => {
       // V1.7: modo manual ligado — clique numa linha da lista registra
       // direto, sem precisar do botão real. Shift+clique marca instrumental.
-      // Só vale na lista de tasks (ver paginaPermiteModoManual): em
-      // /missions e no Studio o seletor pega itens que não são músicas.
-      if (modoManualAtivo && paginaPermiteModoManual()) {
+      if (modoManualAtivo) {
         const row = e.target.closest(ROW_SELECTOR);
         if (row) {
           e.preventDefault();
