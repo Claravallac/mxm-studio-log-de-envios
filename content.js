@@ -1505,18 +1505,41 @@ browser.storage.onChanged.addListener((changes, area) => {
     { codigo: 'id', rotulo: 'ID', nome: 'Bahasa Indonesia' },
   ];
 
+  function detectarIdiomaPadrao() {
+    try {
+      const navLang = (
+        (typeof browser !== 'undefined' &&
+          browser.i18n &&
+          typeof browser.i18n.getUILanguage === 'function' &&
+          browser.i18n.getUILanguage()) ||
+        navigator.language ||
+        navigator.userLanguage ||
+        ''
+      ).toLowerCase();
+
+      if (navLang.startsWith('id') || navLang.startsWith('in')) return 'id';
+      if (navLang.startsWith('pt')) return 'pt';
+      if (navLang.startsWith('el')) return 'el';
+    } catch (e) {}
+    return 'en';
+  }
+
   function getIdioma() {
     const salvo = localStorage.getItem(STORAGE_LANG_KEY);
-    return STRINGS[salvo] ? salvo : 'en';
+    return salvo && STRINGS[salvo] ? salvo : detectarIdiomaPadrao();
   }
 
   function setIdioma(idioma) {
-    localStorage.setItem(STORAGE_LANG_KEY, STRINGS[idioma] ? idioma : 'pt');
+    localStorage.setItem(STORAGE_LANG_KEY, STRINGS[idioma] ? idioma : 'en');
   }
 
   function t(chave) {
-    const dict = STRINGS[getIdioma()] || STRINGS.pt;
-    return dict[chave] !== undefined ? dict[chave] : chave;
+    const idiomaAtual = getIdioma();
+    const dict = STRINGS[idiomaAtual] || STRINGS.en || STRINGS.pt;
+    if (dict && dict[chave] !== undefined) return dict[chave];
+    if (STRINGS.en && STRINGS.en[chave] !== undefined) return STRINGS.en[chave];
+    if (STRINGS.pt && STRINGS.pt[chave] !== undefined) return STRINGS.pt[chave];
+    return chave;
   }
 
   // Reabre (re-renderiza) os painéis que estiverem abertos no momento em
