@@ -1,5 +1,18 @@
-/* MXM Studio - Log de Envios — content script da extensão Firefox (MIT).
-   Porte automático a partir do userscript (Tampermonkey) de mesmo nome. */
+/* MXM Studio - Log de Envios — content script (MIT).
+   Compatível com Chrome (Manifest V3) e Firefox. */
+
+// Compatibilidade universal entre Chrome (chrome.*) e Firefox (browser.*)
+const browser = (function () {
+  const root = typeof globalThis !== "undefined" ? globalThis : (typeof window !== "undefined" ? window : self);
+  const b = (typeof root.browser !== "undefined" && root.browser) || (typeof root.chrome !== "undefined" && root.chrome) || {};
+  try {
+    if (typeof root.browser === "undefined") {
+      root.browser = b;
+    }
+  } catch (e) {}
+  return b;
+})();
+
 const mxmStorageCache = Object.create(null);
 
 function GM_getValue(key, defaultValue) {
@@ -459,9 +472,10 @@ browser.storage.onChanged.addListener((changes, area) => {
     CHF: { symbol: 'CHF ', flag: 'ch', label: 'CHF' },
     CAD: { symbol: 'CA$', flag: 'ca', label: 'CAD' },
     AUD: { symbol: 'AU$', flag: 'au', label: 'AUD' },
+    IDR: { symbol: 'Rp', flag: 'id', label: 'IDR' },
   };
   const FALLBACK_RATES = {
-    BRL: 5.2, EUR: 0.92, GBP: 0.79, ARS: 1180, JPY: 152, CHF: 0.87, CAD: 1.37, AUD: 1.53,
+    BRL: 5.2, EUR: 0.92, GBP: 0.79, ARS: 1180, JPY: 152, CHF: 0.87, CAD: 1.37, AUD: 1.53, IDR: 16200,
   };
 
   // Mesmas fontes de cotação do widget: AwesomeAPI (principal, pares
@@ -497,11 +511,11 @@ browser.storage.onChanged.addListener((changes, area) => {
   // o padrão ISO em alguns casos, ex.: "AR$", "CA$").
   const CURRENCY_LOCALE = {
     USD: 'en-US', BRL: 'pt-BR', EUR: 'de-DE', GBP: 'en-GB',
-    ARS: 'es-AR', JPY: 'ja-JP', CHF: 'de-CH', CAD: 'en-CA', AUD: 'en-AU',
+    ARS: 'es-AR', JPY: 'ja-JP', CHF: 'de-CH', CAD: 'en-CA', AUD: 'en-AU', IDR: 'id-ID',
   };
   function formatarNumeroMoeda(valor, codigo, casasDecimais) {
     const locale = CURRENCY_LOCALE[codigo] || 'en-US';
-    const casas = casasDecimais != null ? casasDecimais : codigo === 'JPY' ? 0 : 2;
+    const casas = casasDecimais != null ? casasDecimais : (codigo === 'JPY' || codigo === 'IDR') ? 0 : 2;
     try {
       return new Intl.NumberFormat(locale, {
         minimumFractionDigits: casas,
@@ -1631,6 +1645,26 @@ browser.storage.onChanged.addListener((changes, area) => {
       notifDicaSons: 'Se os bipes de clique/sucesso/erro incomodam, dá pra desligar os efeitos sonoros nas Configurações.',
       notifDicaDiffManual: 'O "Diff manual" deixa comparar duas letras quaisquer coladas por você, sem precisar estar numa música específica.',
       notifDicaResumoDia: 'A barrinha "Hoje vs Recorde" no painel Detalhado mostra o quanto falta pra bater seu recorde diário.',
+      // dicas pra quem está começando — sem ação (gestos direto na lista) ou
+      // com botão pra abrir a ferramenta citada.
+      notifDicaClicarMusica: 'Clique em qualquer música da lista pra abrir o painel dela: dá pra ver e corrigir data/hora, missão, letra e duração, e ir direto pra página da música.',
+      notifDicaBotaoDireitoMissao: 'Clique com o botão direito numa música da lista pra escolher (ou corrigir) em que missão ela foi feita.',
+      notifDicaPreviaCapa: 'Clique na capinha de uma música pra ouvir uma prévia de 30 segundos — ótimo pra lembrar qual era a faixa. (Precisa de "Mostrar imagem" ligado nas Configurações.)',
+      notifDicaModoManual: 'Esqueceu de registrar uma música? Ligue o "Modo marcação manual" no botão flutuante: com ele ligado, clicar numa linha da lista de tasks registra a letra, e Shift+clique registra como instrumental.',
+      notifDicaSelecionarVarias: 'Pra apagar várias músicas de uma vez, use "Selecionar várias" no botão flutuante, marque as que quiser e confirme a exclusão no rodapé.',
+      notifDicaSemDetalhes: 'Viu a etiqueta "Sem detalhes" numa música? Foi porque o título/artista não foram identificados. Clique nela pra preencher na mão.',
+      notifDicaMusicaVazia: 'Precisa registrar uma música que não foi capturada? Use o botão "+" ao lado do funil pra criar uma linha vazia e depois clique nela pra completar título e artista.',
+      notifDicaOrdenar: 'O botão de funil ao lado da primeira data deixa ordenar o log por data, por missão ou em ordem alfabética.',
+      notifDicaBusca: 'A barra de busca procura por título, artista ou ID da música — bom pra achar rapidinho um envio antigo.',
+      notifDicaRecolherGrupos: 'Clique na etiqueta de data (ou de missão) que separa a lista pra recolher aquele grupo e deixar o log mais enxuto. Clique de novo pra expandir.',
+      notifDicaRedimensionar: 'A janela do Log é redimensionável: arraste o cantinho de baixo à direita pra deixá-la do tamanho que ficar melhor pra você.',
+      notifDicaCiclos: 'No painel Ciclos você vê cada ciclo de missões do ano, com nome (dá pra renomear), datas, quantidade de músicas e valores em USD e BRL.',
+      notifDicaReward: 'A aba Reward mostra quanto você ganhou no total e o reward estimado por missão, em dólar e em real.',
+      notifDicaBlocoDeNotas: 'O Bloco de notas guarda anotações suas, e cada nota pode ser ligada a uma música ou a um ciclo — bom pra lembrar de algo pra depois.',
+      notifDicaBackup: 'Seu histórico fica só neste navegador. No painel Backup e Restauração dá pra guardar cópias em arquivo, em disco ou na nuvem, pra não perder nada se reinstalar ou trocar de computador.',
+      notifDicaComparar: 'Em Comparar você importa o arquivo .json de outra pessoa e vê seu log lado a lado com o dela: total de envios, duração média e dias ativos.',
+      notifDicaConquistas: 'Existe um sistema de conquistas (badges por marcos, como quantidade de músicas e dias seguidos). Ele vem desligado por padrão — dá pra ligar nas Configurações.',
+      notifDicaCronometroCiclo: 'Dá pra mostrar uma contagem regressiva até o próximo ciclo de missões abaixo da barra de busca — ligue nas Configurações.',
       // notificação fixa explicando o que é o "ciclo de missões" e por que
       // uma missão específica pode terminar antes do fim do mês (ver
       // abrirExplicacaoCiclosMissoes, aberta também pela janela do
@@ -1659,6 +1693,11 @@ browser.storage.onChanged.addListener((changes, area) => {
       abrirLogDetalhado: 'Abrir Log Detalhado',
       abrirDiffCheckAcao: 'Abrir Diff Check',
       abrirDiffManualAcao: 'Abrir Diff manual',
+      abrirCiclosAcao: 'Abrir Ciclos',
+      abrirRewardAcao: 'Abrir Reward',
+      abrirBlocoDeNotasAcao: 'Abrir Bloco de notas',
+      abrirBackupAcao: 'Abrir Backup e Restauração',
+      abrirCompararAcao: 'Abrir Comparar',
       // badge da lista pra registros com letra completa capturada,
       // e textos do visualizador que abre ao clicar nela.
       letraCapturadaTag: 'Letra',
@@ -1844,6 +1883,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       modoMarcacaoManual: 'Modo marcação manual',
       idiomaIngles: 'Interface em inglês',
       dicaModoManual: 'Com o modo manual ligado: clique numa linha da lista = letra · Shift+clique = instrumental.',
+      modoManualSoNaListaTasks: 'O modo marcação manual só funciona na lista de tasks — não na página de missões nem dentro do Studio.',
       categoriaManualLabel: 'Marcadas manualmente',
       cicloLabel: 'Ciclo',
       inicioNovoCiclo: 'Início de novo ciclo',
@@ -2583,6 +2623,26 @@ browser.storage.onChanged.addListener((changes, area) => {
       notifDicaSons: 'If the click/success/error beeps bother you, you can turn off sound effects in Settings.',
       notifDicaDiffManual: '"Manual Diff" lets you compare any two lyrics you paste yourself, without needing to be on a specific track.',
       notifDicaResumoDia: 'The "Today vs Record" bar in the Detailed panel shows how far you are from beating your daily record.',
+      // tips for beginners — either no action (gestures right on the list)
+      // or with a button that opens the tool being mentioned.
+      notifDicaClicarMusica: 'Click any song in the list to open its panel: you can view and fix its date/time, mission, lyrics and duration, and jump straight to the song page.',
+      notifDicaBotaoDireitoMissao: 'Right-click a song in the list to choose (or fix) which mission it was done for.',
+      notifDicaPreviaCapa: 'Click a song\'s cover to hear a 30-second preview — handy for remembering which track it was. (Requires "Show image" to be on in Settings.)',
+      notifDicaModoManual: 'Forgot to log a song? Turn on "Manual marking mode" in the floating button: with it on, clicking a row in the task list logs it as lyrics, and Shift+click logs it as instrumental.',
+      notifDicaSelecionarVarias: 'To delete several songs at once, use "Select multiple" in the floating button, tick the ones you want and confirm the deletion in the footer.',
+      notifDicaSemDetalhes: 'See a "No details" tag on a song? It means the title/artist couldn\'t be identified. Click it to fill them in by hand.',
+      notifDicaMusicaVazia: 'Need to log a song that wasn\'t captured? Use the "+" button next to the funnel to create an empty row, then click it to fill in the title and artist.',
+      notifDicaOrdenar: 'The funnel button next to the first date lets you sort the log by date, by mission or alphabetically.',
+      notifDicaBusca: 'The search bar looks up a song by title, artist or ID — great for quickly finding an older submission.',
+      notifDicaRecolherGrupos: 'Click the date (or mission) label that splits the list to collapse that group and keep the log tidy. Click again to expand it.',
+      notifDicaRedimensionar: 'The Log window is resizable: drag the bottom-right corner to make it whatever size works best for you.',
+      notifDicaCiclos: 'The Cycles panel shows each mission cycle of the year, with its name (you can rename it), dates, song count and values in USD and BRL.',
+      notifDicaReward: 'The Reward tab shows how much you\'ve earned in total and the estimated reward per mission, in dollars and in reais.',
+      notifDicaBlocoDeNotas: 'The Notepad keeps your own notes, and each note can be linked to a song or a cycle — handy for remembering something for later.',
+      notifDicaBackup: 'Your history lives only in this browser. In the Backup & Restore panel you can keep copies as a file, on disk or in the cloud, so you lose nothing if you reinstall or switch computers.',
+      notifDicaComparar: 'In Compare you import another person\'s .json file and see your log side by side with theirs: total submissions, average duration and active days.',
+      notifDicaConquistas: 'There\'s an achievements system (badges for milestones like song count and day streaks). It\'s off by default — you can turn it on in Settings.',
+      notifDicaCronometroCiclo: 'You can show a countdown to the next mission cycle below the search bar — turn it on in Settings.',
       // fixed notification explaining what the "mission cycle" is and why
       // a specific mission can end before the month is over (see
       // abrirExplicacaoCiclosMissoes, also opened from the next-cycle
@@ -2611,6 +2671,11 @@ browser.storage.onChanged.addListener((changes, area) => {
       abrirLogDetalhado: 'Open Detailed Log',
       abrirDiffCheckAcao: 'Open Diff Check',
       abrirDiffManualAcao: 'Open manual Diff',
+      abrirCiclosAcao: 'Open Cycles',
+      abrirRewardAcao: 'Open Reward',
+      abrirBlocoDeNotasAcao: 'Open Notepad',
+      abrirBackupAcao: 'Open Backup & Restore',
+      abrirCompararAcao: 'Open Compare',
       letraCapturadaTag: 'Lyrics',
       letraCapturadaTooltip: 'Full lyrics captured — click to view',
       letraSuspeitaTooltip: 'The captured lyrics contain a term that suggests a possible mistake (e.g. "Undetermined", "English", "Portuguese", "Reward" or "task completed") — worth double-checking.',
@@ -2777,6 +2842,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       nomeExtensao: 'MXM Studio',
       idiomaIngles: 'English interface',
       dicaModoManual: 'With manual mode on: click a row in the list = lyrics · Shift+click = instrumental.',
+      modoManualSoNaListaTasks: 'Manual marking mode only works on the task list — not on the missions page or inside the Studio.',
       categoriaManualLabel: 'Manually marked',
       cicloLabel: 'Cycle',
       inicioNovoCiclo: 'New cycle begins',
@@ -3431,6 +3497,26 @@ browser.storage.onChanged.addListener((changes, area) => {
       notifDicaSons: 'Αν σε ενοχλούν οι ήχοι κλικ/επιτυχίας/σφάλματος, μπορείς να τους απενεργοποιήσεις στις Ρυθμίσεις.',
       notifDicaDiffManual: 'Το "Diff manual" σου επιτρέπει να συγκρίνεις δύο στίχους που επικολλάς εσύ, χωρίς να χρειάζεται να είσαι σε συγκεκριμένο κομμάτι.',
       notifDicaResumoDia: 'Η μπάρα "Σήμερα vs Ρεκόρ" στον Αναλυτικό πίνακα δείχνει πόσο απέχεις από το να σπάσεις το ημερήσιο ρεκόρ σου.',
+      // συμβουλές για αρχάριους — είτε χωρίς ενέργεια (κινήσεις απευθείας
+      // στη λίστα) είτε με κουμπί που ανοίγει το εργαλείο που αναφέρεται.
+      notifDicaClicarMusica: 'Κάνε κλικ σε οποιοδήποτε τραγούδι της λίστας για να ανοίξει ο πίνακάς του: μπορείς να δεις και να διορθώσεις ημερομηνία/ώρα, αποστολή, στίχους και διάρκεια, και να πας απευθείας στη σελίδα του τραγουδιού.',
+      notifDicaBotaoDireitoMissao: 'Κάνε δεξί κλικ σε ένα τραγούδι της λίστας για να επιλέξεις (ή να διορθώσεις) σε ποια αποστολή έγινε.',
+      notifDicaPreviaCapa: 'Κάνε κλικ στο εξώφυλλο ενός τραγουδιού για να ακούσεις μια προεπισκόπηση 30 δευτερολέπτων — χρήσιμο για να θυμηθείς ποιο κομμάτι ήταν. (Χρειάζεται να είναι ενεργό το «Εμφάνιση εξωφύλλου» στις Ρυθμίσεις.)',
+      notifDicaModoManual: 'Ξέχασες να καταγράψεις ένα τραγούδι; Ενεργοποίησε τη «Λειτουργία χειροκίνητης σήμανσης» από το κουμπί που αιωρείται: όταν είναι ενεργή, το κλικ σε μια γραμμή της λίστας εργασιών καταγράφει τους στίχους και το Shift+κλικ το καταγράφει ως ορχηστρικό.',
+      notifDicaSelecionarVarias: 'Για να διαγράψεις πολλά τραγούδια ταυτόχρονα, χρησιμοποίησε το «Επιλογή πολλών» στο κουμπί που αιωρείται, επίλεξε όσα θέλεις και επιβεβαίωσε τη διαγραφή στο κάτω μέρος.',
+      notifDicaSemDetalhes: 'Βλέπεις την ετικέτα «Χωρίς λεπτομέρειες» σε ένα τραγούδι; Σημαίνει ότι δεν αναγνωρίστηκε ο τίτλος/καλλιτέχνης. Κάνε κλικ πάνω της για να τα συμπληρώσεις με το χέρι.',
+      notifDicaMusicaVazia: 'Θέλεις να καταγράψεις ένα τραγούδι που δεν καταγράφηκε; Χρησιμοποίησε το κουμπί «+» δίπλα στο χωνί για να δημιουργήσεις μια κενή γραμμή και μετά κάνε κλικ πάνω της για να συμπληρώσεις τίτλο και καλλιτέχνη.',
+      notifDicaOrdenar: 'Το κουμπί με το χωνί δίπλα στην πρώτη ημερομηνία σου επιτρέπει να ταξινομήσεις το αρχείο ανά ημερομηνία, ανά αποστολή ή αλφαβητικά.',
+      notifDicaBusca: 'Η γραμμή αναζήτησης ψάχνει με βάση τον τίτλο, τον καλλιτέχνη ή το ID του τραγουδιού — ιδανική για να βρεις γρήγορα μια παλιά αποστολή.',
+      notifDicaRecolherGrupos: 'Κάνε κλικ στην ετικέτα ημερομηνίας (ή αποστολής) που χωρίζει τη λίστα για να συμπτύξεις αυτή την ομάδα και να κρατήσεις το αρχείο πιο καθαρό. Κάνε κλικ ξανά για να την ανοίξεις.',
+      notifDicaRedimensionar: 'Το παράθυρο του αρχείου αλλάζει μέγεθος: σύρε τη κάτω δεξιά γωνία για να το κάνεις όσο μεγάλο ή μικρό σε βολεύει.',
+      notifDicaCiclos: 'Ο πίνακας Κύκλοι δείχνει κάθε κύκλο αποστολών της χρονιάς, με όνομα (μπορείς να το αλλάξεις), ημερομηνίες, αριθμό τραγουδιών και ποσά σε USD και BRL.',
+      notifDicaReward: 'Η καρτέλα Reward δείχνει πόσα έχεις κερδίσει συνολικά και το εκτιμώμενο reward ανά αποστολή, σε δολάρια και σε ρεάλ.',
+      notifDicaBlocoDeNotas: 'Το Σημειωματάριο κρατά τις δικές σου σημειώσεις και κάθε σημείωση μπορεί να συνδεθεί με ένα τραγούδι ή έναν κύκλο — χρήσιμο για να θυμηθείς κάτι αργότερα.',
+      notifDicaBackup: 'Το ιστορικό σου υπάρχει μόνο σε αυτό το πρόγραμμα περιήγησης. Στον πίνακα Αντίγραφο & Επαναφορά μπορείς να κρατήσεις αντίγραφα σε αρχείο, στον δίσκο ή στο σύννεφο, ώστε να μη χάσεις τίποτα αν κάνεις επανεγκατάσταση ή αλλάξεις υπολογιστή.',
+      notifDicaComparar: 'Στη Σύγκριση εισάγεις το αρχείο .json κάποιου άλλου και βλέπεις το αρχείο σου δίπλα στο δικό του: σύνολο αποστολών, μέση διάρκεια και ενεργές ημέρες.',
+      notifDicaConquistas: 'Υπάρχει σύστημα επιτευγμάτων (σήματα για ορόσημα, όπως αριθμός τραγουδιών και συνεχόμενες ημέρες). Είναι απενεργοποιημένο από προεπιλογή — μπορείς να το ενεργοποιήσεις στις Ρυθμίσεις.',
+      notifDicaCronometroCiclo: 'Μπορείς να εμφανίσεις αντίστροφη μέτρηση για τον επόμενο κύκλο αποστολών κάτω από τη γραμμή αναζήτησης — ενεργοποίησέ το στις Ρυθμίσεις.',
       // σταθερή ειδοποίηση που εξηγεί τι είναι ο "κύκλος αποστολών" και
       // γιατί μια συγκεκριμένη αποστολή μπορεί να λήξει πριν το τέλος
       // του μήνα (βλ. abrirExplicacaoCiclosMissoes, ανοίγει και από το
@@ -3459,6 +3545,11 @@ browser.storage.onChanged.addListener((changes, area) => {
       abrirLogDetalhado: 'Άνοιγμα λεπτομερούς αρχείου',
       abrirDiffCheckAcao: 'Άνοιγμα Diff Check',
       abrirDiffManualAcao: 'Άνοιγμα χειροκίνητου Diff',
+      abrirCiclosAcao: 'Άνοιγμα Κύκλων',
+      abrirRewardAcao: 'Άνοιγμα Reward',
+      abrirBlocoDeNotasAcao: 'Άνοιγμα Σημειωματαρίου',
+      abrirBackupAcao: 'Άνοιγμα Αντιγράφου & Επαναφοράς',
+      abrirCompararAcao: 'Άνοιγμα Σύγκρισης',
       letraCapturadaTag: 'Στίχοι',
       letraCapturadaTooltip: 'Πλήρεις στίχοι καταγράφηκαν — κλικ για προβολή',
       letraSuspeitaTooltip: 'Οι καταγεγραμμένοι στίχοι περιέχουν έναν όρο που υποδηλώνει πιθανό σφάλμα (π.χ. "Undetermined", "English", "Portuguese", "Reward" ή "task completed") — αξίζει να το ελέγξετε.',
@@ -3625,6 +3716,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       modoMarcacaoManual: 'Λειτουργία χειροκίνητης σήμανσης',
       idiomaIngles: 'Διεπαφή στα αγγλικά',
       dicaModoManual: 'Με τη χειροκίνητη λειτουργία ενεργή: κλικ σε γραμμή της λίστας = στίχοι · Shift+κλικ = ορχηστρικό.',
+      modoManualSoNaListaTasks: 'Η λειτουργία χειροκίνητης σήμανσης λειτουργεί μόνο στη λίστα εργασιών — όχι στη σελίδα αποστολών ούτε μέσα στο Studio.',
       categoriaManualLabel: 'Επισημασμένα χειροκίνητα',
       cicloLabel: 'Κύκλος',
       inicioNovoCiclo: 'Έναρξη νέου κύκλου',
@@ -4136,6 +4228,780 @@ browser.storage.onChanged.addListener((changes, area) => {
       conquistaNuvemTitulo: 'Αντίγραφο ασφαλείας στο cloud',
       conquistaNuvemDesc: 'Στείλτε ένα πλήρες αντίγραφο ασφαλείας στο cloud για πρώτη φορά.',
     },
+    id: {
+      envioRegistrado: "Pengiriman tercatat",
+      reenvioRegistrado: "Pengiriman ulang tercatat",
+      instrumentalMarcado: "Instrumental ditandai",
+      instrumentalAtualizado: "Instrumental diperbarui",
+      manual: "manual",
+      tentativa: "percobaan",
+      id: "Abstrack",
+      as: "pukul",
+      logDeEnvios: "Echoform",
+      integracaoPayflowTitulo: "Echoform + Payflow",
+      integracaoPayflowTexto: "Kami mendeteksi kedua ekstensi aktif di Curators Studio. Aktifkan integrasi untuk melihat penghasilan USD/IDR langsung di log pengiriman Anda.",
+      integracaoPayflowBadge: "Integrasi baru tersedia",
+      integracaoPayflowFeature1: "Nilai misi ditarik otomatis ke dalam log",
+      integracaoPayflowFeature2: "Kurs langsung disinkronkan di kedua panel",
+      integracaoPayflowFeature3: "Tanpa perhitungan ganda — satu sumber kebenaran",
+      integracaoPayflowBotaoAtivar: "Aktifkan integrasi",
+      integracaoPayflowBotaoAgoraNao: "Jangan sekarang",
+      sobreTitulo: "Tentang Echoform",
+      sobreDescricao: "Echoform adalah ekstensi independen dan nirlaba yang dibuat oleh seorang kurator untuk membantu kurator lain mengatur dan melacak waktu serta aktivitas mereka di Musixmatch Studio. Ekstensi ini tidak menggunakan, mengakses, atau terhubung ke API resmi Musixmatch — hanya membaca informasi yang sudah ditampilkan di layar oleh browser pengguna sendiri. Sumber terbuka, tersedia di GitHub.",
+      sobreLinkGithub: "Lihat kode sumber di GitHub",
+      tabsV3Titulo: "Tabs V3",
+      tabsV3Subtitulo: "Tata letak baru, alur kerja Echoform yang sama.",
+      tabsV3Changelog: ["Ikon baru untuk tema panel, dalam palet warna Echoform yang sama.", "Penyempurnaan warna dan spasi pada permukaan tonal.", "Pondasi siap untuk skema warna mendatang (beta)."],
+      detalhado: "Detail",
+      buscarPlaceholder: "Cari berdasarkan judul, artis, atau ID...",
+      limparBusca: "Hapus pencarian",
+      avisoFimMesTextoPlural: "Tersisa {dias} hari lagi hingga akhir bulan — bagaimana jika memeriksa ringkasan Reward Anda?",
+      avisoFimMesTextoSingular: "Tersisa 1 hari lagi hingga akhir bulan — bagaimana jika memeriksa ringkasan Reward Anda?",
+      avisoFimMesTextoHoje: "Hari ini adalah hari terakhir bulan ini — jangan lupa untuk memeriksa ringkasan Reward Anda.",
+      avisoFimMesVerResumo: "Lihat ringkasan",
+      avisoFimMesSuspender: "Abaikan",
+      avisoFimMesSuspensoToast: "Pemberitahuan diabaikan hingga bulan depan.",
+      avisoResumoMesTitulo: "Ringkasan {mes} segera ditutup",
+      avisoResumoMesTexto: "Hanya tersisa beberapa jam lagi bulan ini — intip semua yang telah Anda kirimkan.",
+      tarefasHoje: "Tugas hari ini",
+      tarefasEnviadasHoje: "tugas dikirimkan hari ini",
+      emRelacaoAoDiaAnterior: "dibandingkan kemarin",
+      semMudancaOntem: "Tidak ada perubahan dari kemarin",
+      recorde: "Rekor",
+      nenhumAinda: "belum ada",
+      em: "pada",
+      tarefa: "tugas",
+      nenhumEnvioEncontrado: "Tidak ada pengiriman ditemukan.",
+      fimDaLista: "Akhir dari daftar",
+      dicasListaCurtaTitulo: "Selagi Anda di sini, berikut beberapa tips",
+      logVazioTitulo: "Belum ada pengiriman yang tercatat di sini.",
+      logVazioDescricao: "Jika Anda sudah pernah menggunakan ekstensi ini sebelumnya (di komputer atau browser lain, atau setelah memasang ulang), Anda dapat mengimpor cadangan untuk memulihkan riwayat sekarang.",
+      logVazioImportarLocal: "Impor cadangan (file)",
+      logVazioImportarNuvem: "Impor dari cloud",
+      nuvemRequerGoogle: "Memerlukan masuk dengan akun Google Anda",
+      instrumentalTag: "Instrumental",
+      instrumentalTagTooltip: "Klik untuk fakta menarik tentang instrumental",
+      manualTag: "Manual",
+      semDetalhesTitulo: "Tanpa detail",
+      semDetalhesTag: "Tanpa detail",
+      semDetalhesTagTooltip: "Tidak dapat mengidentifikasi judul/artis pengiriman ini. Klik untuk mengisinya secara manual.",
+      envioSemDetalhesToast: "Pengiriman tercatat tanpa judul/artis. Klik lagu di log untuk melengkapinya.",
+      editarDetalhesTitulo: "Lengkapi detail pengiriman",
+      editarDetalhesTituloMensagem: "Apa judul lagu ini?",
+      editarDetalhesTituloPlaceholder: "Judul lagu",
+      editarDetalhesArtistaMensagem: "Dan siapa artisnya?",
+      editarDetalhesArtistaPlaceholder: "Artis (opsional)",
+      detalhesAdicionadosToast: "Detail berhasil ditambahkan ke pengiriman.",
+      novaEntradaCanceladaToast: "Pembuatan entri lagu baru dibatalkan.",
+      editarDataHoraTitulo: "Ubah tanggal dan waktu",
+      editarDataHoraMensagem: "Sesuaikan kapan pengiriman ini tercatat.",
+      editarDataHoraDataLabel: "Tanggal",
+      editarDataHoraHoraLabel: "Waktu",
+      editarDataHoraToast: "Tanggal dan waktu diperbarui.",
+      editarDataHoraErro: "Masukkan tanggal dan waktu yang valid.",
+      painelMusicaDataHoraLabel: "Tanggal dan waktu",
+      painelMusicaEditarDataHoraTitulo: "Ubah",
+      painelMusicaDuracaoLabel: "Durasi",
+      painelMusicaDuracaoIndisponivel: "Tidak tersedia",
+      painelMusicaMissaoLabel: "Misi",
+      painelMusicaEditarMissaoTitulo: "Ubah",
+      painelMusicaLetraLabel: "Lirik",
+      painelMusicaVerLetra: "Lihat lirik lengkap",
+      painelMusicaSemLetra: "Tidak ada lirik yang tertangkap untuk pengiriman ini.",
+      painelMusicaAdicionarLetra: "Tambah lirik",
+      painelMusicaCopiarIdTitulo: "Salin Abstrack",
+      painelMusicaIdCopiadoToast: "Abstrack disalin.",
+      painelMusicaAbrirPaginaLabel: "Halaman lagu",
+      painelMusicaAbrirPaginaValor: "Lihat di Musixmatch",
+      painelMusicaAbrirPaginaTitulo: "Buka halaman lagu ini",
+      painelMusicaAbrirPaginaErro: "Tidak dapat membuka halaman lagu ini.",
+      painelMusicaAbrirStudioLabel: "Buka di Studio",
+      painelMusicaAbrirStudioValor: "Lihat di Curators Studio",
+      painelMusicaAbrirStudioTitulo: "Buka lagu ini di Curators Studio",
+      painelMusicaAbrirStudioErro: "Tidak dapat membuka lagu ini di Studio.",
+      ativarTemaClaro: "Ganti ke tema terang",
+      voltarTemaEscuro: "Kembali ke tema gelap",
+      temaClaro: "Tema terang",
+      notificacoes: "Notifikasi",
+      notificacoesNenhuma: "Belum ada notifikasi saat ini.",
+      notificacoesMarcarLidas: "Tandai semua telah dibaca",
+      notificacoesDispensar: "Tutup",
+      notifUpdateTitulo: "Versi baru tersedia",
+      notifResumoMensalTitulo: "Ringkasan bulanan siap",
+      notifResumoMensalDesc: "Ringkasan untuk {mes} siap ditinjau dan disimpan.",
+      notifResumoMensalAcao: "Lihat ringkasan",
+      notifBackupAutoTitulo: "Cadangan otomatis tersimpan",
+      notifBackupAutoDesc: "Salinan riwayat Anda disimpan ke Downloads/MXMBackups pada {data}.",
+      notifBackupAutoAcao: "Pelajari lebih lanjut",
+      notifBackupNuvemTitulo: "Aktifkan cadangan cloud",
+      notifBackupNuvemDesc: "Riwayat Anda hanya tersimpan di browser ini. Aktifkan cadangan cloud agar data tidak hilang.",
+      notifBackupNuvemAcao: "Aktifkan cadangan",
+      notifNovidadeBackupTitulo: "Baru: Panel Cadangan & Pemulihan",
+      notifNovidadeBackupDesc: "Semua cadangan Anda (file, disk, cloud, dan teks) kini berada di satu tempat, di dalam Alat Berguna.",
+      notifNovidadeBackupAcao: "Lihat panel",
+      notifDicaTitulo: "Tips",
+      notifDicaTemas: "Anda dapat berganti di antara beberapa skema warna Tabs V3 (bahkan tema terang) di Pengaturan.",
+      notifDicaDiffCheck: "Diff Check membandingkan lirik di layar saat ini dengan versi sebelumnya — sangat bagus untuk melihat apa yang berubah sebelum mengirimkan ulang.",
+      notifDicaCopiarLetra: "Anda dapat menyalin seluruh lirik lagu dengan satu klik, langsung dari layar Transkripsi atau Sinkronisasi.",
+      notifDicaSons: "Jika bunyi bip klik/sukses/error mengganggu Anda, Anda dapat mematikan efek suara di Pengaturan.",
+      notifDicaDiffManual: "\"Diff Manual\" memungkinkan Anda membandingkan dua lirik mana pun yang Anda tempel sendiri, tanpa perlu berada di lagu tertentu.",
+      notifDicaResumoDia: "Bilah \"Hari ini vs Rekor\" di panel Detail menunjukkan seberapa dekat Anda dari memecahkan rekor harian Anda.",
+      notifDicaClicarMusica: "Klik lagu mana pun di daftar untuk membuka panelnya: Anda dapat melihat dan memperbaiki tanggal/waktu, misi, lirik, dan durasinya, serta langsung menuju ke halaman lagunya.",
+      notifDicaBotaoDireitoMissao: "Klik kanan pada lagu di daftar untuk memilih (atau memperbaiki) misi mana yang dikerjakan.",
+      notifDicaPreviaCapa: "Klik sampul lagu untuk mendengarkan pratinjau 30 detik — praktis untuk mengingat lagu tersebut. (Memerlukan opsi \"Tampilkan gambar\" aktif di Pengaturan.)",
+      notifDicaModoManual: "Lupa mencatat lagu? Aktifkan \"Mode penandaan manual\" di tombol melayang: saat aktif, mengklik baris di daftar tugas mencatatnya sebagai lirik, dan Shift+klik mencatatnya sebagai instrumental.",
+      notifDicaSelecionarVarias: "Untuk menghapus beberapa lagu sekaligus, gunakan \"Pilih beberapa\" di tombol melayang, centang yang Anda inginkan, dan konfirmasi penghapusan di bagian bawah.",
+      notifDicaSemDetalhes: "Melihat tag \"Tanpa detail\" pada lagu? Artinya judul/artis tidak dapat diidentifikasi. Klik untuk mengisinya secara manual.",
+      notifDicaMusicaVazia: "Perlu mencatat lagu yang tidak tertangkap? Gunakan tombol \"+\" di sebelah ikon corong untuk membuat baris kosong, lalu klik untuk mengisi judul dan artis.",
+      notifDicaOrdenar: "Tombol corong di sebelah tanggal pertama memungkinkan Anda mengurutkan log berdasarkan tanggal, misi, atau abjad.",
+      notifDicaBusca: "Bilah pencarian mencari lagu berdasarkan judul, artis, atau ID — sangat bagus untuk menemukan pengiriman lama dengan cepat.",
+      notifDicaRecolherGrupos: "Klik label tanggal (atau misi) yang membagi daftar untuk menciutkan grup tersebut dan menjaga log tetap rapi. Klik lagi untuk membentangkannya.",
+      notifDicaRedimensionar: "Jendela Log dapat diubah ukurannya: seret sudut kanan bawah untuk menyesuaikan ukuran yang paling nyaman bagi Anda.",
+      notifDicaCiclos: "Panel Siklus menampilkan setiap siklus misi sepanjang tahun, lengkap dengan namanya (dapat diubah), tanggal, jumlah lagu, dan nilai dalam USD dan IDR.",
+      notifDicaReward: "Tab Reward menunjukkan total pendapatan Anda dan perkiraan reward per misi, dalam dolar dan rupiah.",
+      notifDicaBlocoDeNotas: "Buku Catatan menyimpan catatan pribadi Anda, dan setiap catatan dapat ditautkan ke lagu atau siklus — praktis untuk mengingat sesuatu nanti.",
+      notifDicaBackup: "Riwayat Anda hanya ada di browser ini. Di panel Cadangan & Pemulihan Anda dapat menyimpan salinan sebagai file, di disk, atau di cloud, sehingga tidak ada data yang hilang jika memasang ulang atau berganti komputer.",
+      notifDicaComparar: "Di fitur Bandingkan, Anda mengimpor file .json orang lain dan melihat log Anda berdampingan dengan log mereka: total pengiriman, durasi rata-rata, dan hari aktif.",
+      notifDicaConquistas: "Tersedia sistem pencapaian (lencana untuk pencapaian seperti jumlah lagu dan runtutan hari). Fitur ini mati secara default — Anda dapat mengaktifkannya di Pengaturan.",
+      notifDicaCronometroCiclo: "Anda dapat menampilkan hitung mundur ke siklus misi berikutnya di bawah bilah pencarian — aktifkan di Pengaturan.",
+      notifCicloMissoesTitulo: "Siklus misi",
+      notifCicloMissoesDesc: "Apa ini? Lihat bagaimana pergantian siklus dan batas waktu setiap misi bekerja.",
+      notifCicloMissoesAcao: "Pelajari lebih lanjut",
+      cicloMissoesPopupTitulo: "Apa itu siklus misi?",
+      cicloMissoesPopupIntro: "Hitung mundur siklus berikutnya menunjukkan pergantian bulanan log ekstensi ini — terjadi secara otomatis pada pukul 21:00 (Waktu Brasília) pada hari terakhir setiap bulan.",
+      cicloMissoesPopupPonto1: "Siklus log ini hanya menentukan bulan mana lagu yang dikirim dihitung di riwayat Anda di sini — sifatnya tetap dan selalu berlangsung sepanjang bulan kalender.",
+      cicloMissoesPopupPonto2: "Misi Musixmatch sendiri (yang ditampilkan pada kartu situs) memiliki batas waktu tersendiri: masing-masing mendapatkan tanggal mulai dan kedaluwarsa sendiri saat terbuka untuk Anda, tidak harus sejajar dengan bulan kalender.",
+      cicloMissoesPopupPonto3: "Itulah mengapa misi tertentu biasanya menghilang dari layar beberapa hari sebelum bulan berakhir — batas waktunya sendiri pendek dan tidak bergantung pada pergantian siklus log, meskipun masih dalam bulan yang sama.",
+      cicloMissoesPopupPonto4: "Singkatnya: hitung mundur ini menunjukkan pergantian BULAN; batas waktu setiap misi dapat berakhir lebih cepat — pantau kartu misi di situs itu sendiri untuk mengetahui kapan tepatnya masing-masing benar-benar kedaluwarsa.",
+      cicloMissoesDiagramaLog: "Siklus log",
+      cicloMissoesDiagramaLogLegenda: "selalu sebulan penuh",
+      cicloMissoesDiagramaMissao: "Batas waktu misi",
+      cicloMissoesDiagramaMissaoLegenda: "bisa berakhir lebih cepat",
+      cicloMissoesDiagramaDia1: "hari 1",
+      cicloMissoesDiagramaFimMes: "21:00 · akhir bulan",
+      cicloMissoesPopupBotao: "Mengerti",
+      abrirLogDetalhado: "Buka Log Detail",
+      abrirDiffCheckAcao: "Buka Diff Check",
+      abrirDiffManualAcao: "Buka Diff manual",
+      abrirCiclosAcao: "Buka Siklus",
+      abrirRewardAcao: "Buka Reward",
+      abrirBlocoDeNotasAcao: "Buka Catatan",
+      abrirBackupAcao: "Buka Cadangan & Pemulihan",
+      abrirCompararAcao: "Buka Bandingkan",
+      letraCapturadaTag: "Lirik",
+      letraCapturadaTooltip: "Lirik lengkap tertangkap — klik untuk melihat",
+      letraSuspeitaTooltip: "Lirik yang tertangkap berisi istilah yang menunjukkan kemungkinan kesalahan (misal: \"Undetermined\", \"English\", \"Portuguese\", \"Reward\", atau \"task completed\") — periksa kembali.",
+      confirmarFalsoPositivoLetraTitulo: "Tandai sebagai positif palsu?",
+      confirmarFalsoPositivoLetraMensagem: "Lirik akan tetap berisi istilah yang mencurigakan tersebut, tetapi peringatan tidak akan ditampilkan lagi untuk entri ini. Anda masih dapat memeriksa lirik kapan saja dengan mengklik tag.",
+      confirmarFalsoPositivoLetraBotao: "Tandai",
+      falsoPositivoLetraMarcado: "Peringatan dihapus — ditandai sebagai positif palsu.",
+      verLetraTitulo: "Lirik lengkap",
+      copiarLetra: "Salin lirik",
+      letraCopiada: "Lirik disalin!",
+      tamanhoLetra: "Ukuran",
+      usoMemoriaInterna: "Memori internal digunakan",
+      usoMemoriaDetalhe: "{tamanho} · {n} rekaman tersimpan",
+      exportarTxt: "Ekspor .txt",
+      limparTudo: "Hapus semua",
+      hoje: "Hari ini",
+      ontem: "Kemarin",
+      remover: "Hapus",
+      logDetalhado: "Log Detail",
+      hojeVsRecorde: "Hari ini vs Rekor",
+      progressoRecorde: "Kemajuan menuju rekor",
+      musicasPorMissao: "Lagu per misi",
+      filtroTotal: "Total",
+      filtroCicloAtual: "Siklus saat ini",
+      proximoCicloTitulo: "Siklus berikutnya dalam",
+      proximoCicloDescricao: "Siklus misi baru dimulai pukul 21:00 (Waktu Brasília)",
+      cronometroEstiloSiteLabel: "gaya situs",
+      cronometroEstiloSiteTooltip: "Cara Musixmatch menampilkan batas waktu misi pada kartu (misal: \"29 hari\") — angka ini hanya berubah sekali sehari, pukul 09:00 pagi, tidak seperti hitung mundur waktu nyata di atas.",
+      resumoFixarSlide: "Sematkan di sini (hentikan putar otomatis)",
+      resumoDesfixarSlide: "Lepas sematan (lanjutkan putar otomatis)",
+      resumoSetaAnterior: "Slide sebelumnya",
+      resumoSetaProxima: "Slide berikutnya",
+      cronometroCicloMainAtivar: "Penghitung siklus di carousel",
+      cronometroCicloMainDescricao: "Menampilkan hitung mundur ke siklus misi berikutnya di bawah bilah pencarian.",
+      popupPinoCronometroTitulo: "Hitung mundur disematkan di sini",
+      popupPinoCronometroMensagem: "Kami membiarkan kartu ini aktif dan tersemat secara default agar selalu terlihat. Klik ikon sematan lagi untuk melepasnya dan kembali ke rotasi slide.",
+      popupPinoCronometroBotao: "Mengerti",
+      nenhumRegistroAinda: "Belum ada rekaman.",
+      semMissaoIdentificada: "Tanpa misi teridentifikasi",
+      duracaoDasFaixas: "Durasi lagu",
+      maisCurta: "Terpendek",
+      maisLonga: "Terpanjang",
+      nenhumaFaixaComDuracao: "Belum ada lagu dengan durasi tercatat (hanya menghitung pengiriman mulai sekarang).",
+      horarioDePico: "Jam sibuk (berdasarkan waktu)",
+      sequenciaTitulo: "Runtutan pengiriman",
+      sequenciaAtualLabel: "Saat ini",
+      sequenciaRecordeLabel: "Rekor",
+      progressoSequenciaRecorde: "Kemajuan menuju rekor",
+      distribuicaoDiaSemanaTitulo: "Distribusi berdasarkan hari",
+      ritmoEnvioTitulo: "Kecepatan antar-pengiriman (sesi yang sama)",
+      ritmoDadosInsuficientes: "Belum cukup pengiriman dalam sesi yang sama untuk menghitung kecepatan.",
+      ritmoBaseadoEm: "berdasarkan {n} interval, di {sessoes} sesi kerja",
+      evolucaoDuracaoTitulo: "Durasi lagu rata-rata dari waktu ke waktu",
+      evolucaoDuracaoDadosInsuficientes: "Belum cukup data durasi pada periode ini untuk dibandingkan.",
+      evolucaoDuracaoEstavel: "Durasi rata-rata stabil selama beberapa bulan terakhir",
+      evolucaoDuracaoMaisCurtas: "Lagu rata-rata {tempo} lebih pendek dibanding {mes}",
+      evolucaoDuracaoMaisLongas: "Lagu rata-rata {tempo} lebih panjang dibanding {mes}",
+      personalizarPainelDetalhado: "Sesuaikan bagian",
+      personalizarPainelDetalhadoTitulo: "Sesuaikan panel",
+      personalizarPainelDetalhadoDescricao: "Pilih apa yang ditampilkan di sini dan seret ikon ⠿ untuk mengubah urutan.",
+      personalizarSecaoMostrar: "Tampilkan bagian",
+      personalizarSecaoOcultar: "Sembunyikan bagian",
+      personalizarRestaurarPadrao: "Pulihkan default",
+      personalizarConcluido: "Selesai",
+      personalizarTodasOcultas: "Semua bagian disembunyikan — aktifkan setidaknya satu untuk melihat sesuatu di sini.",
+      arrastarParaReordenar: "Seret untuk menyusun ulang",
+      moverParaCima: "Pindahkan ke atas",
+      moverParaBaixo: "Pindahkan ke bawah",
+      avisoDadosLocais: "Semua data di halaman ini diperkirakan dari log yang ditangkap secara lokal oleh ekstensi ini — bukan berasal dari server MXM, API terproteksi, atau mitra. Beberapa angka mungkin tidak akurat; perlakukan ini sebagai referensi, bukan kebenaran mutlak.",
+      atividadePorDia: "Aktivitas mingguan",
+      atividadePorMes: "Aktivitas bulanan",
+      mesAtualVsAnterior: "Bulan ini vs bulan sebelumnya",
+      comparativoPeriodo: "Perbandingan periode",
+      mesAtual: "Bulan ini",
+      mesAnterior: "Bulan lalu",
+      emRelacaoAoMesAnterior: "dibanding bulan lalu",
+      semMudanca: "Tidak ada perubahan dari bulan lalu",
+      semDadosMesAnterior: "Tidak ada data bulan lalu untuk dibandingkan",
+      modoComparacaoMensal: "Bulanan",
+      modoComparacaoCiclo: "Siklus",
+      cicloAnterior: "Siklus sebelumnya",
+      emRelacaoAoCicloAnterior: "dibanding siklus sebelumnya",
+      semMudancaCiclo: "Tidak ada perubahan dari siklus sebelumnya",
+      semDadosCicloAnterior: "Tidak ada data siklus sebelumnya untuk dibandingkan",
+      diaVsDiaEquivalente: "Hari ini vs hari yang sama bulan lalu",
+      diaEquivalenteMesPassado: "Hari yang sama (bulan lalu)",
+      emRelacaoAoDiaEquivalente: "dibanding hari yang sama bulan lalu",
+      semDadosDiaEquivalente: "Tidak ada data hari yang setara untuk dibandingkan",
+      mostrarNumeroEnvios: "Tampilkan jumlah pengiriman pada ikon",
+      mostrarImagem: "Tampilkan sampul lagu di log",
+      ativarAnimacoes: "Animasi pembuka dan grafik",
+      ativarSons: "Efek suara antarmuka",
+      notificarPeloWindows: "Beri tahu lewat Windows (menonaktifkan popup ekstensi)",
+      esquemaDestaque: "Skema aksen",
+      esquemaFundo: "Skema latar belakang",
+      esquemaCorRoxo: "Ungu",
+      esquemaCorAzul: "Biru",
+      esquemaCorVerde: "Hijau",
+      esquemaCorRosa: "Merah muda",
+      esquemaCorLaranja: "Oranye",
+      esquemaCorVermelho: "Merah",
+      esquemaCorCiano: "Teal",
+      esquemaCorAmarelo: "Kuning",
+      esquemaCorCoral: "Koral",
+      esquemaCorLima: "Limau",
+      esquemaCorEsmeralda: "Zamrud",
+      esquemaCorIndigo: "Nila",
+      esquemaCorVioleta: "Violet",
+      esquemaCorMagenta: "Magenta",
+      esquemaFundoNeutro: "Netral",
+      esquemaFundoQuente: "Hangat",
+      esquemaFundoFrio: "Sejuk",
+      esquemaFundoVerde: "Hijau",
+      esquemaFundoRosa: "Merah muda",
+      esquemaFundoAzul: "Biru",
+      esquemaFundoRoxo: "Ungu",
+      esquemaFundoPreto: "Hitam murni (AMOLED)",
+      esquemaFundoVinho: "Merah anggur",
+      esquemaFundoAreia: "Pasir",
+      esquemaFundoMenta: "Mint",
+      esquemaFundoOceano: "Samudra",
+      esquemaFundoAmeixa: "Plum",
+      escolhaTemaTitulo: "Pilih tema Anda",
+      escolhaTemaMensagem: "Ini hanya ditampilkan sekali — Anda dapat mengubahnya kapan saja di Pengaturan.",
+      escolhaTemaConfirmar: "Konfirmasi",
+      escolhaTemaUsarPadrao: "Gunakan default",
+      termosTitulo: "Ketentuan penggunaan dan pemberitahuan hukum",
+      termosMensagemIntro: "Sebelum melanjutkan, harap baca pemberitahuan di bawah ini dengan saksama.",
+      termosParagrafo1: "Sifat proyek: ini adalah ekstensi independen dan nirlaba, dibuat oleh seorang kurator untuk membantu kurator lain mengatur dan melacak waktu serta aktivitas mereka di Musixmatch Studio.",
+      termosParagrafo2: "Cara kerja: ekstensi ini tidak menggunakan, mengakses, atau terhubung ke API resmi Musixmatch. Bekerja semata-mata dengan membaca dan mengukur informasi yang sudah ditampilkan di layar oleh browser pengguna sendiri, tanpa mencegat, mengotomatisasi, atau mengubah pengiriman atas nama kurator. Tidak dibuat untuk menipu, melewati, atau memberikan keuntungan yang tidak adil dalam proses kurasi atau reward platform.",
+      termosParagrafo3: "Pelepasan tanggung jawab: penggunaan ekstensi ini sepenuhnya merupakan tanggung jawab pengguna sendiri. Pengembang tidak bertanggung jawab atas penyalahgunaan alat, keputusan yang dibuat berdasarkan informasi yang ditampilkan, atau atas konsekuensi, penalti, penangguhan, atau kerugian yang timbul dari penggunaannya.",
+      termosParagrafo4: "\"Musixmatch\", logonya, dan merek dagang terkait adalah milik eksklusif Musixmatch. Ekstensi ini bukan produk resmi dan tidak berafiliasi dengan, disponsori oleh, atau didukung oleh perusahaan — ini adalah proyek independen yang dibuat hanya untuk membantu kurator mengelola waktu mereka di platform.",
+      termosLinkEula: "Ketentuan Penggunaan Musixmatch (EULA)",
+      termosLinkSuporte: "Pusat Bantuan Musixmatch",
+      termosCheckboxLabel: "Saya telah membaca dan menyetujui ketentuan dan pemberitahuan di atas.",
+      termosBotaoAceitar: "Setuju dan lanjutkan",
+      termosBotaoRecusar: "Saya tidak setuju",
+      termosRecusaTitulo: "Ketentuan tidak disetujui",
+      termosRecusaMensagem: "Tanpa menyetujui ketentuan di atas, ekstensi ini tidak dapat digunakan. Panel ini akan ditutup sekarang.",
+      termosRecusaBotaoFechar: "Tutup",
+      boasVindasIdiomaTitulo: "Pilih bahasa Anda",
+      boasVindasIdiomaMensagem: "Dalam bahasa apa Anda ingin menggunakan ekstensi ini?",
+      boasVindasNomeTitulo: "Bagaimana kami harus memanggil Anda?",
+      boasVindasNomeMensagem: "Nama ini menggantikan \"Curator\" di panel Anda — Anda dapat mengubahnya kapan saja nanti.",
+      boasVindasNomePlaceholder: "Nama Anda",
+      boasVindasFotoTitulo: "Jadikan profil Anda unik",
+      boasVindasFotoMensagem: "Tambahkan foto profil dan sampul untuk panel Anda, atau lewati dan atur nanti.",
+      boasVindasFotoBotaoAdicionar: "Tambah foto profil",
+      boasVindasFotoBotaoTrocar: "Ganti foto profil",
+      boasVindasCapaBotaoAdicionar: "Tambah sampul",
+      boasVindasCapaBotaoTrocar: "Ganti sampul",
+      continuar: "Lanjutkan",
+      voltar: "Kembali",
+      reverBoasVindas: "Putar ulang layar selamat datang",
+      modoMarcacaoManual: "Mode penandaan manual",
+      nomeExtensao: "MXM Studio",
+      idiomaIngles: "Antarmuka Bahasa Inggris",
+      dicaModoManual: "Saat mode manual aktif: klik baris = lirik · Shift+klik = instrumental.",
+      modoManualSoNaListaTasks: "Mode penandaan manual hanya berfungsi di daftar tugas (tasks) — tidak di halaman misi atau di dalam Studio.",
+      categoriaManualLabel: "Ditandai manual",
+      cicloLabel: "Siklus",
+      inicioNovoCiclo: "Siklus baru dimulai",
+      cicloEncerrado: "selesai",
+      cicloIniciado: "dimulai",
+      pausarModoManual: "Jeda mode manual",
+      marcandoManualmenteLabel: "Menandai secara manual",
+      nenhumEnvioRegistradoAinda: "Belum ada pengiriman yang tercatat.",
+      confirmarLimpar: "Apakah Anda yakin ingin menghapus seluruh log pengiriman? Tindakan ini tidak dapat dibatalkan.",
+      logApagado: "Log dihapus.",
+      debugAtivado: "Mode debug diaktifkan — log dicetak di konsol.",
+      debugDesativado: "Mode debug dinonaktifkan.",
+      opcoesDebugSecao: "Mode debug — simulator tanggal",
+      debugSimuladorDescricao: "Mensimulasikan tanggal/waktu lain untuk semua yang dihitung ekstensi dari \"sekarang\" (siklus misi, timer, ringkasan hari, pergantian bulan, dll.) — tanpa mengubah jam asli perangkat. Waktu terus berjalan normal dari nilai yang Anda pilih.",
+      debugSimuladorStatusAtivo: "Simulasi aktif",
+      debugSimuladorStatusInativo: "Menggunakan tanggal/waktu asli perangkat",
+      debugSimuladorAplicar: "Terapkan tanggal simulasi",
+      debugSimuladorRestaurar: "Kembali ke tanggal asli",
+      debugSimuladorPreencherAgora: "Isi dengan waktu sekarang",
+      debugSimuladorAtivadoToast: "Tanggal simulasi diterapkan — ekstensi sekarang menganggap ini sebagai \"sekarang\".",
+      debugSimuladorDesativadoToast: "Simulasi dimatikan — kembali ke tanggal/waktu asli.",
+      debugSimuladorSelecioneData: "Pilih tanggal dan waktu sebelum menerapkan.",
+      debugForcarSemDetalhes: "Paksa entri log \"Tanpa detail\" (uji)",
+      debugForcarTelaIntegracaoPayflow: "Paksa layar integrasi Payflow (uji)",
+      debugForcarSplashBoasVindas: "Putar ulang layar selamat datang (splash awal)",
+      debugSimuladorListaDescricao: "Mensimulasikan, di layar saja, tampilan daftar dengan 0 atau 1 lagu — tanpa menghapus atau mengubah log asli Anda. Berguna untuk menguji tampilan kosong atau penanda \"Akhir daftar\" / tips daftar pendek tanpa menghapus riwayat nyata.",
+      debugSimuladorListaOff: "Daftar asli (tanpa simulasi)",
+      debugSimuladorListaVazia: "Simulasikan daftar kosong",
+      debugSimuladorListaUma: "Simulasikan daftar dengan 1 lagu",
+      debugSimuladorListaAtivadoToast: "Simulasi daftar aktif — log asli Anda tetap aman.",
+      debugSimuladorListaDesativadoToast: "Simulasi daftar mati — kembali ke daftar asli.",
+      debugAvisoBannerTexto: "Jika Anda tidak tahu apa yang Anda lakukan, sebaiknya tinggalkan mode ini.",
+      debugAvisoBannerBotaoSair: "Keluar dari mode debug",
+      avisoEntradaDemonstracaoDebug: "Ini adalah entri demo dari simulasi — bukan lagu asli di log Anda.",
+      duracaoLabel: "Durasi",
+      missaoLabel: "Misi",
+      tentativasLabel: "percobaan",
+      verLogDeEnvios: "Lihat log pengiriman (klik kanan untuk opsi)",
+      trocarIdiomaPara: "Bahasa",
+      configuracoes: "Pengaturan",
+      layoutResumoDia: "Tata letak ringkasan hari ini",
+      mostrarResumoDia: "Tampilkan ringkasan hari ini",
+      girarResumoAutomaticamente: "Putar ringkasan otomatis",
+      layoutLadoLado: "Berdampingan",
+      layoutTipografia: "Teks",
+      layoutChip: "Chip",
+      importarTxt: "Impor .txt",
+      confirmarExclusaoTitulo: "Konfirmasi penghapusan",
+      confirmarExclusaoRegistro: "Apakah Anda yakin ingin menghapus entri ini? Tindakan ini tidak dapat dibatalkan.",
+      confirmarExclusaoLetra: "Apakah Anda yakin ingin menghapus lirik yang tertangkap untuk entri ini? Tindakan ini tidak dapat dibatalkan.",
+      cancelar: "Batal",
+      ok: "OK",
+      confirmar: "Konfirmasi",
+      excluir: "Hapus",
+      maisOpcoes: "Opsi lainnya",
+      abrirNoSite: "Buka di situs",
+      abrirNoStudio: "Buka di Studio",
+      importadosSucesso: "entri berhasil diimpor",
+      ignoradosLabel: "dilewati",
+      arquivoInvalido: "Tidak dapat menemukan entri yang valid dalam file tersebut.",
+      backupModalTitulo: "Pulihkan cadangan lengkap",
+      backupResumoTitulo: "Apa yang akan diubah oleh cadangan ini",
+      backupNovosRegistros: "lagu baru di log",
+      backupLetrasAlteradas: "lirik berbeda dari versi yang saat ini disimpan",
+      backupDiffsSalvosNovos: "diff tersimpan baru",
+      backupConfigsAlteradas: "pengaturan berbeda",
+      backupNenhumaMudanca: "File ini identik dengan data yang sudah Anda miliki — tidak ada yang perlu dipulihkan.",
+      backupImportarMesmoAssim: "Tetap impor",
+      backupConteudoTitulo: "Isi cadangan ini",
+      backupResumoMusicas: "Lagu",
+      backupResumoLetras: "Lirik tersimpan",
+      backupVerDiferencas: "Lihat perbedaan",
+      backupOcultarDiferencas: "Sembunyikan",
+      backupBotaoRestaurar: "Pulihkan cadangan",
+      backupSucesso: "Cadangan berhasil dipulihkan. Muat ulang halaman untuk menerapkan semua pengaturan visual.",
+      backupArquivoInvalido: "File ini tampaknya bukan cadangan lengkap yang valid untuk skrip ini.",
+      backupGeradoEm: "Cadangan dibuat pada",
+      backupVersaoScript: "versi",
+      backupSemLetraSalva: "(tidak ada lirik yang saat ini disimpan)",
+      backupExportarCurto: "Ekspor cadangan penuh",
+      backupImportarCurto: "Impor cadangan penuh",
+      selecionarVarias: "Pilih beberapa",
+      redimensionar: "Seret untuk mengubah ukuran",
+      selecionarBtn: "Pilih",
+      sairSelecao: "Keluar dari pilihan",
+      selecionarTodas: "Pilih semua",
+      desmarcarTodas: "Batal pilih semua",
+      nenhumaSelecionada: "Tidak ada item yang dipilih",
+      itemSelecionado: "item dipilih",
+      itensSelecionados: "item dipilih",
+      excluirSelecionados: "Hapus yang dipilih",
+      confirmarExclusaoMultipla: "Apakah Anda yakin ingin menghapus item yang dipilih? Tindakan ini tidak dapat dibatalkan.",
+      opcoesPerfilUso: "Profil penggunaan",
+      perfilCompletoTitulo: "Lengkap",
+      perfilCompletoDescricao: "Menampilkan segalanya: log umum, ringkasan Hari ini, panel Detail, Reward, dan Bandingkan.",
+      perfilMinimalistaTitulo: "Minimalis",
+      perfilMinimalistaDescricao: "Menyembunyikan ringkasan Hari ini, Detail, Reward, dan Bandingkan, serta mematikan Pencapaian — hanya log pengiriman umum dan alat lirik.",
+      avisoModoMinimalista: "Anda berada dalam mode Minimalis — ringkasan Hari ini, Detail, Reward, dan Bandingkan disembunyikan, dan Pencapaian dimatikan. Ubah di bawah \"Profil penggunaan\" di bawah.",
+      resumoDiaBloqueadoMinimalista: "Dinonaktifkan oleh profil Minimalis — beralih ke Lengkap untuk mengaturnya.",
+      opcoesDeVisualizacao: "Tampilan",
+      opcoesResumoDia: "Ringkasan hari ini",
+      opcoesAparencia: "Tampilan visual",
+      opcoesGerais: "Umum",
+      buscarConfiguracao: "Cari pengaturan...",
+      verificarAtualizacoes: "Periksa pembaruan",
+      verificando: "Memeriksa...",
+      versaoAtualizada: "Anda menggunakan versi terbaru",
+      novaVersaoDisponivel: "Versi baru tersedia",
+      baixarAtualizacao: "Unduh pembaruan",
+      atualizarAgora: "Perbarui sekarang",
+      novidadesVersao: "Apa yang baru di versi ini",
+      aplicandoAtualizacao: "Menerapkan pembaruan...",
+      atualizacaoAindaNaoPronta: "Browser masih menyiapkan versi ini. Coba lagi sebentar lagi.",
+      atualizacaoLimitada: "Harap tunggu sebentar sebelum memeriksa lagi.",
+      retryAtualizacaoContagem: "Mencoba lagi dalam {s}d… ({n}/{max})",
+      retryAtualizacaoToqueAgora: "Ketuk untuk coba sekarang",
+      retryAtualizacaoEsgotado: "Tidak dapat memperbarui otomatis setelah beberapa kali mencoba. Coba lagi nanti atau dari halaman rilis.",
+      atualizacaoInstalacaoTemporaria: "Instalasi ini bersifat sementara (mode pengembang) — browser tidak mengelola pembaruan otomatis untuknya. Unduh versi baru dari halaman ekstensi.",
+      atualizacaoSemForcarChecagem: "Browser tidak mengizinkan pemaksaan pemeriksaan ini dari sini — tetapi sudah mendengarkan di latar belakang dan akan berlaku otomatis begitu menemukan versi baru.",
+      abrirPaginaExtensao: "Buka halaman ekstensi",
+      abrirReleasesGithub: "Lihat Rilis di GitHub",
+      copiarAboutAddons: "Salin \"chrome://extensions\"",
+      aboutAddonsCopiado: "Disalin! Tempel di bilah alamat dan tekan Enter.",
+      buscandoXpiGithub: "Mencari paket di GitHub...",
+      atualizacaoAindaNaoSincronizadaGithub: "GitHub belum menyinkronkan versi ini (sinkronisasi berjalan berkala).",
+      erroConsultarGithub: "Tidak dapat menghubungi GitHub saat ini.",
+      erroVerificarAtualizacao: "Tidak dapat memeriksa saat ini. Coba lagi nanti.",
+      versaoInstalada: "Versi terpasang",
+      versaoTabsV3: "Versi Tabs V3",
+      notificarAtualizacaoAuto: "Beri tahu otomatis tentang pembaruan",
+      opcoesNotificacoes: "Pemberitahuan",
+      notifDicasAtivar: "Tips penggunaan pada lonceng notifikasi",
+      notifDicasAtivarDesc: "Menampilkan tips penggunaan sesekali di lonceng notifikasi.",
+      extensaoAtualizada: "Ekstensi diperbarui",
+      verNotasVersao: "Lihat halaman ekstensi",
+      confirmarEnvioAtivar: "Konfirmasi pengiriman sebelum dicatat",
+      confirmarEnvioDesc: "Menunggu jendela sukses hijau muncul sebelum mencatat (lebih aman, tapi sedikit lebih lambat). Matikan untuk mencatat segera saat Anda mengklik \"Submit\".",
+      sistemaConquistas: "Sistem pencapaian",
+      sistemaConquistasDesc: "Lencana untuk pencapaian seperti jumlah lagu, runtutan hari, dan diff tersimpan.",
+      ferramentasUteis: "Alat berguna",
+      diffFixarTagsBeta: "Sematkan tag di tempat",
+      betaTag: "BETA",
+      reward: "Reward",
+      verReward: "Reward",
+      logReward: "Log Reward",
+      totalGanho: "Total didapat",
+      historicoDias: "{dias} hari terakhir",
+      cotacaoAtual: "Kurs saat ini",
+      buscandoCotacao: "Mengambil kurs mata uang...",
+      cotacaoIndisponivel: "Kurs tidak tersedia — menggunakan nilai acuan",
+      rewardPorMissao: "Reward berdasarkan misi",
+      taxaEstimada: "tarif perkiraan",
+      tarefasAbrev: "tugas",
+      semReward: "Belum ada pengiriman dengan misi teridentifikasi.",
+      fonteWidget: "Data langsung via Payflow",
+      fonteWidgetCurta: "Langsung",
+      fonteLog: "Diperkirakan dari log ini — pasang ekstensi Payflow untuk data presisi",
+      fonteLogCurta: "Perkiraan",
+      poweredByPayflow: "Didukung oleh Payflow",
+      descontoManual: "Pengurangan $ {amount} diterapkan manual di widget",
+      avisoExtensaoRewardAusente: "Ekstensi Payflow tidak terpasang, dinonaktifkan, atau belum mencatat misi apa pun — nilai di bawah hanyalah perkiraan berdasarkan log ini. Pasang/aktifkan ekstensi untuk melihat angka sebenarnya.",
+      baixarExtensaoTotalUsdBrl: "Unduh ekstensi Payflow",
+      resumoMensalTitulo: "Simpan ringkasan bulan",
+      resumoMensalMensagem: "{mes} baru saja berakhir. Ingin menyimpan ringkasannya — {qtd} lagu dikirimkan dan {usd} ({brl}) reward — untuk dibandingkan dengan bulan lain nanti?",
+      resumoMensalBotaoSalvar: "Simpan ringkasan",
+      resumoMensalAgoraNao: "Jangan sekarang",
+      resumoMensalSalvoToast: "Ringkasan {mes} disimpan.",
+      avisoTrocaCicloTitulo: "Apakah siklus misi sudah berganti?",
+      avisoTrocaCicloMensagem: "Siklus misi bulan ini seharusnya sudah berganti (pukul 21:00 Waktu Brasília) meskipun kalender masih menunjukkan hari ini. Konfirmasi setelah Anda melihat perubahan di Musixmatch.",
+      avisoTrocaCicloBotaoConfirmar: "Ganti siklus",
+      avisoTrocaCicloConfirmadoToast: "Dimengerti — siklus diganti, ringkasan tersedia jika Anda ingin menyimpannya.",
+      avisoDiffManualMinimizadoMensagem: "Anda memiliki Diff Manual yang diminimalkan, dengan perbandingan menunggu di tempat Anda tinggalkan.",
+      avisoDiffManualMinimizadoBotaoVoltar: "Kembali ke Diff Manual",
+      resumosMensaisTitulo: "Ringkasan bulanan tersimpan",
+      resumosMensaisVazio: "Belum ada ringkasan yang disimpan — setelah satu bulan berganti, Anda dapat menyimpan ringkasannya di sini.",
+      resumosMensaisApagar: "Hapus ringkasan ini",
+      resumosMensaisRever: "Tinjau ringkasan ini",
+      resumosMensaisConfirmarApagar: "Hapus ringkasan tersimpan bulan ini? Tindakan ini tidak dapat dibatalkan.",
+      resumosMensaisVerAgora: "Lihat ringkasan sekarang",
+      resumosMensaisIndisponivel: "Ringkasan tidak tersedia",
+      resumoAtualTitulo: "Ringkasan bulan ini (sejauh ini)",
+      resumoAtualVerSlides: "Lihat sebagai slide",
+      resumoSlidesVerCompleto: "Lihat ringkasan lengkap",
+      resumoAtualBotaoSalvar: "Simpan ringkasan ini sekarang",
+      resumoAtualBotaoAtualizar: "Perbarui ringkasan tersimpan",
+      resumoAtualFechar: "Tutup",
+      resumoAtualConfirmarSobrescrever: "Anda sudah memiliki ringkasan tersimpan untuk bulan ini — menyimpan lagi akan menggantikannya dengan angka terbaru. Lanjutkan?",
+      resumoAtualDetalhesTitulo: "Detail lebih lanjut untuk bulan ini",
+      resumoAtualMusicaMaisLonga: "Lagu terpanjang",
+      resumoAtualMusicaMaisCurta: "Lagu terpendek",
+      resumoAtualLetraMaisLonga: "Lirik terpanjang",
+      resumoAtualLetraMaisCurta: "Lirik terpendek",
+      resumoAtualInstrumentais: "Instrumental bulan ini",
+      resumoAtualMissaoMais: "Misi dengan pengiriman terbanyak",
+      resumoAtualMissaoMenos: "Misi dengan pengiriman tersedikit",
+      resumoAtualCaractere: "1 karakter",
+      resumoAtualCaracteres: "{n} karakter",
+      resumoSlidesBRL: "Total dalam Rupiah / BRL",
+      resumoSlidesMoedaGenerica: "Total dalam {moeda}",
+      resumoSlidesUSD: "Total dalam Dolar",
+      resumoSlidesTarefas: "Tugas dikirim",
+      resumoPreviewCarregando: "Mencari pratinjau…",
+      resumoPreviewOuvir: "Putar pratinjau",
+      resumoPreviewTocando: "Memutar…",
+      logCapaOuvirPreviaTooltip: "Putar pratinjau 30d",
+      logCapaPreviaIndisponivel: "Tidak ada pratinjau ditemukan untuk lagu ini.",
+      resumoSlidesCapaTitulo: "Kilas balik {mes} Anda",
+      resumoSlidesFinalTitulo: "Itulah {mes}!",
+      resumoSlidesFinalTexto: "Mari selesaikan bulan lainnya seperti ini.",
+      resumoSlidesAnterior: "Sebelumnya",
+      resumoSlidesProximo: "Berikutnya",
+      resumoSlidesComecar: "Mulai",
+      resumoMusicaSilenciar: "Bisukan musik",
+      resumoMusicaAtivar: "Bunyikan musik",
+      opcoesBackup: "Cadangan",
+      backupMudouDescricao: "Cadangan dipindahkan! Anda sekarang dapat menemukan dan mengelola semuanya di satu tempat.",
+      backupMudouAcao: "Buka Cadangan & Pemulihan",
+      backupRestauracaoTitulo: "Cadangan & Pemulihan",
+      backupAreaSeguraTitulo: "Data Anda, terlindungi",
+      backupAreaSeguraDescricao: "Tidak ada yang keluar dari sini tanpa izin Anda. Cadangan disk hanya ada di komputer Anda; cadangan cloud hanya dikirim saat Anda mengaktifkannya atau mengklik kirim.",
+      backupResumoMusicasProtegidas: "lagu di log",
+      backupResumoDiffsProtegidos: "diff tersimpan",
+      backupResumoResumosProtegidos: "ringkasan bulanan",
+      backupSecaoArquivoCompleto: "Cadangan lengkap (file)",
+      backupSecaoArquivoCompletoDescricao: "Menghasilkan file .json dengan seluruh log, diff tersimpan, ringkasan bulanan, dan pengaturan Anda — untuk disimpan sendiri atau dipindahkan ke komputer lain.",
+      backupSecaoDisco: "Cadangan otomatis ke disk",
+      backupSecaoNuvem: "Cadangan cloud (Google)",
+      backupSecaoTextoSimples: "Log teks biasa (.txt)",
+      backupSecaoTextoSimplesDescricao: "Format lebih sederhana, hanya berisi log pengiriman sebagai teks biasa — tanpa diff, ringkasan, atau pengaturan. Praktis untuk dibaca cepat atau ditempel di tempat lain.",
+      backupZonaRiscoTitulo: "Zona bahaya",
+      backupAutomaticoAtivar: "Cadangan otomatis ke disk",
+      backupAutomaticoDescricao: "Menyimpan salinan data Anda secara berkala ke folder Downloads/MXMBackups, agar tidak kehilangan segalanya jika mencopot pemasangan ekstensi.",
+      backupAutomaticoFazerAgora: "Cadangkan sekarang",
+      backupAutomaticoRestaurar: "Pulihkan cadangan lengkap",
+      backupAutomaticoSucesso: "Cadangan disimpan ke Downloads/MXMBackups.",
+      backupAutomaticoErro: "Tidak dapat menyimpan cadangan otomatis — periksa izin unduhan ekstensi.",
+      nuvemDescricao: "Mengirimkan cadangan ke cloud, tertaut ke akun Google Anda, sehingga Anda dapat memulihkannya di komputer lain.",
+      nuvemEnviar: "Kirim cadangan ke cloud",
+      nuvemRestaurar: "Pulihkan dari cloud",
+      backupNuvemAutomaticoAtivar: "Cadangan cloud otomatis",
+      backupNuvemAutomaticoDescricao: "Mengirim cadangan ke cloud secara mandiri dari waktu ke waktu, tanpa perlu mengklik \"Kirim cadangan ke cloud\". Memerlukan masuk dengan Google setidaknya sekali.",
+      nuvemUltimoBackup: "Cadangan cloud terakhir: {data}",
+      nuvemUltimoBackupNunca: "Anda belum pernah membuat cadangan cloud.",
+      nuvemFrequenciaTitulo: "Frekuensi cadangan otomatis",
+      nuvemFrequenciaDiaria: "Harian",
+      nuvemFrequenciaSemanal: "Mingguan",
+      nuvemFrequenciaMensal: "Bulanan",
+      nuvemEnvioSucesso: "Cadangan terkirim ke cloud.",
+      nuvemEnvioSucessoPartes: "Cadangan terkirim ke cloud dalam {n} bagian.",
+      nuvemEnvioErro: "Tidak dapat mengirim cadangan ke cloud — periksa koneksi Anda dan coba lagi.",
+      nuvemNenhumBackup: "Belum ada cadangan ditemukan di cloud.",
+      nuvemRestaurarErro: "Tidak dapat mengambil cadangan dari cloud — periksa koneksi Anda dan coba lagi.",
+      backupSecaoDrive: "Cadangan Google Drive",
+      backupSecaoDriveDescricao: "Mengirim cadangan ke akun Google Drive Anda, di folder khusus ekstensi, sehingga Anda dapat memulihkannya di komputer lain.",
+      driveEnviar: "Kirim cadangan ke Drive",
+      driveRestaurar: "Pulihkan dari Drive",
+      driveRequerGoogle: "Memerlukan masuk dengan akun Google Anda",
+      backupDriveAutomaticoAtivar: "Cadangan Drive otomatis",
+      backupDriveAutomaticoDescricao: "Mengirim cadangan ke Drive secara otomatis dari waktu ke waktu, tanpa perlu mengklik \"Kirim cadangan ke Drive\". Memerlukan masuk dengan Google setidaknya sekali.",
+      definirMissao: "Atur misi",
+      outraMissao: "Misi lain...",
+      menuInstrumentalMarcar: "Tandai sebagai instrumental",
+      menuInstrumentalDesmarcar: "Hapus tanda instrumental",
+      digitarNomeMissao: "Ketik nama misi:",
+      curator: "Kurator",
+      editarNomeCurator: "Klik untuk menggunakan nama Anda sendiri",
+      mashupMagico: "Magic Mashup",
+      mashupMagicoAtivar: "Putar Magic Mashup",
+      mashupMagicoIndisponivel: "Kirim lebih banyak lagu dengan lirik tersimpan untuk membuka Magic Mashup",
+      digitarNomeCurator: "Ketik nama Anda (biarkan kosong untuk kembali ke \"Kurator\"):",
+      editarFotoCurator: "Klik untuk mengganti foto",
+      alterarFoto: "Ganti foto",
+      usarFotoPadrao: "Gunakan foto default MXM",
+      cliqueDireito: "klik kanan",
+      fotoInvalida: "Tidak dapat menggunakan gambar tersebut — coba file lain.",
+      editarCapaCurator: "Klik untuk mengganti sampul · klik kanan: opsi lainnya",
+      alterarCapa: "Ganti sampul",
+      removerCapa: "Hapus sampul",
+      recorteArrasteAviso: "Seret gambar untuk memposisikannya, dan gunakan zoom untuk menyesuaikan potongan.",
+      recorteSalvar: "Simpan potongan",
+      ajustarRecorte: "Sesuaikan potongan",
+      imagemGrandeDemais: "Gambar tersebut terlalu besar — pilih file hingga 8MB.",
+      comparar: "Bandingkan",
+      logComparacao: "Bandingkan Log",
+      exportarComparacao: "Ekspor log saya",
+      importarComparacao: "Impor file orang lain",
+      comparacaoSemImportacao: "Ekspor log Anda dan minta orang lain melakukan hal yang sama — lalu impor file .json mereka ke sini untuk melihat perbandingan berdampingan.",
+      arquivoComparacaoInvalido: "File tersebut bukan log perbandingan yang valid.",
+      vc: "Anda",
+      totalDeEnvios: "Total pengiriman",
+      duracaoMedia: "Durasi rata-rata",
+      diasAtivos: "Hari aktif",
+      naoDisponivelAbrev: "T/T",
+      comparadoEm: "Dibandingkan dengan",
+      trocarArquivoComparacao: "Ganti file",
+      opcoesComportamento: "Perilaku",
+      opcoesAtualizacoes: "Pembaruan",
+      opcoesExperimental: "Eksperimental",
+      opcoesAjuda: "Bantuan",
+      reverTutorial: "Putar ulang tutorial awal",
+      splashBoasVindasFrase: "Selamat datang di Echoform",
+      splashBoasVindasLegenda: "Mari lihat sekilas bagaimana semuanya bekerja di sini.",
+      splashBoasVindasAprender: "Pelajari",
+      tourMissao: "Klik kanan pada lagu di daftar untuk memilih (atau memperbaiki) misi mana lagu tersebut dibuat.",
+      tourFerramentas: "Di sinilah alat tambahan berada: Diff Manual dan Diff Tersimpan (bandingkan lirik), ganti bahasa, Bandingkan dengan kurator lain, Siklus, Catatan, dan Cadangan & Pemulihan — ditambah Detail dan Reward, yang memiliki langkah tersendiri berikutnya.",
+      tourDetalhado: "Klik di sini untuk log detail: lagu per misi, lagu terpendek/terpanjang, dan jam-jam sibuk.",
+      tourReward: "Klik di sini untuk rincian pembayaran: total pendapatan dan estimasi reward per misi.",
+      tourConfiguracoes: "Di sinilah pengaturan skrip berada — tampilan, perilaku, dan lainnya. Anda dapat memutar ulang tutorial ini kapan saja dari sini.",
+      tourRedimensionar: "Jendela ini dapat diubah ukurannya — seret sudut ini untuk memperbesar atau memperkecilnya.",
+      tourProximo: "Berikutnya",
+      tourEntendi: "Mengerti",
+      tourPular: "Lewati",
+      diffCheck: "Diff Check",
+      diffCheckDesc: "Bandingkan dengan versi tersimpan terakhir",
+      diffCheckTitulo: "Diff Check — perbandingan lirik",
+      diffAvisoRecarregarTitulo: "Sebelum membuka Diff Check",
+      diffAvisoRecarregarMensagem: "Agar lirik dimuat lebih bersih (menghindari perbandingan yang rusak), muat ulang halaman sebelum menggunakan Diff Check.",
+      diffAvisoRecarregarBotao: "Muat ulang halaman",
+      diffAvisoRecarregarContinuar: "Tetap lanjutkan",
+      diffAvisoRecarregarAtivarLabel: "Peringatkan untuk memuat ulang sebelum membuka Diff Check",
+      diffAvisoRecarregarDesativadoModoRede: "Tidak berlaku dalam mode penangkapan \"Jaringan\" — lirik sudah dimuat dengan benar langsung dari jaringan, tidak perlu memuat ulang.",
+      diffIndoParaSincronizacao: "Membuka tab Sinkronisasi (lebih andal untuk membaca lirik lengkap)...",
+      diffIndoParaTraducao: "Membuka tab Terjemahan...",
+      diffSemFaixa: "Tidak dapat mengidentifikasi lagu di halaman ini.",
+      diffSemVersaoSalva: "Belum ada versi lirik tersimpan untuk dibandingkan. Kirimkan lagu ini setidaknya satu kali.",
+      diffSemCapturaAtual: "Tidak dapat menangkap lirik di layar ini saat ini. Gulir hingga lirik muncul dan coba lagi.",
+      diffCarregandoLetra: "Memuat lirik dari layar ini...",
+      diffAdicionadas: "ditambahkan",
+      diffRemovidas: "dihapus",
+      diffVersaoAnterior: "Versi sebelumnya (tersimpan)",
+      diffVersaoAtual: "Versi saat ini (layar ini)",
+      diffCopiar: "Salin diff",
+      diffCopiarEstaLetra: "Salin lirik ini",
+      diffCopiado: "Diff disalin!",
+      diffLinhas: "baris",
+      diffVerComoDigitada: "Lihat teks biasa",
+      diffVerComparacao: "Lihat perbandingan",
+      diffAlinharLinhasAtivar: "Sejajarkan baris (mode lama)",
+      diffAlinharLinhasDesativar: "Kolom independen (default)",
+      diffAlinharLinhasLabel: "Sejajarkan baris",
+      diffEspacoDiferenca: "Spasi kosong — bagian dari perbedaan",
+      diffEspacoUnidade: "spasi",
+      diffEspacoUnidadePlural: "spasi",
+      diffSalvar: "Simpan",
+      diffSalvo: "Diff disimpan!",
+      diffExportarHtml: "Ekspor HTML",
+      diffExportado: "Diff diekspor!",
+      diffCompartilharLink: "Bagikan tautan",
+      diffLinkCopiado: "Tautan disalin! Tempel untuk membagikannya.",
+      diffLinkCopiadoNuvem: "Tautan pendek disalin! Tautan kedaluwarsa otomatis setelah 30 hari.",
+      diffLinkCopiadoCurto: "Tautan pendek disalin! Tempel untuk membagikannya.",
+      diffLinkCopiadoGrande: "Tautan disalin! (tautan panjang — jika beberapa aplikasi memotongnya, kirim lewat cara lain)",
+      diffLinkErro: "Tidak dapat membuat tautan. Coba lagi.",
+      diffSalvarNomePrompt: "Nama untuk diff ini:",
+      diffTornarBase: "Jadikan sebagai basis",
+      diffTornarBaseTooltip: "Menyimpan versi saat ini (yang ditampilkan di layar ini) sebagai versi basis baru di log, menggantikan yang disimpan sebelumnya",
+      diffTornarBaseConfirmarTitulo: "Jadikan versi saat ini sebagai basis?",
+      diffTornarBaseConfirmarMensagem: "Versi saat ini (yang ditampilkan di layar ini) akan menggantikan versi tersimpan sebelumnya di log. Tindakan ini tidak dapat dibatalkan.",
+      diffTornarBaseConfirmarBotao: "Jadikan sebagai basis",
+      diffTornarBaseSucesso: "Versi saat ini disimpan sebagai basis",
+      fechar: "Tutup",
+      minimizar: "Minimalkan",
+      diffManualRestaurarPainel: "Kembali ke Diff Manual",
+      diffManualMinimizadoAviso: "Terdapat Diff Manual yang diminimalkan — klik untuk kembali",
+      brincadeiraInstrumentalOutra: "Lainnya",
+      diffsSalvosTitulo: "Diff tersimpan",
+      diffsSalvosVazio: "Belum ada diff yang disimpan. Gunakan tombol \"Simpan\" di dalam Diff Check atau Diff manual untuk menyimpan perbandingan di sini.",
+      diffsSalvosExcluirConfirmar: "Hapus diff tersimpan ini? Tindakan ini tidak dapat dibatalkan.",
+      diffsSalvosAbrirTooltip: "Buka",
+      diffsSalvosExcluirTooltip: "Hapus",
+      diffsSalvosVoltar: "Kembali ke daftar",
+      blocoDeNotasTitulo: "Buku Catatan",
+      blocoDeNotasVazio: "Belum ada catatan. Ketuk \"Catatan baru\" untuk menulis yang pertama.",
+      blocoDeNotasNovaNota: "Catatan baru",
+      blocoDeNotasEditarTooltip: "Edit",
+      blocoDeNotasExcluirTooltip: "Hapus",
+      blocoDeNotasExcluirConfirmar: "Hapus catatan ini? Tindakan ini tidak dapat dibatalkan.",
+      blocoDeNotasPlaceholderTexto: "Tulis catatan Anda di sini...",
+      blocoDeNotasMusicaLabel: "Lagu (opsional)",
+      blocoDeNotasMusicaPlaceholder: "Cari lagu berdasarkan judul...",
+      blocoDeNotasMusicaLimpar: "Hapus tautan lagu",
+      blocoDeNotasCicloLabel: "Siklus (opsional)",
+      blocoDeNotasCicloNenhum: "Tanpa siklus",
+      blocoDeNotasSalvar: "Simpan catatan",
+      blocoDeNotasCancelar: "Batal",
+      blocoDeNotasVoltar: "Kembali ke daftar",
+      blocoDeNotasSemTexto: "Tulis sesuatu sebelum menyimpan catatan.",
+      ciclosTitulo: "Siklus",
+      cicloNumeroPadraoPrefixo: "Siklus",
+      cicloAtualBadge: "Saat ini",
+      cicloRenomearTooltip: "Ganti nama siklus",
+      cicloVerNoLogTooltip: "Lihat di log — lompat ke lagu pertama siklus ini",
+      cicloRenomearPrompt: "Nama siklus",
+      cicloMusicaSingular: "lagu",
+      cicloMusicaPlural: "lagu",
+      diffAvisoTelaRecomendada: "Diff Check bekerja paling baik di layar Transkripsi dan Sinkronisasi — di layar ini, lirik yang tertangkap mungkin tidak lengkap atau salah.",
+      diffModoCapturaLabel: "Mode penangkapan Diff Check",
+      diffModoCapturaDesc: "Memilih cara Diff Check mengambil lirik untuk dibandingkan. Biarkan pada \"Jaringan\" (disarankan) — mode lain hanya untuk kasus tertentu.",
+      diffModoCapturaRede: "Jaringan (disarankan)",
+      diffModoCapturaAuto: "Otomatis",
+      diffModoCapturaAtual: "Layar saat ini",
+      diffModoCapturaSincronizacao: "Sinkronisasi",
+      diffModoCapturaTraducao: "Terjemahan",
+      diffModoCapturaAvisoTrocaManual: "Jaringan adalah satu-satunya mode yang andal untuk tag struktur. Beralih ke mode lain dianggap penyalahgunaan Diff Check — tag mungkin tidak lengkap atau salah.",
+      diffModoCapturaAvisoTituloPopup: "Apakah Anda yakin ingin mengganti mode?",
+      diffPriorizarSincronizacaoLabel: "Prioritaskan Sinkronisasi untuk perpindahan otomatis",
+      diffPriorizarSincronizacaoDesc: "Ketika mode Jaringan/Otomatis masih perlu berpindah tab untuk mengambil tag, ini menentukan apakah perpindahan tersebut menuju Sinkronisasi (default — lebih andal untuk tag dan instrumental) atau Terjemahan (jalur baru, tetapi tanpa tag instrumental dan kurang andal untuk tag lain).",
+      diffAvisoTagsIgnoradas: "Tag struktur (#Verse, #Chorus, dll.) tidak muncul di layar ini dan diabaikan dari perbandingan ini.",
+      diffAvisoInstrumentalIgnorado: "Layar ini tidak memiliki cara untuk menampilkan bagian instrumental — tag \"Instrumental\" diabaikan dari perbandingan ini.",
+      copiarLetraDesc: "Salin lirik yang saat ini ada di layar",
+      editarLetra: "Edit",
+      salvarLetra: "Simpan",
+      letraAtualizada: "Lirik diperbarui!",
+      editarLetraPlaceholder: "Edit lirik di sini...",
+      ordenarFiltrarTitulo: "Urutkan / filter",
+      adicionarEntradaVaziaTitulo: "Tambahkan entri kosong untuk diisi manual",
+      adicionarEntradaVaziaBotao: "Tambah lagu kosong",
+      entradaVaziaAdicionadaToast: "Lagu kosong ditambahkan. Klik di log untuk mengisi judul dan artis.",
+      ordenarPorData: "Tanggal (terbaru)",
+      ordenarPorMissao: "Misi",
+      ordenarAlfabetica: "Urutan alfabet",
+      semMissaoLabel: "Tanpa misi",
+      opcoesBotaoBarra: "Opsi",
+      diffManual: "Diff manual",
+      diffManualDesc: "Bandingkan dua lirik yang ditempel",
+      diffManualTitulo: "Diff manual — bandingkan dua lirik",
+      diffManualLetra1: "Lirik 1",
+      diffManualLetra2: "Lirik 2",
+      diffManualPlaceholder1: "Tempel lirik pertama di sini...",
+      diffManualPlaceholder2: "Tempel lirik kedua di sini...",
+      diffManualComparar: "Bandingkan",
+      diffManualNovaComparacao: "Perbandingan baru",
+      diffManualPreencherAmbas: "Tempel kedua lirik pada kolom di atas untuk membandingkan.",
+      diffManualSemDiferencas: "Kedua lirik yang ditempel identik — tidak ada perbedaan ditemukan.",
+      diffManualVersao1: "Lirik 1",
+      diffManualVersao2: "Lirik 2",
+      conquistasTitulo: "Pencapaian",
+      conquistasProgresso: "terbuka",
+      conquistaDesbloqueadaToast: "Pencapaian terbuka",
+      conquistaDesbloqueadaEm: "Terbuka pada",
+      conquistaBloqueada: "Belum terbuka",
+      conquistaVerTodas: "Lihat semua",
+      conquistaMusicasTitulo: "{n} lagu di log",
+      conquistaMusicasDesc: "Catat {n} lagu di log pengiriman Anda.",
+      conquistaRecordeTitulo: "Rekor {n} dalam sehari",
+      conquistaRecordeDesc: "Catat {n} lagu dalam satu hari.",
+      conquistaSequenciaTitulo: "{n} hari berturut-turut mengirimkan",
+      conquistaSequenciaDesc: "Catat setidaknya 1 lagu selama {n} hari berturut-turut.",
+      conquistaDiffsTitulo: "{n} diff tersimpan",
+      conquistaDiffsDesc: "Simpan {n} perbandingan diff untuk diperiksa nanti.",
+      conquistaPerfilTitulo: "Profil yang sesuai gaya Anda",
+      conquistaPerfilDesc: "Atur nama dan foto kustom di profil Anda.",
+      conquistaNuvemTitulo: "Cadangan cloud",
+      conquistaNuvemDesc: "Kirim cadangan lengkap ke cloud untuk pertama kalinya.",
+    },
   };
 
   // idiomas disponíveis no menuzinho do ícone de idioma — cada um
@@ -4145,6 +5011,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     { codigo: 'pt', rotulo: 'PT', nome: 'Português' },
     { codigo: 'en', rotulo: 'EN', nome: 'English' },
     { codigo: 'el', rotulo: 'EL', nome: 'Ελληνικά' },
+    { codigo: 'id', rotulo: 'ID', nome: 'Bahasa Indonesia' },
   ];
 
   function getIdioma() {
@@ -4357,7 +5224,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     if (!notasObj || typeof notasObj !== 'object') return '';
     const idioma = getIdioma() || 'pt';
     const candidatos =
-      idioma === 'pt' ? ['pt-BR', 'pt-PT', 'pt'] : idioma === 'el' ? ['el'] : ['en-US', 'en-GB', 'en'];
+      idioma === 'pt' ? ['pt-BR', 'pt-PT', 'pt'] : idioma === 'el' ? ['el'] : idioma === 'id' ? ['id-ID', 'id', 'en-US', 'en'] : ['en-US', 'en-GB', 'en'];
     let bruto = '';
     for (const chave of candidatos) {
       if (notasObj[chave]) {
@@ -4434,6 +5301,27 @@ browser.storage.onChanged.addListener((changes, area) => {
     { chave: 'notifDicaSons', acaoChave: 'configuracoes', acao: () => abrirPainelConfiguracoes('sons') },
     { chave: 'notifDicaDiffManual', acaoChave: 'abrirDiffManualAcao', acao: () => abrirDiffManual() },
     { chave: 'notifDicaResumoDia', acaoChave: 'abrirLogDetalhado', acao: () => abrirPainelDetalhado() },
+    // ---- dicas pra quem está começando (mesma fonte pro sino e pro bloco
+    // "Enquanto isso, algumas dicas" da lista curta — ver renderPainelLista).
+    // As sem ação são só informativas: descrevem gestos direto na lista.
+    { chave: 'notifDicaClicarMusica' },
+    { chave: 'notifDicaBotaoDireitoMissao' },
+    { chave: 'notifDicaPreviaCapa' },
+    { chave: 'notifDicaModoManual' },
+    { chave: 'notifDicaSelecionarVarias' },
+    { chave: 'notifDicaSemDetalhes' },
+    { chave: 'notifDicaMusicaVazia' },
+    { chave: 'notifDicaOrdenar' },
+    { chave: 'notifDicaBusca' },
+    { chave: 'notifDicaRecolherGrupos' },
+    { chave: 'notifDicaRedimensionar' },
+    { chave: 'notifDicaCiclos', acaoChave: 'abrirCiclosAcao', acao: () => abrirPainelCiclos() },
+    { chave: 'notifDicaReward', acaoChave: 'abrirRewardAcao', acao: () => abrirPainelReward() },
+    { chave: 'notifDicaBlocoDeNotas', acaoChave: 'abrirBlocoDeNotasAcao', acao: () => abrirBlocoDeNotas() },
+    { chave: 'notifDicaBackup', acaoChave: 'abrirBackupAcao', acao: () => abrirPainelBackup() },
+    { chave: 'notifDicaComparar', acaoChave: 'abrirCompararAcao', acao: () => abrirPainelComparar() },
+    { chave: 'notifDicaConquistas', acaoChave: 'configuracoes', acao: () => abrirPainelConfiguracoes('conquistas') },
+    { chave: 'notifDicaCronometroCiclo', acaoChave: 'configuracoes', acao: () => abrirPainelConfiguracoes('cronometroCicloMain') },
   ];
 
   function isDicasNotificacaoAtiva() {
@@ -4491,6 +5379,16 @@ browser.storage.onChanged.addListener((changes, area) => {
   // uma nova embaralhada com todos os índices de novo.
   function getDicaRotativaIndice() {
     let fila = GM_getValue(STORAGE_DICAS_RESTANTES_KEY, null);
+    // descarta índices que não apontam mais pra nenhuma dica (fila salva
+    // por uma versão anterior) — sem isso DICAS_ROTATIVAS[indice] viraria
+    // undefined e o sino quebraria ao montar a notificação.
+    if (Array.isArray(fila)) {
+      const filaValida = fila.filter((i) => Number.isInteger(i) && i >= 0 && i < DICAS_ROTATIVAS.length);
+      if (filaValida.length !== fila.length) {
+        fila = filaValida;
+        GM_setValue(STORAGE_DICAS_RESTANTES_KEY, fila);
+      }
+    }
     if (!Array.isArray(fila) || !fila.length) {
       fila = embaralhar(DICAS_ROTATIVAS.map((_, i) => i));
       GM_setValue(STORAGE_DICAS_RESTANTES_KEY, fila);
@@ -6659,7 +7557,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       .join('\n');
   }
   const TAG_INSTRUMENTAL_LINHA_REGEX = /^#\s*instrumental\s*\d*\b.*$/i;
-  const TEXTO_UI_NAO_LETRA_REGEX = /^(\.{2,}|fim da letra|end of lyrics)$/i;
+  const TEXTO_UI_NAO_LETRA_REGEX = /^(\.{2,}|fim da letra|end of lyrics|akhir lirik|akhir dari lirik)$/i;
   const TEXTO_SENTINELA_FIM_FIBER_REGEX = /^end$/i;
 
   const LYRIC_LINE_CLASS_SEL = 'div[dir="auto"].r-1inkyih.r-1l694y9';
@@ -6672,11 +7570,18 @@ browser.storage.onChanged.addListener((changes, area) => {
     'assistant', 'todas as faixas', 'all tracks',
     'significado', 'meaning', 'temas', 'themes', 'humor', 'mood',
     'gerado por ia', 'generated by ai', 'ai generated',
+    // Bahasa Indonesia
+    'transkripsi', 'transkripsikan', 'sinkronisasi', 'sinkron',
+    'terjemahkan', 'terjemahan', 'kredit', 'struktur',
+    'penampil', 'artis', 'analisis', 'kirim', 'kirimkan',
+    'asisten', 'semua trek', 'semua lagu', 'semua',
+    'makna', 'arti', 'tema', 'suasana hati',
+    'dibuat oleh ai', 'dihasilkan oleh ai',
   ];
-  const STATUS_MISSAO_REGEX = /^(em progresso|concluíd[oa]|concluido|completed|in progress)(\s*[·•].*)?$/i;
+  const STATUS_MISSAO_REGEX = /^(em progresso|concluíd[oa]|concluido|completed|in progress|sedang berlangsung|dalam proses|selesai|gagal|kesalahan)(\s*[·•].*)?$/i;
   const REWARD_LINE_REGEX = /^reward:\s*[\d.,]+\s*usd/i;
   const CURATORS_MISSION_REGEX = /^\(curators\)/i;
-  const PRAZO_MISSAO_REGEX = /^\d+\s*(dias?|days?)$/i;
+  const PRAZO_MISSAO_REGEX = /^\d+\s*(dias?|days?|hari)$/i;
   const DURACAO_IDIOMA_REGEX = /^\d{1,2}:\d{2}\s*[·•]\s*\S+/;
 
   function ehLinhaNaoLetra(texto) {
@@ -6695,13 +7600,26 @@ browser.storage.onChanged.addListener((changes, area) => {
   function getPainelMissoesParaExcluir() {
     for (const el of document.querySelectorAll('div[dir="auto"]')) {
       const texto = el.textContent.trim().toLowerCase();
-      if (!texto.startsWith('todas as faixas') && !texto.startsWith('all tracks')) continue;
+      if (
+        !texto.startsWith('todas as faixas') &&
+        !texto.startsWith('all tracks') &&
+        !texto.startsWith('semua trek') &&
+        !texto.startsWith('semua lagu') &&
+        !texto.startsWith('semua')
+      )
+        continue;
       let cur = el;
       for (let i = 0; i < 6 && cur; i++) {
         cur = cur.parentElement;
         if (!cur) break;
         const t = cur.textContent.toLowerCase();
-        if (t.includes('em progresso') || t.includes('in progress')) return cur;
+        if (
+          t.includes('em progresso') ||
+          t.includes('in progress') ||
+          t.includes('sedang berlangsung') ||
+          t.includes('dalam proses')
+        )
+          return cur;
       }
       return el.parentElement || el;
     }
@@ -7082,7 +8000,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     return melhor;
   }
 
-  const TEXTOS_MARCADOR_FIM_LETRA = ['fim da letra', 'end of lyrics'];
+  const TEXTOS_MARCADOR_FIM_LETRA = ['fim da letra', 'end of lyrics', 'akhir lirik', 'akhir dari lirik'];
   function encontrarMarcadorFimDaLetra(escopo) {
     try {
       const candidatos = (escopo || document).querySelectorAll('div[dir="auto"]');
@@ -7125,7 +8043,15 @@ browser.storage.onChanged.addListener((changes, area) => {
     return linhasAcumuladas.concat(linhasNovas);
   }
 
-  const TEXTOS_ABA_SINCRONIZACAO = ['sincronização', 'sincronizacao', 'sync', 'synchronization', 'synchronisation'];
+  const TEXTOS_ABA_SINCRONIZACAO = [
+    'sincronização',
+    'sincronizacao',
+    'sync',
+    'synchronization',
+    'synchronisation',
+    'sinkronisasi',
+    'sinkron',
+  ];
 
   function encontrarAbaSincronizacao() {
     const candidatosTexto = document.querySelectorAll('[dir="auto"]');
@@ -7210,7 +8136,17 @@ browser.storage.onChanged.addListener((changes, area) => {
   }
 
   // ---------- navegação até a aba de Tradução ----------
-  const TEXTOS_ABA_TRADUCAO = ['tradução', 'traducao', 'traduzir', 'translate', 'translation', 'traducción', 'traduccion'];
+  const TEXTOS_ABA_TRADUCAO = [
+    'tradução',
+    'traducao',
+    'traduzir',
+    'translate',
+    'translation',
+    'traducción',
+    'traduccion',
+    'terjemahan',
+    'terjemahkan',
+  ];
 
   function textoBateComAba(texto, listaPalavras) {
     if (!texto) return false;
@@ -8741,11 +9677,50 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   let modoManualAtivo = false;
 
+  // O modo manual só faz sentido na lista de tasks (/tasks): o seletor das
+  // linhas (ROW_SELECTOR) é uma classe genérica do React Native Web e, em
+  // outras telas — página de missões (/missions) e o próprio Studio
+  // (/tool) —, casa com elementos que NÃO são músicas e acabava registrando
+  // lixo no log. Como o site é uma SPA (a rota muda sem recarregar a
+  // página), isso é consultado em tempo real, a cada clique/hover, e não
+  // uma vez só no carregamento.
+  function paginaPermiteModoManual() {
+    try {
+      return /^\/tasks(\/|$)/.test(window.location.pathname);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Aplica/retira a classe que ativa o destaque visual (hover laranja) nas
+  // linhas — só fica ligada se o modo estiver ativo E a página atual permitir.
+  function sincronizarClasseModoManual() {
+    document.body.classList.toggle('mxm-log-modo-manual', modoManualAtivo && paginaPermiteModoManual());
+  }
+
   function alternarModoManual(forcar) {
-    modoManualAtivo = forcar !== undefined ? forcar : !modoManualAtivo;
-    document.body.classList.toggle('mxm-log-modo-manual', modoManualAtivo);
+    const ligar = forcar !== undefined ? forcar : !modoManualAtivo;
+    // recusa ligar fora da lista de tasks (desligar é sempre permitido)
+    if (ligar && !paginaPermiteModoManual()) {
+      if (typeof mostrarToastSimples === 'function') mostrarToastSimples(t('modoManualSoNaListaTasks'), 'erro');
+      return;
+    }
+    modoManualAtivo = ligar;
+    sincronizarClasseModoManual();
     aplicarIndicadorModoManual();
   }
+
+  // Se o usuário navegar (SPA) pra fora da lista de tasks com o modo ligado,
+  // desliga sozinho em vez de ficar armado numa tela onde ele não vale.
+  // Sem pushState/popstate confiável no código, um checador leve por
+  // intervalo cobre todos os jeitos de trocar de rota.
+  setInterval(() => {
+    if (modoManualAtivo && !paginaPermiteModoManual()) {
+      alternarModoManual(false);
+    } else {
+      sincronizarClasseModoManual();
+    }
+  }, 500);
 
   // V2.NEW4: abandonado o efeito visual piscando no botão de logs — a
   // pedido do usuário, o indicativo agora reaproveita o mesmo badge que
@@ -9055,7 +10030,8 @@ browser.storage.onChanged.addListener((changes, area) => {
   // o document.title primeiro (cada missão tem um título de aba diferente),
   // cai pro h1 e depois pro h2, ignorando textos que batem com o blocklist
   // (banners de cookie/privacidade que às vezes usam h1/h2 também).
-  const MISSION_LABEL_BLOCKLIST = /privacy|cookie|consent|preference center|terms|política de privacidade|termos/i;
+  const MISSION_LABEL_BLOCKLIST =
+    /privacy|cookie|consent|preference center|terms|política de privacidade|termos|kebijakan privasi|syarat|ketentuan/i;
 
   function isValidMissionText(text) {
     if (!text) return false;
@@ -10027,13 +11003,59 @@ browser.storage.onChanged.addListener((changes, area) => {
     const marcandoManualmente = modoManualAtivo;
     const mostrar = marcandoManualmente || (isBadgeVisible() && total > 0);
     badges.forEach((badge) => {
-      badge.textContent = marcandoManualmente ? t('marcandoManualmenteLabel') : total;
+      const ehBadgeQuadrado = badge.id === 'mxm-log-badge';
+      if (marcandoManualmente) {
+        // Só remonta o conteúdo se ainda não estiver no formato "manual"
+        // (evita recriar o botão a cada atualização — atualizarBadge roda
+        // toda vez que o total de envios muda).
+        if (!badge.querySelector('.mxm-badge-pausa-btn')) {
+          badge.textContent = '';
+          if (!ehBadgeQuadrado) {
+            const rotulo = document.createElement('span');
+            rotulo.className = 'mxm-badge-manual-rotulo';
+            rotulo.textContent = t('marcandoManualmenteLabel');
+            badge.appendChild(rotulo);
+          }
+          badge.appendChild(criarBotaoPausaBadge());
+        } else {
+          const rotulo = badge.querySelector('.mxm-badge-manual-rotulo');
+          if (rotulo) rotulo.textContent = t('marcandoManualmenteLabel');
+        }
+      } else if (badge.querySelector('.mxm-badge-pausa-btn') || badge.textContent !== String(total)) {
+        badge.textContent = total;
+      }
       badge.classList.toggle('mxm-badge-texto-manual', marcandoManualmente);
       badge.style.display = mostrar ? 'flex' : 'none';
     });
     // mantém a barrinha de "tarefas hoje / recorde" sempre em dia,
     // sempre que o total de envios muda (se o painel estiver aberto).
     atualizarResumoDia();
+  }
+
+  // Botãozinho de pausa dentro do badge "Marcando manualmente" — mesmo
+  // efeito de clicar no FAB com o modo ligado (ver o listener de
+  // #mxm-log-fab-btn): desliga o modo direto, sem abrir menu. Precisa
+  // parar a propagação, senão o clique subiria pro botão/pill do Log e
+  // abriria o painel por trás.
+  function criarBotaoPausaBadge() {
+    const btn = document.createElement('span');
+    btn.className = 'mxm-badge-pausa-btn';
+    btn.title = t('pausarModoManual');
+    btn.setAttribute('role', 'button');
+    btn.setAttribute('aria-label', t('pausarModoManual'));
+    btn.innerHTML = icone('pause', 9, 'currentColor', 2.5);
+    const parar = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+    };
+    btn.addEventListener('mousedown', parar);
+    btn.addEventListener('mouseup', parar);
+    btn.addEventListener('click', (ev) => {
+      parar(ev);
+      tocarSom('clique');
+      alternarModoManual(false);
+    });
+    return btn;
   }
 
   function apagarEntrada(key) {
@@ -16174,6 +17196,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     pt: ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'],
     en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
     el: ['Ιαν', 'Φεβ', 'Μάρ', 'Απρ', 'Μάι', 'Ιούν', 'Ιούλ', 'Αύγ', 'Σεπ', 'Οκτ', 'Νοέ', 'Δεκ'],
+    id: ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'],
   };
 
   // Formata uma chave "MM/AAAA" pro rótulo curto do gráfico (ex: "ago/26").
@@ -16206,6 +17229,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     pt: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'],
     en: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
     el: ['Δευ', 'Τρί', 'Τετ', 'Πέμ', 'Παρ', 'Σάβ', 'Κυρ'],
+    id: ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'],
   };
 
   function rotulosDiaSemana() {
@@ -16219,6 +17243,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     let unidade;
     if (idioma === 'en') unidade = n === 1 ? 'day' : 'days';
     else if (idioma === 'el') unidade = n === 1 ? 'ημέρα' : 'ημέρες';
+    else if (idioma === 'id') unidade = 'hari';
     else unidade = n === 1 ? 'dia' : 'dias';
     return `${n} ${unidade}`;
   }
@@ -16576,6 +17601,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       let unidade;
       if (idioma === 'en') unidade = dias === 1 ? 'day' : 'days';
       else if (idioma === 'el') unidade = dias === 1 ? 'ημέρα' : 'ημέρες';
+      else if (idioma === 'id') unidade = 'hari';
       else unidade = dias === 1 ? 'dia' : 'dias';
       return `${dias} ${unidade}`;
     }
@@ -16589,6 +17615,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       let unidadeHora;
       if (idioma === 'en') unidadeHora = horas === 1 ? 'hour' : 'hours';
       else if (idioma === 'el') unidadeHora = horas === 1 ? 'ώρα' : 'ώρες';
+      else if (idioma === 'id') unidadeHora = 'jam';
       else unidadeHora = horas === 1 ? 'hora' : 'horas';
       return `${horas} ${unidadeHora}`;
     }
@@ -16596,6 +17623,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     let unidadeMinuto;
     if (idioma === 'en') unidadeMinuto = minutos === 1 ? 'minute' : 'minutes';
     else if (idioma === 'el') unidadeMinuto = minutos === 1 ? 'λεπτό' : 'λεπτά';
+    else if (idioma === 'id') unidadeMinuto = 'menit';
     else unidadeMinuto = minutos === 1 ? 'minuto' : 'minutos';
     return `${minutos} ${unidadeMinuto}`;
   }
@@ -25370,6 +26398,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     'wyślij', // pl
     'gönder', // tr
     'kirim', // id
+    'kirimkan', // id
     'gửi', // vi
     'отправить', // ru
     'υποβολή', // el
@@ -25390,6 +26419,15 @@ browser.storage.onChanged.addListener((changes, area) => {
     'approve',
     'rejeitar',
     'reject',
+    // Bahasa Indonesia
+    'batal',
+    'batalkan',
+    'kembali',
+    'tutup',
+    'lewati',
+    'tandai sebagai instrumental',
+    'setujui',
+    'tolak',
   ]);
 
   function textoEhEnviar(texto) {
@@ -25399,11 +26437,15 @@ browser.storage.onChanged.addListener((changes, area) => {
   }
 
   // mesmo princípio, mas pro botão "Marcar como instrumental" ("Mark as
-  // instrumental" em inglês).
+  // instrumental" em inglês, "Tandai sebagai instrumental" em indonésio).
   function textoEhInstrumental(texto) {
     if (!texto) return false;
     const limpo = texto.trim().toLowerCase();
-    return limpo === 'marcar como instrumental' || limpo === 'mark as instrumental';
+    return (
+      limpo === 'marcar como instrumental' ||
+      limpo === 'mark as instrumental' ||
+      limpo === 'tandai sebagai instrumental'
+    );
   }
 
   // reforço estrutural (ver comentário acima): true se o label usa a cor
@@ -25508,23 +26550,73 @@ browser.storage.onChanged.addListener((changes, area) => {
     return el === encontrarBotaoEnviar();
   }
 
-  // mesmo problema do botão "Enviar" — a aba "Todas as faixas" da
-  // tela de tasks vira "All tracks" em contas configuradas em inglês.
-  const ROTULOS_ABA_TODAS = ['todas as faixas', 'all tracks'];
+  // mesmo problema do botão "Enviar" — as abas da tela de tasks
+  // ("Todas as faixas", "Em andamento", "Concluídas", "Falha") mudam de
+  // nome em outros idiomas (ex: "All tracks", "Error" em inglês;
+  // "Semua trek", "Gagal" em indonésio). Procurar qualquer uma das abas
+  // conhecidas permite encontrar o container da barra com segurança.
+  const ROTULOS_ABA_TODAS = [
+    'todas as faixas',
+    'all tracks',
+    'semua trek',
+    'semua lagu',
+    'semua',
+    'todas las pistas',
+    'toutes les pistes',
+    'tutti i brani',
+    'tutte le tracce',
+    'alle titel',
+  ];
+
+  const ROTULOS_ABAS_TASKS = [
+    // Todas as faixas
+    ...ROTULOS_ABA_TODAS,
+    // Em andamento / In progress
+    'em andamento',
+    'em progresso',
+    'in progress',
+    'sedang berlangsung',
+    'dalam proses',
+    'en cours',
+    'en progreso',
+    'in bearbeitung',
+    // Concluídas / Completed
+    'concluídas',
+    'concluidas',
+    'concluído',
+    'concluido',
+    'completed',
+    'selesai',
+    'terminé',
+    'termine',
+    'completado',
+    'abgeschlossen',
+    // Erro / Error / Falha / Gagal
+    'error',
+    'erro',
+    'falha',
+    'gagal',
+    'kesalahan',
+    'erreur',
+    'fehler',
+  ];
 
   function encontrarContainerAbas() {
-    const aba = Array.from(document.querySelectorAll('div[dir="auto"]')).find((el) =>
-      ROTULOS_ABA_TODAS.includes(el.textContent.trim().toLowerCase())
-    );
-    if (!aba) return null;
+    const candidatos = Array.from(document.querySelectorAll('div[dir="auto"]'));
+    for (const rotulo of ROTULOS_ABAS_TASKS) {
+      const aba = candidatos.find(
+        (el) => (el.textContent || '').trim().toLowerCase() === rotulo
+      );
+      if (!aba) continue;
 
-    // sobe na árvore até achar o container cujos filhos são as várias abas clicáveis
-    let el = aba;
-    for (let i = 0; i < 6 && el; i++) {
-      el = el.parentElement;
-      if (!el) break;
-      const filhosComTab = Array.from(el.children).filter((c) => c.querySelector('div[tabindex="0"]'));
-      if (filhosComTab.length >= 3) return el;
+      // sobe na árvore até achar o container cujos filhos são as várias abas clicáveis
+      let el = aba;
+      for (let i = 0; i < 6 && el; i++) {
+        el = el.parentElement;
+        if (!el) break;
+        const filhosComTab = Array.from(el.children).filter((c) => c.querySelector('div[tabindex="0"]'));
+        if (filhosComTab.length >= 3) return el;
+      }
     }
     return null;
   }
@@ -26866,7 +27958,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     dicaConquistas.style.cssText = 'padding:4px 10px 8px; font-size:11px; color:var(--md-sys-color-outline); line-height:1.5;';
     dicaConquistas.textContent = t('sistemaConquistasDesc');
     criarBloco(
-      criarItemSwitch(t('sistemaConquistas'), 'star', isConquistasAtivo, () => setConquistasAtivo(!isConquistasAtivo())),
+      criarItemSwitch(t('sistemaConquistas'), 'star', isConquistasAtivo, () => setConquistasAtivo(!isConquistasAtivo()), false, 'conquistas'),
       dicaConquistas
     );
 
@@ -29266,13 +30358,41 @@ browser.storage.onChanged.addListener((changes, area) => {
       transform: translateX(-50%);
       min-width: max-content;
       white-space: nowrap;
-      padding: 2px 7px;
+      padding: 2px 4px;
       font-size: 8.5px;
     }
     .mxm-log-badge-el.mxm-badge-texto-manual {
       white-space: nowrap;
-      padding: 1px 7px;
+      padding: 1px 4px 1px 7px;
+      gap: 5px;
     }
+    /* botão de pausa dentro do badge "Marcando manualmente" */
+    .mxm-badge-pausa-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      cursor: pointer;
+      color: inherit;
+      background: color-mix(in srgb, currentColor 18%, transparent);
+      transition: background-color .12s ease, transform .12s ease;
+    }
+    .mxm-badge-pausa-btn:hover {
+      background: color-mix(in srgb, currentColor 34%, transparent);
+      transform: scale(1.12);
+    }
+    .mxm-badge-pausa-btn:active {
+      transform: scale(0.94);
+    }
+    /* no badge do botão quadrado (pequeno, sem texto) só cabe o ícone */
+    #mxm-log-badge.mxm-badge-texto-manual .mxm-badge-pausa-btn {
+      width: 12px;
+      height: 12px;
+    }
+
     #mxm-log-fab-manual.mxm-modo-manual-on {
       background: var(--md-sys-color-tertiary-container) !important;
       color: var(--md-sys-color-on-tertiary-container) !important;
@@ -29290,7 +30410,9 @@ browser.storage.onChanged.addListener((changes, area) => {
     (e) => {
       // V1.7: modo manual ligado — clique numa linha da lista registra
       // direto, sem precisar do botão real. Shift+clique marca instrumental.
-      if (modoManualAtivo) {
+      // Só vale na lista de tasks (ver paginaPermiteModoManual): em
+      // /missions e no Studio o seletor pega itens que não são músicas.
+      if (modoManualAtivo && paginaPermiteModoManual()) {
         const row = e.target.closest(ROW_SELECTOR);
         if (row) {
           e.preventDefault();
