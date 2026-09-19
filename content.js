@@ -85,6 +85,31 @@ function mxmAgoraMs() {
   return mxmAgora().getTime();
 }
 
+// ---------- simulador de tamanho de lista (debug) ----------
+// Mesma filosofia do simulador de data acima: NUNCA toca no log real
+// (getLogs()/saveLogs()) — guarda só um "modo" separado (off/vazia/uma) e
+// quem lê decide, na hora de montar a tela, se substitui as entradas de
+// exibição por um cenário fake. O storage de verdade (GM_getValue(
+// STORAGE_KEY)) nunca é lido nem escrito por nada aqui — só serve pra
+// testar rapidamente os estados "log vazio" e "lista com 1 música" (ex:
+// o bug do marcador "Fim da lista"/dicas de lista curta) sem precisar
+// apagar de verdade o histórico de quem está testando.
+const STORAGE_DEBUG_SIMULACAO_LISTA_KEY = 'mxm_log_debug_simulacao_lista_modo';
+
+// 'off' (padrão) | 'vazia' | 'uma'
+function getModoSimulacaoLista() {
+  const modo = GM_getValue(STORAGE_DEBUG_SIMULACAO_LISTA_KEY, 'off');
+  return modo === 'vazia' || modo === 'uma' ? modo : 'off';
+}
+
+function setModoSimulacaoLista(modo) {
+  GM_setValue(STORAGE_DEBUG_SIMULACAO_LISTA_KEY, modo === 'vazia' || modo === 'uma' ? modo : 'off');
+}
+
+function isSimulacaoListaAtiva() {
+  return getModoSimulacaoLista() !== 'off';
+}
+
 async function mxmLoadStorage() {
   const stored = await browser.storage.local.get(null);
   if (stored && typeof stored === 'object') {
@@ -106,6 +131,16 @@ browser.storage.onChanged.addListener((changes, area) => {
 
 (async function () {
   'use strict';
+
+  // V3.5.61: botão de alternar tema claro/escuro do cabeçalho, temporariamente
+  // escondido a pedido do Nero — ele não sabe se vai voltar a usar o tema
+  // claro, então em vez de apagar a feature (botão, ícone, switch nas
+  // Configurações, lógica de isTemaClaroAtivo/setTemaClaroAtivo etc.), só
+  // o botão do cabeçalho fica oculto enquanto essa flag for `false`. Pra
+  // reativar no futuro, basta voltar pra `true` — nada mais precisa mudar.
+  // Quem já tinha o tema claro ativo antes continua com ele ativo (a flag
+  // só esconde o botão de trocar, não força ninguém de volta pro escuro).
+  const BOTAO_TEMA_CLARO_HABILITADO = false;
 
   instalarInterceptadorRichsync();
 
@@ -153,6 +188,7 @@ browser.storage.onChanged.addListener((changes, area) => {
   // erro, fechar janela) — ver tocarSom()/SOM_RECEITAS logo acima. Ligado
   // por padrão, igual às animações.
   const STORAGE_SOM_ATIVO_KEY = 'mxm_log_sons_ativos';
+  const STORAGE_NOTIFICAR_WINDOWS_KEY = 'mxm_log_notificar_windows_ativo';
   const STORAGE_RESUMO_MUSICA_MUTADO_KEY = 'mxm_log_resumo_musica_mutado';
   const STORAGE_AVISO_RECARREGAR_DIFFCHECK_KEY = 'mxm_log_diffcheck_aviso_recarregar_ativo';
   // guarda o nome da última missão detectada na tela de lista de
@@ -179,6 +215,42 @@ browser.storage.onChanged.addListener((changes, area) => {
   const STORAGE_FIREBASE_REFRESH_TOKEN_KEY = 'mxm_log_firebase_refresh_token';
   const STORAGE_FIREBASE_UID_KEY = 'mxm_log_firebase_uid';
   const STORAGE_ULTIMO_BACKUP_NUVEM_KEY = 'mxm_log_ultimo_backup_nuvem';
+  // liga/desliga o envio automático (silencioso, sem popup) do backup pra
+  // nuvem — desligado por padrão (opt-in), já que depende de já ter feito
+  // login com Google antes (ver mxmVerificarBackupNuvemAutomaticoPeriodico).
+  const STORAGE_BACKUP_NUVEM_AUTOMATICO_ATIVO_KEY = 'mxm_log_backup_nuvem_automatico_ativo';
+  // timestamp (ms) do último backup automático (não-manual) enviado pra
+  // nuvem com sucesso — máximo 1x por dia, mesma lógica do backup em disco.
+  const STORAGE_ULTIMO_BACKUP_NUVEM_AUTOMATICO_KEY = 'mxm_log_ultimo_backup_nuvem_automatico';
+  // frequência escolhida pro backup automático na nuvem: 'diario' | 'semanal' | 'mensal'
+  // (ver INTERVALOS_BACKUP_NUVEM_MS/getFrequenciaBackupNuvemAutomatico) — 'diario' é o
+  // padrão, mesmo comportamento de antes desta opção existir.
+  const STORAGE_FREQUENCIA_BACKUP_NUVEM_KEY = 'mxm_log_frequencia_backup_nuvem_automatico';
+  // ---- chaves do backup no Google Drive (ver docs/backup-google-drive.md) ----
+  // Separadas de propósito das chaves do Firestore acima — mesmo que o
+  // usuário ative os dois destinos ao mesmo tempo, cada um guarda seu
+  // próprio refresh_token, id de arquivo e timestamp de "último backup".
+  // A partir da v3.5.55, o login do Drive usa authorization code + PKCE
+  // (ver fazerLoginGoogleDrive em background.js) — isso devolve um
+  // refresh_token de verdade, igual ao que o Firebase já tinha
+  // (STORAGE_FIREBASE_REFRESH_TOKEN_KEY acima), em vez do fluxo implícito
+  // antigo (response_type=token) que não tinha refresh_token nenhum e
+  // dependia de prompt=none (instável, causava popup de login a cada F5
+  // sempre que o access_token de 1h já tivesse expirado).
+  const STORAGE_GOOGLE_DRIVE_REFRESH_TOKEN_KEY = 'mxm_log_google_drive_refresh_token';
+  // id do arquivo mxm-backup-nuvem.json já criado no Drive (evita duplicar
+  // arquivo a cada envio — ver mxmDriveEnviarBackup).
+  const STORAGE_GOOGLE_DRIVE_FILE_ID_KEY = 'mxm_log_google_drive_file_id';
+  // id da pasta "Echoform Backups" já criada no Drive (mesma lógica do
+  // file id acima — evita recriar a pasta a cada envio).
+  const STORAGE_GOOGLE_DRIVE_FOLDER_ID_KEY = 'mxm_log_google_drive_folder_id';
+  const STORAGE_ULTIMO_BACKUP_DRIVE_KEY = 'mxm_log_ultimo_backup_drive';
+  // liga/desliga o envio automático (silencioso) pro Drive — mesmo
+  // espírito do equivalente no Firestore: opt-in, desligado por padrão.
+  const STORAGE_BACKUP_DRIVE_AUTOMATICO_ATIVO_KEY = 'mxm_log_backup_drive_automatico_ativo';
+  const STORAGE_ULTIMO_BACKUP_DRIVE_AUTOMATICO_KEY = 'mxm_log_ultimo_backup_drive_automatico';
+  // frequência escolhida pro backup automático no Drive: 'diario' | 'semanal' | 'mensal'
+  const STORAGE_FREQUENCIA_BACKUP_DRIVE_KEY = 'mxm_log_frequencia_backup_drive_automatico';
   // timestamp (ms) da última limpeza automática de diffs compartilhados
   // expirados na coleção `diffs_compartilhados` do Firestore — usado só
   // pra não repetir a limpeza toda vez que a página carrega, e sim no
@@ -202,11 +274,33 @@ browser.storage.onChanged.addListener((changes, area) => {
   const STORAGE_TAMANHO_PAINEL_CONFIG_KEY = 'mxm_log_tamanho_painel_config';
   const STORAGE_TAMANHO_PAINEL_DETALHADO_KEY = 'mxm_log_tamanho_painel_detalhado';
   const STORAGE_TAMANHO_PAINEL_REWARD_KEY = 'mxm_log_tamanho_painel_reward';
+  const STORAGE_TAMANHO_PAINEL_CICLOS_KEY = 'mxm_log_tamanho_painel_ciclos';
+  const STORAGE_TAMANHO_PAINEL_BACKUP_KEY = 'mxm_log_tamanho_painel_backup';
+  // nomes customizados por ciclo (ver abrirPainelCiclos) — chave é a
+  // mesma "chave de ciclo" já usada em todo o resto do script
+  // (chaveMesAno/chaveCicloAtual, formato "MM/AAAA"), valor é o nome
+  // escolhido pelo usuário pra aquele ciclo específico.
+  const STORAGE_NOMES_CICLOS_KEY = 'mxm_log_nomes_ciclos';
   const PAINEL_LARGURA_PADRAO = 400;
   const PAINEL_LARGURA_MIN = 320;
-  const PAINEL_LARGURA_MAX = 800;
+  // Limitado a 520px pelo mesmo motivo da altura — largura excessiva
+  // também distorcia o layout interno da lista e afetava o scroll.
+  const PAINEL_LARGURA_MAX = 520;
   const PAINEL_ALTURA_MIN = 360;
-  const PAINEL_ALTURA_MAX = 1000;
+  // Limitado a 680px — valores maiores deixavam a lista interna alta
+  // demais em relação ao container, o que quebrava o cálculo da barra
+  // de rolagem customizada (ver instalarBarraRolagemCustomizada) quando
+  // havia poucas músicas no log (lista curta + painel alto = sobra de
+  // espaço vazio que confundia a conta de "cabe"/"não cabe" da rolagem).
+  const PAINEL_ALTURA_MAX = 680;
+  // Com 10+ músicas no log, a lista já tem altura de sobra suficiente
+  // pra evitar aquele bug de cálculo — nesse caso o painel principal
+  // pode crescer mais um pouco (ver LIMITE_MUSICAS_ALTURA_EXPANDIDA e a
+  // chamada de tornarRedimensionavel/getTamanhoPainelSalvo pro
+  // mxm-log-painel). Os outros painéis (detalhado, reward etc.) não são
+  // afetados — continuam limitados a PAINEL_ALTURA_MAX.
+  const PAINEL_ALTURA_MAX_EXPANDIDA = 860;
+  const LIMITE_MUSICAS_ALTURA_EXPANDIDA = 10;
   // guarda o timestamp da última verificação automática de atualização,
   // pra não checar toda hora — só uma vez por dia.
   const STORAGE_ULTIMA_CHECAGEM_KEY = 'mxm_log_ultima_checagem_update';
@@ -246,6 +340,14 @@ browser.storage.onChanged.addListener((changes, area) => {
   const STORAGE_PERFIL_USO_KEY = 'mxm_log_perfil_uso';
 
   let sincronizarAlturaResumoWrap = null;
+  // V3.4.81: referência global pra "ancorar a posição de leitura da lista
+  // antes de um resize" — usada tanto por aoRolarLista (evento 'scroll')
+  // quanto por irParaSlideResumo (troca automática do carrossel do
+  // resumo, a cada 6s, sem gesto nenhum do usuário). Setada dentro do
+  // mesmo escopo onde aoRolarLista é definida; ver comentário na V3.4.81
+  // logo abaixo de "capturarAncoraDeScroll" para o motivo de precisar
+  // disso separado de sincronizarAlturaResumoWrap.
+  let ancorarScrollListaAntesDeResize = null;
 
   let resumoDiaIntervalId = null;
 
@@ -268,6 +370,11 @@ browser.storage.onChanged.addListener((changes, area) => {
   const GITHUB_REPO_OWNER = 'Claravallac';
   const GITHUB_REPO_NAME = 'mxm-studio-log-de-envios';
   const GITHUB_RELEASES_PAGE_URL = `https://github.com/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/releases`;
+  // Página principal do repositório (README, código-fonte) — usada pelo
+  // link "Ver código-fonte no GitHub" na janela "Sobre" (ver
+  // abrirJanelaSobre), diferente de GITHUB_RELEASES_PAGE_URL acima (que
+  // aponta direto pra aba de Releases/.xpi).
+  const GITHUB_REPO_PAGE_URL = `https://github.com/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}`;
 
   async function buscarXpiGithub(versao) {
     const tag = `v${versao}`;
@@ -906,17 +1013,21 @@ browser.storage.onChanged.addListener((changes, area) => {
   // miolo do <svg> — a função icone() monta o wrapper com tamanho/cor.
   const ICONS = {
     check: '<path d="M4 12l5 5L20 6"/>',
+    lightbulb:
+      '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2.05V17h6v-.25c0-.85.4-1.55 1-2.05A7 7 0 0 0 12 2z"/>',
     repeat:
       '<path d="M17 2l4 4-4 4"/><path d="M21 6H9a5 5 0 0 0-5 5v1"/><path d="M7 22l-4-4 4-4"/><path d="M3 18h12a5 5 0 0 0 5-5v-1"/>',
     music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
     list:
-      '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+      '<circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="9.5"/>',
     barChart: '<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>',
     cursor: '<path d="M3 3l7 18 2-8 8-2z"/>',
     target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
     clock: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
     trash:
       '<polyline points="4 6 20 6"/><path d="M7 6V4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
+    moreVertical:
+      '<circle cx="12" cy="5" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none"/>',
     flame: '<path d="M12 2c1 4-4 5-4 9a4 4 0 0 0 8 0c0-2-2-3-2-5 2 1 4 3 4 6a6 6 0 0 1-12 0c0-5 4-6 6-10z"/>',
     star: '<polygon points="12 2 15 9 22 9 16.5 13.5 18.5 21 12 16.5 5.5 21 7.5 13.5 2 9 9 9"/>',
     calendar:
@@ -932,6 +1043,9 @@ browser.storage.onChanged.addListener((changes, area) => {
     // V2.NEW: usado no FAB do Log de Envios quando o modo manual está
     // ativo — o próprio FAB vira um botão de "pausar" essa opção.
     pause: '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
+    // PoC preview Apple Music (ver montarBotaoPreviewAppleMusic) — não
+    // existia um triângulo de play no mapa de ícones ainda.
+    play: '<polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none"/>',
     // lupa da barra de busca (estilo Tabs V3 — ícone
     // "leading" dentro do pill, ver mxm-log-busca-wrap).
     search: '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
@@ -979,6 +1093,9 @@ browser.storage.onChanged.addListener((changes, area) => {
     bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
     // usado no interruptor de ligar/desligar animações.
     zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+    // dois elos de corrente — usado no aviso de integração com o Payflow.
+    link2:
+      '<path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" y1="12" x2="16" y2="12"/>',
     // reserva do avatar do usuário no painel detalhado, pra quando
     // a foto de perfil não é encontrada na página ou falha ao carregar.
     user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
@@ -1028,6 +1145,10 @@ browser.storage.onChanged.addListener((changes, area) => {
     // só girado 90°.
     chevronLeft: '<polyline points="15 18 9 12 15 6"/>',
     chevronRight: '<polyline points="9 18 15 12 9 6"/>',
+    // seta reta usada no pill "ciclo encerrado"/"ciclo iniciado" do
+    // separador de corte de ciclo (ver renderPainelLista).
+    arrowDown: '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>',
+    arrowUp: '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>',
     // usados no botão de alternar tema claro/escuro do cabeçalho.
     sun: '<circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="6.34" y2="6.34"/><line x1="17.66" y1="17.66" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="6.34" y2="17.66"/><line x1="17.66" y1="6.34" x2="19.07" y2="4.93"/>',
     moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
@@ -1083,6 +1204,14 @@ browser.storage.onChanged.addListener((changes, area) => {
     // Salvos (ver compartilharDiffComoLink).
     link2:
       '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+    // usado no cabeçalho da janela "Sobre" (ver abrirJanelaSobre).
+    info: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
+    // usado no botão "Ver código-fonte no GitHub" da janela "Sobre".
+    github:
+      '<path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>',
+    // usado no botão "Adicionar música vazia" ao lado do filtro, no
+    // primeiro cabeçalho de grupo da lista (ver renderPainelLista).
+    plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
   };
 
   // escapa HTML antes de jogar texto livre (a letra capturada) num
@@ -1099,7 +1228,13 @@ browser.storage.onChanged.addListener((changes, area) => {
     const c = cor || 'currentColor';
     const s = strokeWidth || 2;
     const caminho = ICONS[nome] || '';
-    return `<svg width="${t}" height="${t}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="${s}" stroke-linecap="round" stroke-linejoin="round" style="display:block; flex-shrink:0;">${caminho}</svg>`;
+    // shape-rendering:geometricPrecision evita que o navegador arredonde
+    // os vértices do path pra grade de pixels de forma assimétrica em
+    // tamanhos pequenos (efeito mais visível em ícones com ângulos
+    // agudos e poucos eixos de simetria, como o triângulo de alerta —
+    // sem isso, um vértice podia "esticar" mais que o outro e o ícone
+    // parecia torto mesmo com o path perfeitamente simétrico).
+    return `<svg width="${t}" height="${t}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="${s}" stroke-linecap="round" stroke-linejoin="round" shape-rendering="geometricPrecision" style="display:block; flex-shrink:0; shape-rendering:geometricPrecision;">${caminho}</svg>`;
   }
 
   // Mesmo ícone de icone(), só que girando continuamente (spinner
@@ -1122,6 +1257,22 @@ browser.storage.onChanged.addListener((changes, area) => {
     </svg>`;
   }
 
+  // Logo oficial do Google Drive (triângulo de 3 cores) — usado pra
+  // diferenciar visualmente a seção de backup no Drive da seção de
+  // backup na nuvem via Firestore (que usa iconeGoogle, o "G" colorido).
+  // Mesma assinatura de iconeGoogle (tamanho em px) pra ser intercambiável.
+  function iconeGoogleDrive(tamanho) {
+    const t = tamanho || 14;
+    return `<svg width="${t}" height="${t}" viewBox="0 0 87.3 78" style="display:block; flex-shrink:0;" role="img" aria-label="Google Drive">
+      <path fill="#0066da" d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z"/>
+      <path fill="#00ac47" d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z"/>
+      <path fill="#ea4335" d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z"/>
+      <path fill="#00832d" d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z"/>
+      <path fill="#2684fc" d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z"/>
+      <path fill="#ffba00" d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z"/>
+    </svg>`;
+  }
+
   // ---------- efeitos sonoros da interface (clique, sucesso, erro, fechar janela) — sintetizados via Web Audio API (sem arquivo de áudio externo, sem pedir permissão extra no manifest). Controlados pelo interruptor "Ativar sons" nas Configurações (ver isSomAtivo/setSomAtivo logo abaixo do bloco de animações). O AudioContext só é criado na primeira reprodução (evita o aviso do navegador de "AudioContext criado antes de qualquer interação do usuário") e é reaproveitado depois disso.
   let mxmAudioCtx = null;
   function obterAudioCtx() {
@@ -1139,11 +1290,6 @@ browser.storage.onChanged.addListener((changes, area) => {
     // clique neutro (interruptores, itens de lista, ações em geral):
     // bipe curto e discreto.
     clique: [{ freq: 720, duracao: 0.045, ganho: 0.05 }],
-    // sucesso (envio/reenvio/instrumental registrado): dois tons subindo.
-    sucesso: [
-      { freq: 660, duracao: 0.08, ganho: 0.07 },
-      { freq: 990, duracao: 0.11, ganho: 0.07, atraso: 0.08 },
-    ],
     avisoSuave: [
       { freq: 587.33, duracao: 0.16, ganho: 0.055, tipo: 'sine' },
       { freq: 493.88, duracao: 0.32, ganho: 0.05, atraso: 0.1, tipo: 'sine' },
@@ -1155,6 +1301,27 @@ browser.storage.onChanged.addListener((changes, area) => {
   const SONS_ARQUIVO = {
     erro: 'sounds/erro.wav',
     atualizacaoDisponivel: 'sounds/atualizacao.wav',
+    // V3.4.54: sucesso/reenvio deixaram de ser bipes sintetizados via Web
+    // Audio e passaram a usar arquivos próprios enviados pelo usuário —
+    // dois sons DIFERENTES, um pra envio novo e outro pra reenvio (ver
+    // chamada em showPopup, que escolhe entre os dois pelo parâmetro
+    // `reenvio`; os outros dois usos genéricos de tocarSom('sucesso'),
+    // em edições de data/hora e de letra, continuam usando o som de
+    // sucesso normal).
+    sucesso: 'sounds/sucesso.mp3',
+    reenvio: 'sounds/reenvio.mp3',
+  };
+
+  // Volume individual por som-arquivo (0 a 1). O sucesso.mp3 enviado pelo
+  // usuário é bem agudo/alto no volume original — reduzido pra não doer
+  // no ouvido. Tipos sem entrada aqui tocam no volume máximo (1).
+  const SONS_ARQUIVO_VOLUME = {
+    sucesso: 0.35,
+    // V3.4.65: reduzido também — reportado como muito alto ao ser
+    // reaproveitado no toast de cancelamento da nova música (mesmo
+    // arquivo do reenvio de música detectado, então a mudança vale
+    // pros dois usos).
+    reenvio: 0.35,
   };
 
   // Cacheia um <audio> por tipo na primeira reprodução e reaproveita
@@ -1166,11 +1333,14 @@ browser.storage.onChanged.addListener((changes, area) => {
     try {
       const caminho = SONS_ARQUIVO[tipo];
       if (!caminho) return;
+      const volume = SONS_ARQUIVO_VOLUME[tipo] ?? 1;
       if (!mxmSomArquivoCache[tipo]) {
         mxmSomArquivoCache[tipo] = new Audio(browser.runtime.getURL(caminho));
+        mxmSomArquivoCache[tipo].volume = volume;
       }
       const base = mxmSomArquivoCache[tipo];
       const instancia = base.currentTime === 0 || base.ended ? base : base.cloneNode();
+      instancia.volume = volume; // cloneNode não copia a propriedade volume
       instancia.currentTime = 0;
       instancia.play().catch(() => {});
     } catch (err) {
@@ -1310,11 +1480,31 @@ browser.storage.onChanged.addListener((changes, area) => {
       reenvioRegistrado: 'Reenvio registrado',
       instrumentalMarcado: 'Instrumental marcado',
       instrumentalAtualizado: 'Instrumental atualizado',
+      id: 'Abstrack',
       manual: 'manual',
       tentativa: 'tentativa',
-      id: 'ID',
       as: 'às',
-      logDeEnvios: 'Log de Envios',
+      logDeEnvios: 'Echoform',
+      integracaoPayflowTitulo: 'Echoform + Payflow',
+      integracaoPayflowTexto:
+        'Detectamos as duas extensões ativas no Curators Studio. Ative a integração para ver os ganhos em USD/BRL direto no seu log de envios.',
+      integracaoPayflowBadge: 'Nova integração disponível',
+      integracaoPayflowFeature1: 'Valores da missão puxados automaticamente pro log',
+      integracaoPayflowFeature2: 'Cotação ao vivo sincronizada nos dois painéis',
+      integracaoPayflowFeature3: 'Sem duplicar cálculo — uma única fonte de verdade',
+      integracaoPayflowBotaoAtivar: 'Ativar integração',
+      integracaoPayflowBotaoAgoraNao: 'Agora não',
+      sobreTitulo: 'Sobre o Echoform',
+      sobreDescricao:
+        'Echoform é uma extensão independente e sem fins lucrativos, feita por um curador para ajudar outros curadores a organizar e acompanhar o próprio tempo e atividade no Musixmatch Studio. Não usa, acessa nem se conecta à API oficial da Musixmatch — só lê informações já exibidas na tela pelo navegador do próprio usuário. Código aberto, disponível no GitHub.',
+      sobreLinkGithub: 'Ver código-fonte no GitHub',
+      tabsV3Titulo: 'Tabs V3',
+      tabsV3Subtitulo: 'Novo layout, mesmo ritmo do Echoform.',
+      tabsV3Changelog: [
+        'Ícone novo para o tema do painel, na mesma paleta do Echoform.',
+        'Ajustes finos de cor e espaçamento nas superfícies tonais.',
+        'Base pronta para os próximos esquemas de cor (beta).',
+      ],
       detalhado: 'Detalhado',
       buscarPlaceholder: 'Buscar por título, artista ou ID...',
       limparBusca: 'Limpar busca',
@@ -1333,11 +1523,21 @@ browser.storage.onChanged.addListener((changes, area) => {
       avisoResumoMesTitulo: 'Resumo de {mes} quase fechando',
       avisoResumoMesTexto: 'Faltam só algumas horas pro mês virar — dá uma espiada em tudo que você enviou.',
       tarefasHoje: 'Tarefas hoje',
+      tarefasEnviadasHoje: 'tarefas enviadas hoje',
+      emRelacaoAoDiaAnterior: 'em relação a ontem',
+      semMudancaOntem: 'Sem mudança em relação a ontem',
       recorde: 'Recorde',
       nenhumAinda: 'nenhum ainda',
       em: 'em',
       tarefa: 'tarefa',
       nenhumEnvioEncontrado: 'Nenhum envio encontrado.',
+      // V3.4.82: marcador "Fim da lista" logo abaixo da última entrada —
+      // ver renderPainelLista. Ocupa espaço real no fluxo (não é padding
+      // nem scroll-margin, já tentados e revertidos na v3.4.78/79), então
+      // a última música nunca fica colada em nada, e some junto quando a
+      // lista está vazia/sem resultado de busca.
+      fimDaLista: 'Fim da lista',
+      dicasListaCurtaTitulo: 'Enquanto isso, algumas dicas',
       // estado vazio "de verdade" da lista (log sem nenhum envio,
       // sem filtro de busca aplicado) — convite pra importar um backup em
       // vez de só dizer que está vazio (ver renderPainelLista).
@@ -1362,6 +1562,10 @@ browser.storage.onChanged.addListener((changes, area) => {
       editarDetalhesArtistaMensagem: 'E o artista?',
       editarDetalhesArtistaPlaceholder: 'Artista (opcional)',
       detalhesAdicionadosToast: 'Detalhes adicionados ao envio.',
+      // V3.4.65: toast mostrado quando o usuário cancela logo no
+      // primeiro passo (título) da cadeia aberta pelo botão "+" — a
+      // entrada em branco criada é apagada e toda a cadeia é encerrada.
+      novaEntradaCanceladaToast: 'Criação da nova música cancelada.',
       // V3.4.34: edição manual de data/hora de um envio, clicando
       // diretamente na hora mostrada na linha do log principal.
       editarDataHoraTitulo: 'Alterar data e hora',
@@ -1383,6 +1587,17 @@ browser.storage.onChanged.addListener((changes, area) => {
       painelMusicaLetraLabel: 'Letra',
       painelMusicaVerLetra: 'Ver letra completa',
       painelMusicaSemLetra: 'Nenhuma letra capturada neste envio.',
+      painelMusicaAdicionarLetra: 'Adicionar letra',
+      painelMusicaCopiarIdTitulo: 'Copiar Abstrack',
+      painelMusicaIdCopiadoToast: 'Abstrack copiado.',
+      painelMusicaAbrirPaginaLabel: 'Página da música',
+      painelMusicaAbrirPaginaValor: 'Ver no Musixmatch',
+      painelMusicaAbrirPaginaTitulo: 'Abrir a página desta música',
+      painelMusicaAbrirPaginaErro: 'Não foi possível abrir a página desta música.',
+      painelMusicaAbrirStudioLabel: 'Abrir no Studio',
+      painelMusicaAbrirStudioValor: 'Ver no Curators Studio',
+      painelMusicaAbrirStudioTitulo: 'Abrir esta música no Curators Studio',
+      painelMusicaAbrirStudioErro: 'Não foi possível abrir esta música no Studio.',
       ativarTemaClaro: 'Ativar tema claro',
       voltarTemaEscuro: 'Voltar ao tema escuro',
       // rótulo do interruptor de tema claro nas Configurações.
@@ -1404,6 +1619,11 @@ browser.storage.onChanged.addListener((changes, area) => {
       notifBackupNuvemTitulo: 'Ative o backup na nuvem',
       notifBackupNuvemDesc: 'Seu histórico só existe neste navegador. Ative o backup na nuvem pra não perder nada.',
       notifBackupNuvemAcao: 'Ativar backup',
+      // V3.5.52: avisa sobre o novo painel "Backup e Restauração".
+      notifNovidadeBackupTitulo: 'Novidade: painel de Backup e Restauração',
+      notifNovidadeBackupDesc:
+        'Agora todos os seus backups (arquivo, disco, nuvem e texto) ficam reunidos num só lugar, dentro de Ferramentas úteis.',
+      notifNovidadeBackupAcao: 'Ver painel',
       notifDicaTitulo: 'Dica',
       notifDicaTemas: 'Você pode trocar entre vários esquemas de cor do Tabs V3 (e até um tema claro) nas Configurações.',
       notifDicaDiffCheck: 'O Diff Check compara a letra da tela atual com a versão anterior — ótimo pra achar o que mudou antes de reenviar.',
@@ -1437,10 +1657,17 @@ browser.storage.onChanged.addListener((changes, area) => {
       cicloMissoesDiagramaFimMes: '21h · fim do mês',
       cicloMissoesPopupBotao: 'Entendi',
       abrirLogDetalhado: 'Abrir Log Detalhado',
+      abrirDiffCheckAcao: 'Abrir Diff Check',
+      abrirDiffManualAcao: 'Abrir Diff manual',
       // badge da lista pra registros com letra completa capturada,
       // e textos do visualizador que abre ao clicar nela.
       letraCapturadaTag: 'Letra',
       letraCapturadaTooltip: 'Letra completa capturada — clique pra ver',
+      letraSuspeitaTooltip: 'A letra capturada contém um termo que sugere possível erro (ex: "Undetermined", "English", "Portuguese", "Reward" ou "task completed") — vale a pena conferir.',
+      confirmarFalsoPositivoLetraTitulo: 'Marcar como falso positivo?',
+      confirmarFalsoPositivoLetraMensagem: 'A letra continua contendo o termo suspeito, mas o aviso deixará de aparecer para este registro. Você poderá conferir a letra a qualquer momento clicando na tag.',
+      confirmarFalsoPositivoLetraBotao: 'Marcar',
+      falsoPositivoLetraMarcado: 'Aviso removido — marcado como falso positivo.',
       verLetraTitulo: 'Letra completa',
       copiarLetra: 'Copiar',
       letraCopiada: 'Letra copiada!',
@@ -1469,6 +1696,9 @@ browser.storage.onChanged.addListener((changes, area) => {
       // travar numa delas sem ficar girando sozinho.
       resumoFixarSlide: 'Fixar aqui (parar de girar sozinho)',
       resumoDesfixarSlide: 'Desfixar (voltar a girar sozinho)',
+      // V3.4.64: setas circulares de navegação do carrossel do resumo.
+      resumoSetaAnterior: 'Slide anterior',
+      resumoSetaProxima: 'Próximo slide',
       cronometroCicloMainAtivar: 'Cronômetro do ciclo no carrossel',
       cronometroCicloMainDescricao: 'Mostra a contagem regressiva até o próximo ciclo de missões, abaixo da barra de busca.',
       // popup único (some pra sempre depois de visto) que aparece
@@ -1544,6 +1774,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       mostrarImagem: 'Mostrar imagem das músicas no log',
       ativarAnimacoes: 'Animações de abertura e gráficos',
       ativarSons: 'Efeitos sonoros da interface',
+      notificarPeloWindows: 'Notificar pelo Windows (desativa o popup da extensão)',
       esquemaDestaque: 'Esquema de destaque',
       esquemaFundo: 'Esquema de fundo',
       esquemaCorRoxo: 'Roxo',
@@ -1616,6 +1847,10 @@ browser.storage.onChanged.addListener((changes, area) => {
       categoriaManualLabel: 'Marcadas manualmente',
       cicloLabel: 'Ciclo',
       inicioNovoCiclo: 'Início de novo ciclo',
+      // usados no separador de corte de ciclo (pill duplo: ciclo que
+      // fechou -> ciclo que abriu) — ver renderPainelLista.
+      cicloEncerrado: 'encerrado',
+      cicloIniciado: 'iniciado',
       pausarModoManual: 'Pausar modo manual',
       marcandoManualmenteLabel: 'Marcando manualmente',
       nomeExtensao: 'MXM Studio',
@@ -1636,6 +1871,18 @@ browser.storage.onChanged.addListener((changes, area) => {
       debugSimuladorDesativadoToast: 'Simulação desligada — voltando à data/hora real.',
       debugSimuladorSelecioneData: 'Escolha uma data e hora antes de aplicar.',
       debugForcarSemDetalhes: 'Forçar entrada "Sem detalhes" no log (teste)',
+      debugForcarTelaIntegracaoPayflow: 'Forçar tela de integração com o Payflow (teste)',
+      debugSimuladorListaDescricao:
+        'Simula, só na tela, como a lista fica com 0 ou 1 música — sem apagar nem tocar no seu log de verdade. Útil pra testar o estado vazio ou o marcador "Fim da lista"/dicas de lista curta sem precisar zerar o histórico de verdade.',
+      debugSimuladorListaOff: 'Lista real (sem simulação)',
+      debugSimuladorListaVazia: 'Simular lista vazia',
+      debugSimuladorListaUma: 'Simular lista com 1 música',
+      debugSimuladorListaAtivadoToast: 'Simulação de lista ativa — o log de verdade continua intacto.',
+      debugSimuladorListaDesativadoToast: 'Simulação de lista desligada — voltando à lista real.',
+      debugAvisoBannerTexto: 'Se você não sabe o que está fazendo, aconselho sair desse modo.',
+      debugAvisoBannerBotaoSair: 'Sair do modo debug',
+      avisoEntradaDemonstracaoDebug: 'Essa é uma entrada de demonstração da simulação — não é uma música real do seu log.',
+      debugForcarSplashBoasVindas: 'Rever tela de boas-vindas (splash inicial)',
       duracaoLabel: 'Duração',
       missaoLabel: 'Missão',
       tentativasLabel: 'tentativas',
@@ -1658,6 +1905,11 @@ browser.storage.onChanged.addListener((changes, area) => {
       ok: 'OK',
       confirmar: 'Confirmar',
       excluir: 'Excluir',
+      // V3.5.58: menu de "mais opções" (3 pontinhos) na linha do log
+      // principal, no lugar do antigo ícone único de lixeira.
+      maisOpcoes: 'Mais opções',
+      abrirNoSite: 'Abrir no site',
+      abrirNoStudio: 'Abrir no Studio',
       importadosSucesso: 'registro(s) importado(s)',
       ignoradosLabel: 'ignorado(s)',
       arquivoInvalido: 'Não consegui ler nenhum registro válido nesse arquivo.',
@@ -1686,17 +1938,6 @@ browser.storage.onChanged.addListener((changes, area) => {
       backupSemLetraSalva: '(sem letra salva atualmente)',
       backupExportarCurto: 'Exportar backup completo',
       backupImportarCurto: 'Importar backup completo',
-      // mensagem única de "reinauguração", mostrada
-      // só pra quem já usava a extensão antes dessa atualização — ver
-      // abrirRelancamentoFirefox.
-      relancamentoTitulo: 'Estamos de volta — e reformulada!',
-      relancamentoMensagem:
-        'A versão para Firefox voltou a ficar disponível e agora está com os mesmos recursos do userscript: backup completo em .json, temas do Tabs V3 (beta) e o restante das novidades recentes.',
-      relancamentoDestaque1: 'Backup completo (.json) — log, letras, diffs salvos e configurações num arquivo só',
-      relancamentoDestaque2: 'Temas do Tabs V3 (beta) — cor de destaque e de fundo à sua escolha',
-      relancamentoDestaque3: 'Pequenos ajustes de usabilidade, incluindo no canto de redimensionar a janela',
-      relancamentoRevertour: 'Rever tour rápido',
-      relancamentoFechar: 'Entendi',
       selecionarVarias: 'Selecionar várias',
       redimensionar: 'Arraste para redimensionar',
       selecionarBtn: 'Selecionar',
@@ -1786,14 +2027,15 @@ browser.storage.onChanged.addListener((changes, area) => {
       taxaEstimada: 'taxa estimada',
       tarefasAbrev: 'tarefas',
       semReward: 'Nenhum envio com missão identificada ainda.',
-      fonteWidget: 'Dados ao vivo do widget "Total USD + BRL"',
+      fonteWidget: 'Dados ao vivo via Payflow',
       fonteWidgetCurta: 'Ao vivo',
-      fonteLog: 'Estimado a partir deste log — instale o widget "Total USD + BRL" pra dados exatos',
+      fonteLog: 'Estimado a partir deste log — instale a extensão Payflow pra dados exatos',
       fonteLogCurta: 'Estimado',
+      poweredByPayflow: 'Powered by Payflow',
       descontoManual: 'Desconto de $ {amount} aplicado manualmente no widget',
       avisoExtensaoRewardAusente:
-        'A extensão "Total USD + BRL" não está instalada, está desativada, ou ainda não registrou nenhuma missão — os valores abaixo são só uma estimativa baseada neste log. Instale/ative a extensão pra ver os valores reais.',
-      baixarExtensaoTotalUsdBrl: 'Baixar extensão "Total USD + BRL" no Firefox Add-ons',
+        'A extensão Payflow não está instalada, está desativada, ou ainda não registrou nenhuma missão — os valores abaixo são só uma estimativa baseada neste log. Instale/ative a extensão pra ver os valores reais.',
+      baixarExtensaoTotalUsdBrl: 'Baixar extensão Payflow no Firefox Add-ons',
       // pergunta mostrada quando o mês vira, oferecendo guardar o
       // resumo (quantidade de músicas + valor ganho) do mês que terminou.
       resumoMensalTitulo: 'Guardar resumo do mês',
@@ -1810,6 +2052,8 @@ browser.storage.onChanged.addListener((changes, area) => {
         'O ciclo de missões deste mês já deve ter virado (21h, horário de Brasília) mesmo que o calendário ainda mostre hoje. Confirme quando notar a mudança na Musixmatch.',
       avisoTrocaCicloBotaoConfirmar: 'Mudar o ciclo',
       avisoTrocaCicloConfirmadoToast: 'Ok, ciclo alterado — resumo disponível se quiser guardar.',
+      avisoDiffManualMinimizadoMensagem: 'Você tem um Diff manual minimizado, com a comparação esperando de onde parou.',
+      avisoDiffManualMinimizadoBotaoVoltar: 'Voltar para o Diff manual',
       // lista de resumos mensais guardados, exibida na aba Reward.
       resumosMensaisTitulo: 'Resumos mensais guardados',
       resumosMensaisVazio: 'Nenhum resumo guardado ainda — quando um mês virar, você vai poder guardar o resumo dele aqui.',
@@ -1822,6 +2066,12 @@ browser.storage.onChanged.addListener((changes, area) => {
       resumoAtualVerSlides: 'Ver em slides',
       resumoSlidesVerCompleto: 'Ver resumo completo',
       resumoAtualBotaoSalvar: 'Salvar este resumo agora',
+      // V3.5.58: quando já existe um "corte" salvo deste mês, o botão
+      // deixa isso explícito em vez de repetir o texto de "primeiro
+      // salvamento" — o resumo do mês em andamento é sempre recalculado
+      // ao vivo (ver abrirResumoAtual), então salvar de novo é uma
+      // atualização do corte, não uma ação nova.
+      resumoAtualBotaoAtualizar: 'Atualizar resumo salvo',
       resumoAtualFechar: 'Fechar',
       resumoAtualConfirmarSobrescrever:
         'Você já tem um resumo salvo pra este mês — salvar de novo vai substituí-lo pelos números atuais. Continuar?',
@@ -1846,6 +2096,12 @@ browser.storage.onChanged.addListener((changes, area) => {
       resumoSlidesMoedaGenerica: 'Total em {moeda}',
       resumoSlidesUSD: 'Total em Dólares',
       resumoSlidesTarefas: 'Tarefas enviadas',
+      // PoC preview Apple Music (ver montarBotaoPreviewAppleMusic).
+      resumoPreviewCarregando: 'Buscando prévia…',
+      resumoPreviewOuvir: 'Ouvir prévia',
+      resumoPreviewTocando: 'Tocando…',
+      logCapaOuvirPreviaTooltip: 'Ouvir prévia de 30s',
+      logCapaPreviaIndisponivel: 'Prévia não encontrada pra essa faixa.',
       resumoSlidesCapaTitulo: 'Seu resumo de {mes}',
       resumoSlidesFinalTitulo: 'Isso foi {mes}!',
       resumoSlidesFinalTexto: 'Bora fechar mais um mês assim.',
@@ -1859,6 +2115,31 @@ browser.storage.onChanged.addListener((changes, area) => {
       // seção "Backup" das Configurações — backup automático em
       // disco, pra proteger os dados de uma desinstalação da extensão.
       opcoesBackup: 'Backup',
+      // V3.5.53: a seção inteira saiu daqui e virou o painel dedicado
+      // (ver backupMudouAcao/abrirPainelBackup) — sobrou só este aviso +
+      // atalho, em vez de duplicar as mesmas opções em dois lugares.
+      backupMudouDescricao: 'Os backups mudaram de lugar, agora organize todos os backups em um só lugar!',
+      backupMudouAcao: 'Abrir Backup e Restauração',
+      // V3.5.52: painel "Backup e Restauração" próprio, na grade
+      // "Ferramentas úteis" — reúne tudo que antes ficava espalhado
+      // (Configurações → Backup, menu do FAB) num único lugar, com
+      // visual de "área segura" pros dados do usuário.
+      backupRestauracaoTitulo: 'Backup e Restauração',
+      backupAreaSeguraTitulo: 'Seus dados, protegidos',
+      backupAreaSeguraDescricao:
+        'Nada sai daqui sem você pedir. Backup em disco fica só no seu computador; backup na nuvem só é enviado quando você ativa ou clica em enviar.',
+      backupResumoMusicasProtegidas: 'música(s) no log',
+      backupResumoDiffsProtegidos: 'diff(s) salvo(s)',
+      backupResumoResumosProtegidos: 'resumo(s) mensal(is)',
+      backupSecaoArquivoCompleto: 'Backup completo (arquivo)',
+      backupSecaoArquivoCompletoDescricao:
+        'Gera um arquivo .json com todo o seu log, diffs salvos, resumos mensais e configurações — pra guardar você mesmo ou levar pra outro computador.',
+      backupSecaoDisco: 'Backup automático em disco',
+      backupSecaoNuvem: 'Backup na nuvem (Google)',
+      backupSecaoTextoSimples: 'Log em texto simples (.txt)',
+      backupSecaoTextoSimplesDescricao:
+        'Formato mais simples, só com o log de envios em texto — sem diffs, resumos ou configurações. Útil pra ler rápido ou colar em outro lugar.',
+      backupZonaRiscoTitulo: 'Zona de risco',
       backupAutomaticoAtivar: 'Backup automático em disco',
       backupAutomaticoDescricao:
         'Salva uma cópia dos seus dados de tempos em tempos na pasta Downloads/MXMBackups, pra não perder tudo se desinstalar a extensão.',
@@ -1874,6 +2155,23 @@ browser.storage.onChanged.addListener((changes, area) => {
       nuvemDescricao: 'Envia um backup pra nuvem, vinculado à sua conta Google, pra restaurar em outro computador.',
       nuvemEnviar: 'Enviar backup pra nuvem',
       nuvemRestaurar: 'Restaurar da nuvem',
+      // envio automático (silencioso) do backup pra nuvem — pensado pra
+      // quem alterna entre PC e notebook e esquece de sincronizar na mão.
+      backupNuvemAutomaticoAtivar: 'Backup automático na nuvem',
+      backupNuvemAutomaticoDescricao:
+        'Envia o backup pra nuvem sozinho de tempos em tempos, sem precisar clicar em "Enviar backup pra nuvem". Requer já ter feito login com o Google pelo menos uma vez.',
+      // mostrado logo abaixo do interruptor de backup automático na
+      // nuvem, com a data/hora do último envio bem-sucedido (manual ou
+      // automático) — ver STORAGE_ULTIMO_BACKUP_NUVEM_KEY.
+      nuvemUltimoBackup: 'Último backup na nuvem: {data}',
+      nuvemUltimoBackupNunca: 'Você ainda não fez nenhum backup na nuvem.',
+      // seletor de frequência do envio automático pra nuvem — aparece
+      // só quando o interruptor acima está ligado (ver renderCorpoNuvem,
+      // dentro do painel "Backup e Restauração").
+      nuvemFrequenciaTitulo: 'Frequência do backup automático',
+      nuvemFrequenciaDiaria: 'Diária',
+      nuvemFrequenciaSemanal: 'Semanal',
+      nuvemFrequenciaMensal: 'Mensal',
       nuvemEnvioSucesso: 'Backup enviado pra nuvem.',
       // mostrado quando o backup precisou de mais de 1 parte
       // (sharding) — ver coletarBackupParaNuvem/dividirEmPartesUtf8Seguro.
@@ -1881,9 +2179,23 @@ browser.storage.onChanged.addListener((changes, area) => {
       nuvemEnvioErro: 'Não consegui enviar o backup pra nuvem — verifique sua conexão e tente de novo.',
       nuvemNenhumBackup: 'Nenhum backup encontrado na nuvem ainda.',
       nuvemRestaurarErro: 'Não consegui buscar o backup na nuvem — verifique sua conexão e tente de novo.',
+      // backup no Google Drive — terceiro destino de backup, separado do
+      // Firestore (ver docs/backup-google-drive.md). Salvo numa pasta
+      // própria "Echoform Backups" no Drive do usuário.
+      backupSecaoDrive: 'Backup no Google Drive',
+      backupSecaoDriveDescricao:
+        'Envia um backup pra sua conta do Google Drive, numa pasta própria da extensão, pra restaurar em outro computador.',
+      driveEnviar: 'Enviar backup pro Drive',
+      driveRestaurar: 'Restaurar do Drive',
+      driveRequerGoogle: 'Requer login com sua conta Google',
+      backupDriveAutomaticoAtivar: 'Backup automático no Drive',
+      backupDriveAutomaticoDescricao:
+        'Envia o backup pro Drive sozinho de tempos em tempos, sem precisar clicar em "Enviar backup pro Drive". Requer já ter feito login com o Google pelo menos uma vez.',
       // menu de missão (clique direito numa música do log)
       definirMissao: 'Definir missão',
       outraMissao: 'Outra missão...',
+      menuInstrumentalMarcar: 'Marcar como instrumental',
+      menuInstrumentalDesmarcar: 'Desmarcar instrumental',
       digitarNomeMissao: 'Digite o nome da missão:',
       // nome do curator (editável) e sistema de comparação de logs
       curator: 'Curator',
@@ -1930,8 +2242,22 @@ browser.storage.onChanged.addListener((changes, area) => {
       // Tampermonkey, escondido pra quem não sabia que existia).
       opcoesAjuda: 'Ajuda',
       reverTutorial: 'Rever tutorial inicial',
+      // splash de primeira montagem — tela vazia (só logo + frase) mostrada
+      // por um instante antes do painel real "se montar" por cima dela, na
+      // primeiríssima vez que o usuário abre a extensão (ver
+      // mostrarSplashPrimeiraMontagem).
+      splashBoasVindasFrase: 'Bem-vindo(a) ao Echoform',
+      splashBoasVindasLegenda: 'Vamos te mostrar rapidinho como tudo funciona por aqui.',
+      splashBoasVindasAprender: 'Aprender',
       // tour inicial (balões de tutorial, mostrados só uma vez)
       tourMissao: 'Clique com o botão direito numa música da lista pra escolher (ou corrigir) em que missão ela foi feita.',
+      // V3.5.52: apresenta a grade "Ferramentas úteis" como um todo antes
+      // dos passos seguintes entrarem no detalhe de Detalhado/Reward —
+      // ela cresceu bastante (Diff manual, Diffs salvos, trocar idioma,
+      // Comparar, Ciclos, Bloco de notas, Backup e Restauração) e nenhum
+      // passo do tour apresentava o conjunto até agora.
+      tourFerramentas:
+        'Aqui ficam as ferramentas extras: Diff manual e Diffs salvos (comparar letras), trocar idioma, Comparar com outro curator, Ciclos, Bloco de notas e Backup e Restauração — além de Detalhado e Reward, que têm um passo só pra elas a seguir.',
       tourDetalhado: 'Clique aqui para logs detalhados: músicas por missão, faixa mais curta/mais longa e horários de pico.',
       tourReward: 'Clique aqui para detalhes de pagamentos: total ganho e reward estimado por missão.',
       // dica final do tour, mostrando onde ficam as configurações.
@@ -2005,6 +2331,9 @@ browser.storage.onChanged.addListener((changes, area) => {
       diffTornarBaseConfirmarBotao: 'Tornar base',
       diffTornarBaseSucesso: 'Versão atual salva como base',
       fechar: 'Fechar',
+      minimizar: 'Minimizar',
+      diffManualRestaurarPainel: 'Voltar para o Diff manual',
+      diffManualMinimizadoAviso: 'Há um Diff manual minimizado — clique para voltar',
       // botão "sortear outra frase" da brincadeirinha da tag
       // Instrumental (ver abrirBrincadeiraInstrumental).
       brincadeiraInstrumentalOutra: 'Outra',
@@ -2016,6 +2345,36 @@ browser.storage.onChanged.addListener((changes, area) => {
       diffsSalvosAbrirTooltip: 'Abrir',
       diffsSalvosExcluirTooltip: 'Excluir',
       diffsSalvosVoltar: 'Voltar pra lista',
+      // painel "Bloco de notas" — anotações livres do usuário, com
+      // vínculo opcional a uma música e/ou a um ciclo (ver
+      // abrirBlocoDeNotas).
+      blocoDeNotasTitulo: 'Bloco de notas',
+      blocoDeNotasVazio: 'Nenhuma anotação ainda. Toque em "Nova nota" pra escrever a primeira.',
+      blocoDeNotasNovaNota: 'Nova nota',
+      blocoDeNotasEditarTooltip: 'Editar',
+      blocoDeNotasExcluirTooltip: 'Excluir',
+      blocoDeNotasExcluirConfirmar: 'Excluir essa nota? Essa ação não pode ser desfeita.',
+      blocoDeNotasPlaceholderTexto: 'Escreva sua anotação aqui...',
+      blocoDeNotasMusicaLabel: 'Música (opcional)',
+      blocoDeNotasMusicaPlaceholder: 'Buscar música pelo título...',
+      blocoDeNotasMusicaLimpar: 'Remover vínculo com música',
+      blocoDeNotasCicloLabel: 'Ciclo (opcional)',
+      blocoDeNotasCicloNenhum: 'Nenhum ciclo',
+      blocoDeNotasSalvar: 'Salvar nota',
+      blocoDeNotasCancelar: 'Cancelar',
+      blocoDeNotasVoltar: 'Voltar pra lista',
+      blocoDeNotasSemTexto: 'Escreva algo antes de salvar a nota.',
+      // painel "Ciclos" — lista os ciclos de missão do ano atual, com
+      // nome (renomeável), datas, nº de músicas e valores USD/BRL de
+      // cada um (ver abrirPainelCiclos/renderPainelCiclos).
+      ciclosTitulo: 'Ciclos',
+      cicloNumeroPadraoPrefixo: 'Ciclo',
+      cicloAtualBadge: 'Atual',
+      cicloRenomearTooltip: 'Renomear ciclo',
+      cicloVerNoLogTooltip: 'Ver no log — vai até a primeira música deste ciclo',
+      cicloRenomearPrompt: 'Nome do ciclo',
+      cicloMusicaSingular: 'música',
+      cicloMusicaPlural: 'músicas',
       diffAvisoTelaRecomendada:
         'O Diff Check funciona melhor nas telas de Transcrever e Sincronização — nesta tela a captura da letra pode vir incompleta ou incorreta.',
       // preferência "Modo de captura" nas Configurações — escolhe se
@@ -2056,6 +2415,9 @@ browser.storage.onChanged.addListener((changes, area) => {
       // botão de ordenar/filtrar ao lado da primeira data no log
       // principal.
       ordenarFiltrarTitulo: 'Ordenar / filtrar',
+      adicionarEntradaVaziaTitulo: 'Adicionar música vazia pra preencher na mão',
+      adicionarEntradaVaziaBotao: 'Adicionar música vazia',
+      entradaVaziaAdicionadaToast: 'Música vazia adicionada. Clique nela no log pra completar título e artista.',
       ordenarPorData: 'Data (mais recente)',
       ordenarPorMissao: 'Missão',
       ordenarAlfabetica: 'Ordem alfabética',
@@ -2099,9 +2461,29 @@ browser.storage.onChanged.addListener((changes, area) => {
       instrumentalAtualizado: 'Instrumental updated',
       manual: 'manual',
       tentativa: 'attempt',
-      id: 'ID',
+      id: 'Abstrack',
       as: 'at',
-      logDeEnvios: 'Submission Log',
+      logDeEnvios: 'Echoform',
+      integracaoPayflowTitulo: 'Echoform + Payflow',
+      integracaoPayflowTexto:
+        "We detected both extensions active in Curators Studio. Turn on the integration to see USD/BRL earnings right in your submission log.",
+      integracaoPayflowBadge: 'New integration available',
+      integracaoPayflowFeature1: 'Mission values pulled automatically into the log',
+      integracaoPayflowFeature2: 'Live exchange rate synced across both panels',
+      integracaoPayflowFeature3: "No duplicate math — a single source of truth",
+      integracaoPayflowBotaoAtivar: 'Enable integration',
+      integracaoPayflowBotaoAgoraNao: 'Not now',
+      sobreTitulo: 'About Echoform',
+      sobreDescricao:
+        "Echoform is an independent, non-profit extension, built by a curator to help other curators organize and track their own time and activity within Musixmatch Studio. It doesn't use, access, or connect to the official Musixmatch API — it only reads information already shown on screen by the user's own browser. Open source, available on GitHub.",
+      sobreLinkGithub: 'View source on GitHub',
+      tabsV3Titulo: 'Tabs V3',
+      tabsV3Subtitulo: 'New layout, same Echoform rhythm.',
+      tabsV3Changelog: [
+        'New icon for the panel theme, in the same Echoform palette.',
+        'Fine-tuned colors and spacing across tonal surfaces.',
+        'Groundwork laid for upcoming color schemes (beta).',
+      ],
       detalhado: 'Details',
       buscarPlaceholder: 'Search by title, artist or ID...',
       limparBusca: 'Clear search',
@@ -2114,11 +2496,16 @@ browser.storage.onChanged.addListener((changes, area) => {
       avisoResumoMesTitulo: '{mes} summary closing soon',
       avisoResumoMesTexto: "Only a few hours left in the month — take a peek at everything you've submitted.",
       tarefasHoje: "Today's tasks",
+      tarefasEnviadasHoje: 'tasks submitted today',
+      emRelacaoAoDiaAnterior: 'vs yesterday',
+      semMudancaOntem: 'No change from yesterday',
       recorde: 'Record',
       nenhumAinda: 'none yet',
       em: 'on',
       tarefa: 'task',
       nenhumEnvioEncontrado: 'No submissions found.',
+      fimDaLista: 'End of list',
+      dicasListaCurtaTitulo: 'While you\'re here, a few tips',
       logVazioTitulo: 'No submissions logged here yet.',
       logVazioDescricao:
         'If you already used this extension before (on another computer, browser, or after reinstalling), you can import a backup to restore your history now.',
@@ -2138,6 +2525,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       editarDetalhesArtistaMensagem: 'And the artist?',
       editarDetalhesArtistaPlaceholder: 'Artist (optional)',
       detalhesAdicionadosToast: 'Details added to the submission.',
+      novaEntradaCanceladaToast: 'New track creation cancelled.',
       editarDataHoraTitulo: 'Change date and time',
       editarDataHoraMensagem: 'Adjust when this submission was logged.',
       editarDataHoraDataLabel: 'Date',
@@ -2153,6 +2541,17 @@ browser.storage.onChanged.addListener((changes, area) => {
       painelMusicaLetraLabel: 'Lyrics',
       painelMusicaVerLetra: 'View full lyrics',
       painelMusicaSemLetra: 'No lyrics captured for this submission.',
+      painelMusicaAdicionarLetra: 'Add lyrics',
+      painelMusicaCopiarIdTitulo: 'Copy Abstrack',
+      painelMusicaIdCopiadoToast: 'Abstrack copied.',
+      painelMusicaAbrirPaginaLabel: 'Track page',
+      painelMusicaAbrirPaginaValor: 'View on Musixmatch',
+      painelMusicaAbrirPaginaTitulo: 'Open this track\'s page',
+      painelMusicaAbrirPaginaErro: 'Could not open this track\'s page.',
+      painelMusicaAbrirStudioLabel: 'Open in Studio',
+      painelMusicaAbrirStudioValor: 'View in Curators Studio',
+      painelMusicaAbrirStudioTitulo: 'Open this track in Curators Studio',
+      painelMusicaAbrirStudioErro: 'Could not open this track in Studio.',
       ativarTemaClaro: 'Switch to light theme',
       voltarTemaEscuro: 'Switch back to dark theme',
       temaClaro: 'Light theme',
@@ -2173,6 +2572,10 @@ browser.storage.onChanged.addListener((changes, area) => {
       notifBackupNuvemTitulo: 'Turn on cloud backup',
       notifBackupNuvemDesc: "Your history only exists in this browser. Turn on cloud backup so you don't lose it.",
       notifBackupNuvemAcao: 'Enable backup',
+      notifNovidadeBackupTitulo: 'New: Backup & Restore panel',
+      notifNovidadeBackupDesc:
+        'All your backups (file, disk, cloud, and text) now live in one place, inside Useful tools.',
+      notifNovidadeBackupAcao: 'View panel',
       notifDicaTitulo: 'Tip',
       notifDicaTemas: 'You can switch between several Tabs V3 color schemes (and even a light theme) in Settings.',
       notifDicaDiffCheck: 'Diff Check compares the current screen lyrics with the previous version — great for spotting what changed before resubmitting.',
@@ -2206,8 +2609,15 @@ browser.storage.onChanged.addListener((changes, area) => {
       cicloMissoesDiagramaFimMes: '9 PM · month end',
       cicloMissoesPopupBotao: 'Got it',
       abrirLogDetalhado: 'Open Detailed Log',
+      abrirDiffCheckAcao: 'Open Diff Check',
+      abrirDiffManualAcao: 'Open manual Diff',
       letraCapturadaTag: 'Lyrics',
       letraCapturadaTooltip: 'Full lyrics captured — click to view',
+      letraSuspeitaTooltip: 'The captured lyrics contain a term that suggests a possible mistake (e.g. "Undetermined", "English", "Portuguese", "Reward" or "task completed") — worth double-checking.',
+      confirmarFalsoPositivoLetraTitulo: 'Mark as false positive?',
+      confirmarFalsoPositivoLetraMensagem: 'The lyrics will still contain the suspicious term, but the warning will stop showing for this entry. You can still check the lyrics anytime by clicking the tag.',
+      confirmarFalsoPositivoLetraBotao: 'Mark',
+      falsoPositivoLetraMarcado: 'Warning removed — marked as false positive.',
       verLetraTitulo: 'Full lyrics',
       copiarLetra: 'Copy',
       letraCopiada: 'Lyrics copied!',
@@ -2232,6 +2642,8 @@ browser.storage.onChanged.addListener((changes, area) => {
         'How Musixmatch shows mission deadlines on cards (e.g. "29 days") — this number only changes once a day, at 9 AM, unlike the real-time countdown above.',
       resumoFixarSlide: 'Pin here (stop auto-rotating)',
       resumoDesfixarSlide: 'Unpin (resume auto-rotating)',
+      resumoSetaAnterior: 'Previous slide',
+      resumoSetaProxima: 'Next slide',
       cronometroCicloMainAtivar: 'Cycle timer in carousel',
       cronometroCicloMainDescricao: 'Shows a countdown to the next mission cycle, below the search bar.',
       popupPinoCronometroTitulo: 'Countdown pinned here',
@@ -2295,6 +2707,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       mostrarImagem: 'Show track artwork in the log',
       ativarAnimacoes: 'Opening and chart animations',
       ativarSons: 'Interface sound effects',
+      notificarPeloWindows: 'Notify via Windows (disables the extension popup)',
       esquemaDestaque: 'Accent scheme',
       esquemaFundo: 'Background scheme',
       esquemaCorRoxo: 'Purple',
@@ -2367,6 +2780,8 @@ browser.storage.onChanged.addListener((changes, area) => {
       categoriaManualLabel: 'Manually marked',
       cicloLabel: 'Cycle',
       inicioNovoCiclo: 'New cycle begins',
+      cicloEncerrado: 'ended',
+      cicloIniciado: 'started',
       pausarModoManual: 'Pause manual mode',
       marcandoManualmenteLabel: 'Marking manually',
       nenhumEnvioRegistradoAinda: 'No submissions logged yet.',
@@ -2386,6 +2801,18 @@ browser.storage.onChanged.addListener((changes, area) => {
       debugSimuladorDesativadoToast: 'Simulation turned off — back to the real date/time.',
       debugSimuladorSelecioneData: 'Pick a date and time before applying.',
       debugForcarSemDetalhes: 'Force a "No details" log entry (test)',
+      debugForcarTelaIntegracaoPayflow: 'Force the Payflow integration screen (test)',
+      debugForcarSplashBoasVindas: 'Replay welcome screen (initial splash)',
+      debugSimuladorListaDescricao:
+        'Simulates, on screen only, how the list looks with 0 or 1 song — without deleting or touching your real log. Useful for testing the empty state or the "End of list" marker/short-list tips without wiping real history.',
+      debugSimuladorListaOff: 'Real list (no simulation)',
+      debugSimuladorListaVazia: 'Simulate empty list',
+      debugSimuladorListaUma: 'Simulate list with 1 song',
+      debugSimuladorListaAtivadoToast: 'List simulation active — your real log stays untouched.',
+      debugSimuladorListaDesativadoToast: 'List simulation off — back to the real list.',
+      debugAvisoBannerTexto: "If you don't know what you're doing, I'd advise leaving this mode.",
+      debugAvisoBannerBotaoSair: 'Leave debug mode',
+      avisoEntradaDemonstracaoDebug: 'This is a demo entry from the simulation — not a real song in your log.',
       duracaoLabel: 'Duration',
       missaoLabel: 'Mission',
       tentativasLabel: 'attempts',
@@ -2406,6 +2833,9 @@ browser.storage.onChanged.addListener((changes, area) => {
       ok: 'OK',
       confirmar: 'Confirm',
       excluir: 'Delete',
+      maisOpcoes: 'More options',
+      abrirNoSite: 'Open on site',
+      abrirNoStudio: 'Open in Studio',
       importadosSucesso: 'entry(ies) imported',
       ignoradosLabel: 'skipped',
       arquivoInvalido: "Couldn't find any valid entries in that file.",
@@ -2431,17 +2861,6 @@ browser.storage.onChanged.addListener((changes, area) => {
       backupSemLetraSalva: '(no lyrics currently saved)',
       backupExportarCurto: 'Export full backup',
       backupImportarCurto: 'Import full backup',
-      // one-time "relaunch" message, shown only to
-      // people who already used the extension before this update — see
-      // abrirRelancamentoFirefox.
-      relancamentoTitulo: "We're back — and revamped!",
-      relancamentoMensagem:
-        'The Firefox version is available again and now matches the userscript feature-for-feature: full .json backup, Tabs V3 themes (beta), and the rest of the recent additions.',
-      relancamentoDestaque1: 'Full backup (.json) — log, lyrics, saved diffs and settings in a single file',
-      relancamentoDestaque2: 'Tabs V3 themes (beta) — pick your own accent and background colors',
-      relancamentoDestaque3: 'Small usability tweaks, including the window resize corner',
-      relancamentoRevertour: 'Review quick tour',
-      relancamentoFechar: 'Got it',
       selecionarVarias: 'Select multiple',
       redimensionar: 'Drag to resize',
       selecionarBtn: 'Select',
@@ -2519,14 +2938,15 @@ browser.storage.onChanged.addListener((changes, area) => {
       taxaEstimada: 'estimated rate',
       tarefasAbrev: 'tasks',
       semReward: 'No submissions with an identified mission yet.',
-      fonteWidget: 'Live data from the "Total USD + BRL" widget',
+      fonteWidget: 'Live data via Payflow',
       fonteWidgetCurta: 'Live',
-      fonteLog: 'Estimated from this log — install the "Total USD + BRL" widget for exact data',
+      fonteLog: 'Estimated from this log — install the Payflow extension for exact data',
       fonteLogCurta: 'Estimated',
+      poweredByPayflow: 'Powered by Payflow',
       descontoManual: '$ {amount} deduction applied manually in the widget',
       avisoExtensaoRewardAusente:
-        'The "Total USD + BRL" extension isn\'t installed, is disabled, or hasn\'t logged any mission yet — the values below are just an estimate based on this log. Install/enable the extension to see the real numbers.',
-      baixarExtensaoTotalUsdBrl: 'Download the "Total USD + BRL" extension on Firefox Add-ons',
+        'The Payflow extension isn\'t installed, is disabled, or hasn\'t logged any mission yet — the values below are just an estimate based on this log. Install/enable the extension to see the real numbers.',
+      baixarExtensaoTotalUsdBrl: 'Download the Payflow extension on Firefox Add-ons',
       // prompt shown when the month rolls over, offering to save
       // the summary (song count + amount earned) of the month that ended.
       resumoMensalTitulo: 'Save month summary',
@@ -2543,6 +2963,8 @@ browser.storage.onChanged.addListener((changes, area) => {
         "This month's mission cycle should have already rolled over (9 PM, Brasília time) even if the calendar still shows today. Confirm once you notice the change on Musixmatch.",
       avisoTrocaCicloBotaoConfirmar: 'Change cycle',
       avisoTrocaCicloConfirmadoToast: 'Got it — cycle changed, summary available if you want to save it.',
+      avisoDiffManualMinimizadoMensagem: 'You have a minimized Manual diff, with the comparison waiting where you left off.',
+      avisoDiffManualMinimizadoBotaoVoltar: 'Back to Manual diff',
       // list of saved monthly summaries, shown on the Reward tab.
       resumosMensaisTitulo: 'Saved monthly summaries',
       resumosMensaisVazio: 'No summary saved yet — once a month rolls over, you\'ll be able to save its summary here.',
@@ -2555,6 +2977,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       resumoAtualVerSlides: 'View as slides',
       resumoSlidesVerCompleto: 'View full summary',
       resumoAtualBotaoSalvar: 'Save this summary now',
+      resumoAtualBotaoAtualizar: 'Update saved summary',
       resumoAtualFechar: 'Close',
       resumoAtualConfirmarSobrescrever:
         'You already have a saved summary for this month — saving again will replace it with the current numbers. Continue?',
@@ -2573,6 +2996,11 @@ browser.storage.onChanged.addListener((changes, area) => {
       resumoSlidesMoedaGenerica: 'Total in {moeda}',
       resumoSlidesUSD: 'Total in Dollars',
       resumoSlidesTarefas: 'Tasks submitted',
+      resumoPreviewCarregando: 'Looking up preview…',
+      resumoPreviewOuvir: 'Play preview',
+      resumoPreviewTocando: 'Playing…',
+      logCapaOuvirPreviaTooltip: 'Play 30s preview',
+      logCapaPreviaIndisponivel: 'No preview found for this track.',
       resumoSlidesCapaTitulo: 'Your {mes} recap',
       resumoSlidesFinalTitulo: 'That was {mes}!',
       resumoSlidesFinalTexto: "Here's to closing out another month like this.",
@@ -2584,6 +3012,28 @@ browser.storage.onChanged.addListener((changes, area) => {
       // "Backup" settings section — automatic backup to disk, to
       // protect data from the extension being uninstalled.
       opcoesBackup: 'Backup',
+      backupMudouDescricao: 'Backups moved! You can now find and manage all of them in one place.',
+      backupMudouAcao: 'Open Backup & Restore',
+      // V3.5.52: standalone "Backup & Restore" panel in the "Useful
+      // tools" grid — brings together what used to be spread out
+      // (Settings → Backup, FAB menu) into one place, styled as a
+      // "safe area" for the user's data.
+      backupRestauracaoTitulo: 'Backup & Restore',
+      backupAreaSeguraTitulo: 'Your data, protected',
+      backupAreaSeguraDescricao:
+        "Nothing leaves here without you asking. Disk backup stays only on your computer; cloud backup is only sent when you enable it or click send.",
+      backupResumoMusicasProtegidas: 'track(s) in the log',
+      backupResumoDiffsProtegidos: 'saved diff(s)',
+      backupResumoResumosProtegidos: 'monthly summary(ies)',
+      backupSecaoArquivoCompleto: 'Full backup (file)',
+      backupSecaoArquivoCompletoDescricao:
+        'Generates a .json file with your entire log, saved diffs, monthly summaries and settings — to keep yourself or move to another computer.',
+      backupSecaoDisco: 'Automatic backup to disk',
+      backupSecaoNuvem: 'Cloud backup (Google)',
+      backupSecaoTextoSimples: 'Plain text log (.txt)',
+      backupSecaoTextoSimplesDescricao:
+        'Simpler format, with just the submission log as plain text — no diffs, summaries or settings. Handy for a quick read or pasting elsewhere.',
+      backupZonaRiscoTitulo: 'Danger zone',
       backupAutomaticoAtivar: 'Automatic backup to disk',
       backupAutomaticoDescricao:
         "Saves a copy of your data every so often to the Downloads/MXMBackups folder, so you don't lose everything if you uninstall the extension.",
@@ -2596,14 +3046,37 @@ browser.storage.onChanged.addListener((changes, area) => {
       nuvemDescricao: 'Sends a backup to the cloud, tied to your Google account, so you can restore it on another computer.',
       nuvemEnviar: 'Send backup to the cloud',
       nuvemRestaurar: 'Restore from the cloud',
+      backupNuvemAutomaticoAtivar: 'Automatic cloud backup',
+      backupNuvemAutomaticoDescricao:
+        'Sends the backup to the cloud on its own from time to time, no need to click "Send backup to the cloud". Requires having signed in with Google at least once.',
+      nuvemUltimoBackup: 'Last cloud backup: {data}',
+      nuvemUltimoBackupNunca: "You haven't made a cloud backup yet.",
+      nuvemFrequenciaTitulo: 'Automatic backup frequency',
+      nuvemFrequenciaDiaria: 'Daily',
+      nuvemFrequenciaSemanal: 'Weekly',
+      nuvemFrequenciaMensal: 'Monthly',
       nuvemEnvioSucesso: 'Backup sent to the cloud.',
       nuvemEnvioSucessoPartes: 'Backup sent to the cloud in {n} parts.',
       nuvemEnvioErro: "Couldn't send the backup to the cloud — check your connection and try again.",
       nuvemNenhumBackup: 'No backup found in the cloud yet.',
       nuvemRestaurarErro: "Couldn't fetch the backup from the cloud — check your connection and try again.",
+      // Google Drive backup — third backup destination, separate from
+      // Firestore. Saved to a dedicated "Echoform Backups" folder in the
+      // user's own Drive.
+      backupSecaoDrive: 'Google Drive backup',
+      backupSecaoDriveDescricao:
+        "Sends a backup to your Google Drive account, in the extension's own folder, so you can restore it on another computer.",
+      driveEnviar: 'Send backup to Drive',
+      driveRestaurar: 'Restore from Drive',
+      driveRequerGoogle: 'Requires signing in with your Google account',
+      backupDriveAutomaticoAtivar: 'Automatic Drive backup',
+      backupDriveAutomaticoDescricao:
+        'Sends the backup to Drive on its own from time to time, no need to click "Send backup to Drive". Requires having signed in with Google at least once.',
       // mission menu (right-click a track in the log)
       definirMissao: 'Set mission',
       outraMissao: 'Other mission...',
+      menuInstrumentalMarcar: 'Mark as instrumental',
+      menuInstrumentalDesmarcar: 'Unmark instrumental',
       digitarNomeMissao: 'Type the mission name:',
       // editable curator name and log comparison system
       curator: 'Curator',
@@ -2649,8 +3122,16 @@ browser.storage.onChanged.addListener((changes, area) => {
       // the initial tutorial manually.
       opcoesAjuda: 'Help',
       reverTutorial: 'Replay initial tutorial',
+      // first-mount splash — empty screen (logo + phrase only) shown
+      // briefly before the real panel "assembles" over it, the very first
+      // time the user opens the extension (see mostrarSplashPrimeiraMontagem).
+      splashBoasVindasFrase: 'Welcome to Echoform',
+      splashBoasVindasLegenda: "Let's give you a quick look at how everything works here.",
+      splashBoasVindasAprender: 'Learn',
       // initial tour (tutorial balloons, shown only once)
       tourMissao: 'Right-click a track in the list to choose (or fix) which mission it was made for.',
+      tourFerramentas:
+        'This is where the extra tools live: Manual diff and Saved diffs (compare lyrics), switch language, Compare with another curator, Cycles, Notepad and Backup & Restore — plus Detailed and Reward, which get their own step next.',
       tourDetalhado: 'Click here for detailed logs: tracks per mission, shortest/longest track, and peak hours.',
       tourReward: 'Click here for payment details: total earned and estimated reward per mission.',
       // final tour tip, pointing out where the settings live.
@@ -2714,6 +3195,9 @@ browser.storage.onChanged.addListener((changes, area) => {
       diffTornarBaseConfirmarBotao: 'Set as base',
       diffTornarBaseSucesso: 'Current version saved as base',
       fechar: 'Close',
+      minimizar: 'Minimize',
+      diffManualRestaurarPainel: 'Back to Manual diff',
+      diffManualMinimizadoAviso: 'There is a minimized Manual diff — click to return',
       brincadeiraInstrumentalOutra: 'Another one',
       diffsSalvosTitulo: 'Saved diffs',
       diffsSalvosVazio: 'No saved diffs yet. Use the "Save" button inside a Diff Check or manual Diff to keep a comparison here.',
@@ -2721,6 +3205,30 @@ browser.storage.onChanged.addListener((changes, area) => {
       diffsSalvosAbrirTooltip: 'Open',
       diffsSalvosExcluirTooltip: 'Delete',
       diffsSalvosVoltar: 'Back to list',
+      blocoDeNotasTitulo: 'Notepad',
+      blocoDeNotasVazio: 'No notes yet. Tap "New note" to write the first one.',
+      blocoDeNotasNovaNota: 'New note',
+      blocoDeNotasEditarTooltip: 'Edit',
+      blocoDeNotasExcluirTooltip: 'Delete',
+      blocoDeNotasExcluirConfirmar: 'Delete this note? This cannot be undone.',
+      blocoDeNotasPlaceholderTexto: 'Write your note here...',
+      blocoDeNotasMusicaLabel: 'Track (optional)',
+      blocoDeNotasMusicaPlaceholder: 'Search a track by title...',
+      blocoDeNotasMusicaLimpar: 'Remove track link',
+      blocoDeNotasCicloLabel: 'Cycle (optional)',
+      blocoDeNotasCicloNenhum: 'No cycle',
+      blocoDeNotasSalvar: 'Save note',
+      blocoDeNotasCancelar: 'Cancel',
+      blocoDeNotasVoltar: 'Back to list',
+      blocoDeNotasSemTexto: 'Write something before saving the note.',
+      ciclosTitulo: 'Cycles',
+      cicloNumeroPadraoPrefixo: 'Cycle',
+      cicloAtualBadge: 'Current',
+      cicloRenomearTooltip: 'Rename cycle',
+      cicloVerNoLogTooltip: 'View in log — jumps to this cycle\'s first song',
+      cicloRenomearPrompt: 'Cycle name',
+      cicloMusicaSingular: 'track',
+      cicloMusicaPlural: 'tracks',
       diffAvisoTelaRecomendada:
         'Diff Check works best on the Transcribe and Synchronization screens — on this screen, the captured lyrics may be incomplete or incorrect.',
       diffModoCapturaLabel: 'Diff Check capture mode',
@@ -2752,6 +3260,9 @@ browser.storage.onChanged.addListener((changes, area) => {
       letraAtualizada: 'Lyrics updated!',
       editarLetraPlaceholder: 'Edit the lyrics here...',
       ordenarFiltrarTitulo: 'Sort / filter',
+      adicionarEntradaVaziaTitulo: 'Add an empty track to fill in by hand',
+      adicionarEntradaVaziaBotao: 'Add empty track',
+      entradaVaziaAdicionadaToast: 'Empty track added. Click it in the log to fill in title and artist.',
       ordenarPorData: 'Date (most recent)',
       ordenarPorMissao: 'Mission',
       ordenarAlfabetica: 'Alphabetical order',
@@ -2790,7 +3301,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       conquistaNuvemTitulo: 'Cloud backup',
       conquistaNuvemDesc: 'Send a full backup to the cloud for the first time.',
     },
-    // grego, adicionado a pedido do usuário — mesmas chaves de pt/en.
+    // grego, adicionado como novo idioma suportado — mesmas chaves de pt/en.
     el: {
       envioRegistrado: 'Η υποβολή καταγράφηκε',
       reenvioRegistrado: 'Η επανυποβολή καταγράφηκε',
@@ -2798,9 +3309,29 @@ browser.storage.onChanged.addListener((changes, area) => {
       instrumentalAtualizado: 'Το ορχηστρικό ενημερώθηκε',
       manual: 'χειροκίνητο',
       tentativa: 'προσπάθεια',
-      id: 'ID',
+      id: 'Abstrack',
       as: 'στις',
-      logDeEnvios: 'Αρχείο Υποβολών',
+      logDeEnvios: 'Echoform',
+      integracaoPayflowTitulo: 'Echoform + Payflow',
+      integracaoPayflowTexto:
+        'Εντοπίσαμε και τις δύο επεκτάσεις ενεργές στο Curators Studio. Ενεργοποιήστε την ενσωμάτωση για να δείτε τα κέρδη σε USD/BRL απευθείας στο αρχείο υποβολών σας.',
+      integracaoPayflowBadge: 'Νέα ενσωμάτωση διαθέσιμη',
+      integracaoPayflowFeature1: 'Οι τιμές της αποστολής μεταφέρονται αυτόματα στο αρχείο',
+      integracaoPayflowFeature2: 'Η ισοτιμία σε πραγματικό χρόνο συγχρονίζεται και στους δύο πίνακες',
+      integracaoPayflowFeature3: 'Χωρίς διπλό υπολογισμό — μία και μοναδική πηγή αλήθειας',
+      integracaoPayflowBotaoAtivar: 'Ενεργοποίηση ενσωμάτωσης',
+      integracaoPayflowBotaoAgoraNao: 'Όχι τώρα',
+      sobreTitulo: 'Σχετικά με το Echoform',
+      sobreDescricao:
+        'Το Echoform είναι μια ανεξάρτητη, μη κερδοσκοπική επέκταση, φτιαγμένη από έναν curator για να βοηθά άλλους curators να οργανώνουν και να παρακολουθούν τον δικό τους χρόνο και δραστηριότητα στο Musixmatch Studio. Δεν χρησιμοποιεί, δεν έχει πρόσβαση ούτε συνδέεται με το επίσημο API της Musixmatch — απλώς διαβάζει πληροφορίες που ήδη εμφανίζονται στην οθόνη από το ίδιο το πρόγραμμα περιήγησης του χρήστη. Ανοιχτού κώδικα, διαθέσιμο στο GitHub.',
+      sobreLinkGithub: 'Προβολή πηγαίου κώδικα στο GitHub',
+      tabsV3Titulo: 'Tabs V3',
+      tabsV3Subtitulo: 'Νέο layout, ίδιος ρυθμός με το Echoform.',
+      tabsV3Changelog: [
+        'Νέο εικονίδιο για το θέμα του πίνακα, στην ίδια παλέτα του Echoform.',
+        'Βελτιώσεις χρωμάτων και αποστάσεων στις τονικές επιφάνειες.',
+        'Θεμέλια για τα επόμενα χρωματικά σχήματα (beta).',
+      ],
       detalhado: 'Λεπτομέρειες',
       buscarPlaceholder: 'Αναζήτηση με τίτλο, καλλιτέχνη ή ID...',
       limparBusca: 'Εκκαθάριση αναζήτησης',
@@ -2813,11 +3344,16 @@ browser.storage.onChanged.addListener((changes, area) => {
       avisoResumoMesTitulo: 'Η σύνοψη του {mes} κλείνει σε λίγο',
       avisoResumoMesTexto: 'Απομένουν μόνο λίγες ώρες για το τέλος του μήνα — ρίξε μια ματιά σε όσα υπέβαλες.',
       tarefasHoje: 'Εργασίες σήμερα',
+      tarefasEnviadasHoje: 'εργασίες που υποβλήθηκαν σήμερα',
+      emRelacaoAoDiaAnterior: 'σε σχέση με χθες',
+      semMudancaOntem: 'Καμία αλλαγή σε σχέση με χθες',
       recorde: 'Ρεκόρ',
       nenhumAinda: 'κανένα ακόμα',
       em: 'στις',
       tarefa: 'εργασία',
       nenhumEnvioEncontrado: 'Δεν βρέθηκε καμία υποβολή.',
+      fimDaLista: 'Τέλος λίστας',
+      dicasListaCurtaTitulo: 'Στο μεταξύ, μερικές συμβουλές',
       logVazioTitulo: 'Δεν υπάρχει ακόμα καμία καταγεγραμμένη υποβολή εδώ.',
       logVazioDescricao:
         'Αν χρησιμοποιούσες ήδη αυτή την επέκταση παλιότερα (σε άλλον υπολογιστή, browser, ή μετά από επανεγκατάσταση), μπορείς να εισαγάγεις ένα αντίγραφο ασφαλείας για να επαναφέρεις το ιστορικό σου τώρα.',
@@ -2837,6 +3373,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       editarDetalhesArtistaMensagem: 'Και ο καλλιτέχνης;',
       editarDetalhesArtistaPlaceholder: 'Καλλιτέχνης (προαιρετικό)',
       detalhesAdicionadosToast: 'Τα στοιχεία προστέθηκαν στην υποβολή.',
+      novaEntradaCanceladaToast: 'Η δημιουργία του νέου τραγουδιού ακυρώθηκε.',
       editarDataHoraTitulo: 'Αλλαγή ημερομηνίας και ώρας',
       editarDataHoraMensagem: 'Προσαρμόστε πότε καταγράφηκε αυτή η υποβολή.',
       editarDataHoraDataLabel: 'Ημερομηνία',
@@ -2852,6 +3389,17 @@ browser.storage.onChanged.addListener((changes, area) => {
       painelMusicaLetraLabel: 'Στίχοι',
       painelMusicaVerLetra: 'Προβολή πλήρων στίχων',
       painelMusicaSemLetra: 'Δεν έχουν καταγραφεί στίχοι για αυτήν την υποβολή.',
+      painelMusicaAdicionarLetra: 'Προσθήκη στίχων',
+      painelMusicaCopiarIdTitulo: 'Αντιγραφή Abstrack',
+      painelMusicaIdCopiadoToast: 'Το Abstrack αντιγράφηκε.',
+      painelMusicaAbrirPaginaLabel: 'Σελίδα του τραγουδιού',
+      painelMusicaAbrirPaginaValor: 'Προβολή στο Musixmatch',
+      painelMusicaAbrirPaginaTitulo: 'Άνοιγμα της σελίδας αυτού του τραγουδιού',
+      painelMusicaAbrirPaginaErro: 'Δεν ήταν δυνατό το άνοιγμα της σελίδας αυτού του τραγουδιού.',
+      painelMusicaAbrirStudioLabel: 'Άνοιγμα στο Studio',
+      painelMusicaAbrirStudioValor: 'Προβολή στο Curators Studio',
+      painelMusicaAbrirStudioTitulo: 'Άνοιγμα αυτού του τραγουδιού στο Curators Studio',
+      painelMusicaAbrirStudioErro: 'Δεν ήταν δυνατό το άνοιγμα αυτού του τραγουδιού στο Studio.',
       ativarTemaClaro: 'Ενεργοποίηση φωτεινού θέματος',
       voltarTemaEscuro: 'Επιστροφή στο σκοτεινό θέμα',
       temaClaro: 'Φωτεινό θέμα',
@@ -2872,6 +3420,10 @@ browser.storage.onChanged.addListener((changes, area) => {
       notifBackupNuvemTitulo: 'Ενεργοποίησε το backup στο cloud',
       notifBackupNuvemDesc: 'Το ιστορικό σου υπάρχει μόνο σε αυτό το πρόγραμμα περιήγησης. Ενεργοποίησε το backup στο cloud για να μην το χάσεις.',
       notifBackupNuvemAcao: 'Ενεργοποίηση backup',
+      notifNovidadeBackupTitulo: 'Νέο: πίνακας Αντίγραφο & Επαναφορά',
+      notifNovidadeBackupDesc:
+        'Όλα τα αντίγραφα ασφαλείας σου (αρχείο, δίσκος, cloud και κείμενο) βρίσκονται πλέον σε ένα μέρος, μέσα στα Χρήσιμα εργαλεία.',
+      notifNovidadeBackupAcao: 'Προβολή πίνακα',
       notifDicaTitulo: 'Συμβουλή',
       notifDicaTemas: 'Μπορείς να αλλάξεις μεταξύ πολλών χρωματικών συνδυασμών Tabs V3 (ακόμα και φωτεινό θέμα) στις Ρυθμίσεις.',
       notifDicaDiffCheck: 'Το Diff Check συγκρίνει τους στίχους της τρέχουσας οθόνης με την προηγούμενη έκδοση — ιδανικό για να βρεις τι άλλαξε πριν ξαναστείλεις.',
@@ -2905,8 +3457,15 @@ browser.storage.onChanged.addListener((changes, area) => {
       cicloMissoesDiagramaFimMes: '21:00 · τέλος μήνα',
       cicloMissoesPopupBotao: 'Κατάλαβα',
       abrirLogDetalhado: 'Άνοιγμα λεπτομερούς αρχείου',
+      abrirDiffCheckAcao: 'Άνοιγμα Diff Check',
+      abrirDiffManualAcao: 'Άνοιγμα χειροκίνητου Diff',
       letraCapturadaTag: 'Στίχοι',
       letraCapturadaTooltip: 'Πλήρεις στίχοι καταγράφηκαν — κλικ για προβολή',
+      letraSuspeitaTooltip: 'Οι καταγεγραμμένοι στίχοι περιέχουν έναν όρο που υποδηλώνει πιθανό σφάλμα (π.χ. "Undetermined", "English", "Portuguese", "Reward" ή "task completed") — αξίζει να το ελέγξετε.',
+      confirmarFalsoPositivoLetraTitulo: 'Επισήμανση ως εσφαλμένη ειδοποίηση;',
+      confirmarFalsoPositivoLetraMensagem: 'Οι στίχοι θα εξακολουθούν να περιέχουν τον ύποπτο όρο, αλλά η προειδοποίηση δεν θα εμφανίζεται πλέον για αυτήν την καταχώρηση. Μπορείτε να δείτε τους στίχους ανά πάσα στιγμή κάνοντας κλικ στην ετικέτα.',
+      confirmarFalsoPositivoLetraBotao: 'Επισήμανση',
+      falsoPositivoLetraMarcado: 'Η προειδοποίηση αφαιρέθηκε — επισημάνθηκε ως εσφαλμένη.',
       verLetraTitulo: 'Πλήρεις στίχοι',
       copiarLetra: 'Αντιγραφή',
       letraCopiada: 'Οι στίχοι αντιγράφηκαν!',
@@ -2931,6 +3490,8 @@ browser.storage.onChanged.addListener((changes, area) => {
         'Πώς η Musixmatch εμφανίζει προθεσμίες αποστολών στις κάρτες (π.χ. "29 days") — αυτός ο αριθμός αλλάζει μόνο μία φορά την ημέρα, στις 9 π.μ., σε αντίθεση με το χρονόμετρο πραγματικού χρόνου παραπάνω.',
       resumoFixarSlide: 'Καρφίτσωμα εδώ (διακοπή αυτόματης εναλλαγής)',
       resumoDesfixarSlide: 'Ξεκαρφίτσωμα (συνέχιση αυτόματης εναλλαγής)',
+      resumoSetaAnterior: 'Προηγούμενη διαφάνεια',
+      resumoSetaProxima: 'Επόμενη διαφάνεια',
       cronometroCicloMainAtivar: 'Χρονόμετρο κύκλου στο καρουζέλ',
       cronometroCicloMainDescricao: 'Εμφανίζει αντίστροφη μέτρηση για τον επόμενο κύκλο αποστολών, κάτω από τη γραμμή αναζήτησης.',
       popupPinoCronometroTitulo: 'Αντίστροφη μέτρηση καρφιτσωμένη εδώ',
@@ -2995,6 +3556,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       mostrarImagem: 'Εμφάνιση εξωφύλλου τραγουδιού στο αρχείο',
       ativarAnimacoes: 'Κινούμενα εφέ ανοίγματος και γραφημάτων',
       ativarSons: 'Ηχητικά εφέ διεπαφής',
+      notificarPeloWindows: 'Ειδοποίηση μέσω Windows (απενεργοποιεί το αναδυόμενο παράθυρο)',
       esquemaDestaque: 'Χρώμα έμφασης',
       esquemaFundo: 'Χρώμα φόντου',
       esquemaCorRoxo: 'Μοβ',
@@ -3066,6 +3628,8 @@ browser.storage.onChanged.addListener((changes, area) => {
       categoriaManualLabel: 'Επισημασμένα χειροκίνητα',
       cicloLabel: 'Κύκλος',
       inicioNovoCiclo: 'Έναρξη νέου κύκλου',
+      cicloEncerrado: 'ολοκληρώθηκε',
+      cicloIniciado: 'ξεκίνησε',
       pausarModoManual: 'Παύση χειροκίνητης λειτουργίας',
       marcandoManualmenteLabel: 'Χειροκίνητη σήμανση',
       nomeExtensao: 'MXM Studio',
@@ -3086,6 +3650,18 @@ browser.storage.onChanged.addListener((changes, area) => {
       debugSimuladorDesativadoToast: 'Η προσομοίωση απενεργοποιήθηκε — επιστροφή στην πραγματική ημερομηνία/ώρα.',
       debugSimuladorSelecioneData: 'Επιλέξτε ημερομηνία και ώρα πριν εφαρμόσετε.',
       debugForcarSemDetalhes: 'Εξαναγκασμός εγγραφής "Χωρίς λεπτομέρειες" στο log (δοκιμή)',
+      debugForcarTelaIntegracaoPayflow: 'Εξαναγκασμός οθόνης ενσωμάτωσης με το Payflow (δοκιμή)',
+      debugForcarSplashBoasVindas: 'Επανάληψη οθόνης καλωσορίσματος (αρχική οθόνη)',
+      debugSimuladorListaDescricao:
+        'Προσομοιώνει, μόνο στην οθόνη, πώς φαίνεται η λίστα με 0 ή 1 τραγούδι — χωρίς διαγραφή ή αλλαγή του πραγματικού σας ιστορικού. Χρήσιμο για δοκιμή της κενής κατάστασης ή της ένδειξης "Τέλος λίστας"/συμβουλών μικρής λίστας χωρίς να διαγράψετε το πραγματικό ιστορικό.',
+      debugSimuladorListaOff: 'Πραγματική λίστα (χωρίς προσομοίωση)',
+      debugSimuladorListaVazia: 'Προσομοίωση κενής λίστας',
+      debugSimuladorListaUma: 'Προσομοίωση λίστας με 1 τραγούδι',
+      debugSimuladorListaAtivadoToast: 'Η προσομοίωση λίστας είναι ενεργή — το πραγματικό σας ιστορικό παραμένει ανέπαφο.',
+      debugSimuladorListaDesativadoToast: 'Η προσομοίωση λίστας απενεργοποιήθηκε — επιστροφή στην πραγματική λίστα.',
+      debugAvisoBannerTexto: 'Αν δεν ξέρετε τι κάνετε, σας συνιστώ να βγείτε από αυτή τη λειτουργία.',
+      debugAvisoBannerBotaoSair: 'Έξοδος από τη λειτουργία εντοπισμού σφαλμάτων',
+      avisoEntradaDemonstracaoDebug: 'Αυτή είναι μια εικονική καταχώρηση της προσομοίωσης — όχι πραγματικό τραγούδι από το ιστορικό σας.',
       duracaoLabel: 'Διάρκεια',
       missaoLabel: 'Αποστολή',
       tentativasLabel: 'προσπάθειες',
@@ -3107,6 +3683,9 @@ browser.storage.onChanged.addListener((changes, area) => {
       ok: 'OK',
       confirmar: 'Επιβεβαίωση',
       excluir: 'Διαγραφή',
+      maisOpcoes: 'Περισσότερες επιλογές',
+      abrirNoSite: 'Άνοιγμα στον ιστότοπο',
+      abrirNoStudio: 'Άνοιγμα στο Studio',
       importadosSucesso: 'καταχώρηση(εις) εισήχθη(σαν)',
       ignoradosLabel: 'παραλείφθηκε(αν)',
       arquivoInvalido: 'Δεν βρέθηκε καμία έγκυρη καταχώρηση σε αυτό το αρχείο.',
@@ -3132,17 +3711,6 @@ browser.storage.onChanged.addListener((changes, area) => {
       backupSemLetraSalva: '(δεν υπάρχουν αποθηκευμένοι στίχοι αυτή τη στιγμή)',
       backupExportarCurto: 'Εξαγωγή πλήρους αντιγράφου',
       backupImportarCurto: 'Εισαγωγή πλήρους αντιγράφου',
-      // μήνυμα "επανεκκίνησης", εμφανίζεται μία
-      // φορά μόνο σε όσους ήδη χρησιμοποιούσαν την επέκταση πριν από αυτή
-      // την ενημέρωση — δείτε abrirRelancamentoFirefox.
-      relancamentoTitulo: 'Είμαστε πίσω — ανανεωμένοι!',
-      relancamentoMensagem:
-        'Η έκδοση για Firefox είναι ξανά διαθέσιμη και πλέον έχει τις ίδιες λειτουργίες με το userscript: πλήρες αντίγραφο ασφαλείας σε .json, θέματα Tabs V3 (beta) και τις υπόλοιπες πρόσφατες προσθήκες.',
-      relancamentoDestaque1: 'Πλήρες αντίγραφο ασφαλείας (.json) — αρχείο, στίχοι, αποθηκευμένες συγκρίσεις και ρυθμίσεις σε ένα μόνο αρχείο',
-      relancamentoDestaque2: 'Θέματα Tabs V3 (beta) — επιλέξτε το δικό σας χρώμα έμφασης και φόντου',
-      relancamentoDestaque3: 'Μικρές βελτιώσεις ευχρηστίας, μεταξύ άλλων στη γωνία αλλαγής μεγέθους του παραθύρου',
-      relancamentoRevertour: 'Επανάληψη γρήγορης περιήγησης',
-      relancamentoFechar: 'Το κατάλαβα',
       selecionarVarias: 'Επιλογή πολλών',
       redimensionar: 'Σύρετε για αλλαγή μεγέθους',
       selecionarBtn: 'Επιλογή',
@@ -3220,14 +3788,15 @@ browser.storage.onChanged.addListener((changes, area) => {
       taxaEstimada: 'εκτιμώμενη αμοιβή',
       tarefasAbrev: 'εργασίες',
       semReward: 'Καμία υποβολή με εντοπισμένη αποστολή ακόμα.',
-      fonteWidget: 'Δεδομένα σε πραγματικό χρόνο από το widget "Total USD + BRL"',
+      fonteWidget: 'Δεδομένα σε πραγματικό χρόνο μέσω Payflow',
       fonteWidgetCurta: 'Ζωντανά',
-      fonteLog: 'Εκτιμάται από αυτό το αρχείο — εγκαταστήστε το widget "Total USD + BRL" για ακριβή δεδομένα',
+      fonteLog: 'Εκτιμάται από αυτό το αρχείο — εγκαταστήστε την επέκταση Payflow για ακριβή δεδομένα',
       fonteLogCurta: 'Εκτίμηση',
+      poweredByPayflow: 'Powered by Payflow',
       descontoManual: 'Έκπτωση $ {amount} εφαρμοσμένη χειροκίνητα στο widget',
       avisoExtensaoRewardAusente:
-        'Η επέκταση "Total USD + BRL" δεν είναι εγκατεστημένη, είναι απενεργοποιημένη, ή δεν έχει καταγράψει ακόμα καμία αποστολή — οι παρακάτω τιμές είναι απλώς μια εκτίμηση με βάση αυτό το αρχείο. Εγκαταστήστε/ενεργοποιήστε την επέκταση για να δείτε τις πραγματικές τιμές.',
-      baixarExtensaoTotalUsdBrl: 'Λήψη της επέκτασης "Total USD + BRL" από το Firefox Add-ons',
+        'Η επέκταση Payflow δεν είναι εγκατεστημένη, είναι απενεργοποιημένη, ή δεν έχει καταγράψει ακόμα καμία αποστολή — οι παρακάτω τιμές είναι απλώς μια εκτίμηση με βάση αυτό το αρχείο. Εγκαταστήστε/ενεργοποιήστε την επέκταση για να δείτε τις πραγματικές τιμές.',
+      baixarExtensaoTotalUsdBrl: 'Λήψη της επέκτασης Payflow από το Firefox Add-ons',
       // μήνυμα που εμφανίζεται όταν αλλάζει ο μήνας, προσφέροντας
       // αποθήκευση της σύνοψης (αριθμός τραγουδιών + κέρδη) του μήνα που έληξε.
       resumoMensalTitulo: 'Αποθήκευση σύνοψης μήνα',
@@ -3244,6 +3813,8 @@ browser.storage.onChanged.addListener((changes, area) => {
         'Ο κύκλος αποστολών αυτού του μήνα πρέπει να έχει ήδη αλλάξει (21:00, ώρα Μπραζίλια) ακόμη κι αν το ημερολόγιο δείχνει ακόμα σήμερα. Επιβεβαιώστε μόλις παρατηρήσετε την αλλαγή στο Musixmatch.',
       avisoTrocaCicloBotaoConfirmar: 'Αλλαγή κύκλου',
       avisoTrocaCicloConfirmadoToast: 'Εντάξει — ο κύκλος άλλαξε, η σύνοψη είναι διαθέσιμη αν θέλετε να την αποθηκεύσετε.',
+      avisoDiffManualMinimizadoMensagem: 'Έχετε ένα ελαχιστοποιημένο Χειροκίνητο diff, με τη σύγκριση να περιμένει εκεί που σταματήσατε.',
+      avisoDiffManualMinimizadoBotaoVoltar: 'Επιστροφή στο Χειροκίνητο diff',
       // λίστα αποθηκευμένων μηνιαίων συνόψεων, στην καρτέλα Reward.
       resumosMensaisTitulo: 'Αποθηκευμένες μηνιαίες συνόψεις',
       resumosMensaisVazio: 'Καμία σύνοψη αποθηκευμένη ακόμα — όταν αλλάξει ο μήνας, θα μπορείτε να αποθηκεύσετε τη σύνοψή του εδώ.',
@@ -3256,6 +3827,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       resumoAtualVerSlides: 'Προβολή σε διαφάνειες',
       resumoSlidesVerCompleto: 'Προβολή πλήρους σύνοψης',
       resumoAtualBotaoSalvar: 'Αποθήκευση αυτής της σύνοψης τώρα',
+      resumoAtualBotaoAtualizar: 'Ενημέρωση αποθηκευμένης σύνοψης',
       resumoAtualFechar: 'Κλείσιμο',
       resumoAtualConfirmarSobrescrever:
         'Έχετε ήδη μια αποθηκευμένη σύνοψη για αυτόν τον μήνα — η νέα αποθήκευση θα την αντικαταστήσει με τους τρέχοντες αριθμούς. Συνέχεια;',
@@ -3274,6 +3846,11 @@ browser.storage.onChanged.addListener((changes, area) => {
       resumoSlidesMoedaGenerica: 'Σύνολο σε {moeda}',
       resumoSlidesUSD: 'Σύνολο σε Δολάρια',
       resumoSlidesTarefas: 'Υποβληθείσες εργασίες',
+      resumoPreviewCarregando: 'Αναζήτηση προεπισκόπησης…',
+      resumoPreviewOuvir: 'Αναπαραγωγή προεπισκόπησης',
+      resumoPreviewTocando: 'Αναπαράγεται…',
+      logCapaOuvirPreviaTooltip: 'Αναπαραγωγή προεπισκόπησης 30 δευτ.',
+      logCapaPreviaIndisponivel: 'Δεν βρέθηκε προεπισκόπηση για αυτό το κομμάτι.',
       resumoSlidesCapaTitulo: 'Η σύνοψή σου για {mes}',
       resumoSlidesFinalTitulo: 'Αυτός ήταν ο {mes}!',
       resumoSlidesFinalTexto: 'Ας κλείσουμε κι έναν ακόμα τέτοιο μήνα.',
@@ -3286,6 +3863,28 @@ browser.storage.onChanged.addListener((changes, area) => {
       // αντίγραφο ασφαλείας στον δίσκο, για προστασία από την απεγκατάσταση
       // της επέκτασης.
       opcoesBackup: 'Αντίγραφο ασφαλείας',
+      backupMudouDescricao: 'Τα αντίγραφα ασφαλείας άλλαξαν θέση — τώρα τα βρίσκετε όλα οργανωμένα σε ένα μέρος!',
+      backupMudouAcao: 'Άνοιγμα Αντιγράφου & Επαναφοράς',
+      // V3.5.52: αυτόνομος πίνακας "Αντίγραφο & Επαναφορά" στο πλέγμα
+      // "Χρήσιμα εργαλεία" — συγκεντρώνει ό,τι πριν ήταν διάσπαρτο
+      // (Ρυθμίσεις → Αντίγραφο ασφαλείας, μενού FAB) σε ένα μέρος, με
+      // εμφάνιση "ασφαλούς ζώνης" για τα δεδομένα του χρήστη.
+      backupRestauracaoTitulo: 'Αντίγραφο & Επαναφορά',
+      backupAreaSeguraTitulo: 'Τα δεδομένα σας, προστατευμένα',
+      backupAreaSeguraDescricao:
+        'Τίποτα δεν φεύγει από εδώ χωρίς να το ζητήσετε. Το αντίγραφο στον δίσκο μένει μόνο στον υπολογιστή σας· το αντίγραφο στο cloud στέλνεται μόνο όταν το ενεργοποιήσετε ή πατήσετε αποστολή.',
+      backupResumoMusicasProtegidas: 'τραγούδι(α) στο αρχείο',
+      backupResumoDiffsProtegidos: 'αποθηκευμένο(α) diff',
+      backupResumoResumosProtegidos: 'μηνιαία περίληψη(εις)',
+      backupSecaoArquivoCompleto: 'Πλήρες αντίγραφο (αρχείο)',
+      backupSecaoArquivoCompletoDescricao:
+        'Δημιουργεί ένα αρχείο .json με όλο το αρχείο σας, τα αποθηκευμένα diffs, τις μηνιαίες περιλήψεις και τις ρυθμίσεις — για να το κρατήσετε εσείς ή να το μεταφέρετε σε άλλον υπολογιστή.',
+      backupSecaoDisco: 'Αυτόματο αντίγραφο στον δίσκο',
+      backupSecaoNuvem: 'Αντίγραφο στο cloud (Google)',
+      backupSecaoTextoSimples: 'Αρχείο απλού κειμένου (.txt)',
+      backupSecaoTextoSimplesDescricao:
+        'Απλούστερη μορφή, μόνο με το αρχείο υποβολών σε απλό κείμενο — χωρίς diffs, περιλήψεις ή ρυθμίσεις. Χρήσιμο για γρήγορη ανάγνωση ή επικόλληση αλλού.',
+      backupZonaRiscoTitulo: 'Ζώνη κινδύνου',
       backupAutomaticoAtivar: 'Αυτόματο αντίγραφο ασφαλείας στον δίσκο',
       backupAutomaticoDescricao:
         'Αποθηκεύει αντίγραφο των δεδομένων σας κατά διαστήματα στον φάκελο Downloads/MXMBackups, ώστε να μην τα χάσετε αν απεγκαταστήσετε την επέκταση.',
@@ -3297,13 +3896,36 @@ browser.storage.onChanged.addListener((changes, area) => {
       nuvemDescricao: 'Στέλνει αντίγραφο ασφαλείας στο cloud, συνδεδεμένο με τον λογαριασμό σας Google, για επαναφορά σε άλλον υπολογιστή.',
       nuvemEnviar: 'Αποστολή αντιγράφου στο cloud',
       nuvemRestaurar: 'Επαναφορά από το cloud',
+      backupNuvemAutomaticoAtivar: 'Αυτόματο αντίγραφο ασφαλείας στο cloud',
+      backupNuvemAutomaticoDescricao:
+        'Στέλνει το αντίγραφο ασφαλείας στο cloud μόνο του κατά διαστήματα, χωρίς να χρειάζεται να πατήσετε "Αποστολή αντιγράφου στο cloud". Απαιτεί να έχετε συνδεθεί με Google τουλάχιστον μία φορά.',
+      nuvemUltimoBackup: 'Τελευταίο αντίγραφο στο cloud: {data}',
+      nuvemUltimoBackupNunca: 'Δεν έχετε κάνει ακόμα αντίγραφο ασφαλείας στο cloud.',
+      nuvemFrequenciaTitulo: 'Συχνότητα αυτόματου αντιγράφου',
+      nuvemFrequenciaDiaria: 'Καθημερινά',
+      nuvemFrequenciaSemanal: 'Εβδομαδιαία',
+      nuvemFrequenciaMensal: 'Μηνιαία',
       nuvemEnvioSucesso: 'Το αντίγραφο στάλθηκε στο cloud.',
       nuvemEnvioSucessoPartes: 'Το αντίγραφο στάλθηκε στο cloud σε {n} μέρη.',
       nuvemEnvioErro: 'Δεν ήταν δυνατή η αποστολή στο cloud — ελέγξτε τη σύνδεσή σας και δοκιμάστε ξανά.',
       nuvemNenhumBackup: 'Δεν βρέθηκε ακόμα αντίγραφο στο cloud.',
       nuvemRestaurarErro: 'Δεν ήταν δυνατή η ανάκτηση από το cloud — ελέγξτε τη σύνδεσή σας και δοκιμάστε ξανά.',
+      // αντίγραφο ασφαλείας στο Google Drive — τρίτος προορισμός,
+      // ξεχωριστός από το Firestore. Αποθηκεύεται σε δικό του φάκελο
+      // "Echoform Backups" στο Drive του χρήστη.
+      backupSecaoDrive: 'Αντίγραφο στο Google Drive',
+      backupSecaoDriveDescricao:
+        'Στέλνει αντίγραφο ασφαλείας στον λογαριασμό σας Google Drive, σε δικό του φάκελο της επέκτασης, για επαναφορά σε άλλον υπολογιστή.',
+      driveEnviar: 'Αποστολή αντιγράφου στο Drive',
+      driveRestaurar: 'Επαναφορά από το Drive',
+      driveRequerGoogle: 'Απαιτεί σύνδεση με τον λογαριασμό σας Google',
+      backupDriveAutomaticoAtivar: 'Αυτόματο αντίγραφο ασφαλείας στο Drive',
+      backupDriveAutomaticoDescricao:
+        'Στέλνει το αντίγραφο ασφαλείας στο Drive μόνο του κατά διαστήματα, χωρίς να χρειάζεται να πατήσετε "Αποστολή αντιγράφου στο Drive". Απαιτεί να έχετε συνδεθεί με Google τουλάχιστον μία φορά.',
       definirMissao: 'Ορισμός αποστολής',
       outraMissao: 'Άλλη αποστολή...',
+      menuInstrumentalMarcar: 'Σήμανση ως ορχηστρικό',
+      menuInstrumentalDesmarcar: 'Αφαίρεση σήμανσης ορχηστρικού',
       digitarNomeMissao: 'Πληκτρολογήστε το όνομα της αποστολής:',
       curator: 'Curator',
       editarNomeCurator: 'Κλικ για να χρησιμοποιήσετε το δικό σας όνομα',
@@ -3344,7 +3966,12 @@ browser.storage.onChanged.addListener((changes, area) => {
       opcoesExperimental: 'Πειραματικό',
       opcoesAjuda: 'Βοήθεια',
       reverTutorial: 'Επανάληψη αρχικού οδηγού',
+      splashBoasVindasFrase: 'Καλώς ήρθατε στο Echoform',
+      splashBoasVindasLegenda: 'Ας σας δείξουμε γρήγορα πώς λειτουργούν όλα εδώ.',
+      splashBoasVindasAprender: 'Μάθετε',
       tourMissao: 'Κάντε δεξί κλικ σε ένα τραγούδι της λίστας για να επιλέξετε (ή να διορθώσετε) για ποια αποστολή έγινε.',
+      tourFerramentas:
+        'Εδώ βρίσκονται τα επιπλέον εργαλεία: Χειροκίνητο diff και Αποθηκευμένα diffs (σύγκριση στίχων), αλλαγή γλώσσας, Σύγκριση με άλλον curator, Κύκλοι, Σημειωματάριο και Αντίγραφο & Επαναφορά — μαζί με τα Λεπτομερή και Reward, που έχουν δικό τους βήμα παρακάτω.',
       tourDetalhado: 'Κάντε κλικ εδώ για λεπτομερή αρχεία: τραγούδια ανά αποστολή, συντομότερο/μακρύτερο κομμάτι και ώρες αιχμής.',
       tourReward: 'Κάντε κλικ εδώ για λεπτομέρειες πληρωμών: συνολικά κέρδη και εκτιμώμενο reward ανά αποστολή.',
       tourConfiguracoes:
@@ -3406,6 +4033,9 @@ browser.storage.onChanged.addListener((changes, area) => {
       diffTornarBaseConfirmarBotao: 'Ορισμός ως βάση',
       diffTornarBaseSucesso: 'Η τρέχουσα έκδοση αποθηκεύτηκε ως βάση',
       fechar: 'Κλείσιμο',
+      minimizar: 'Ελαχιστοποίηση',
+      diffManualRestaurarPainel: 'Επιστροφή στο Χειροκίνητο diff',
+      diffManualMinimizadoAviso: 'Υπάρχει ένα ελαχιστοποιημένο Χειροκίνητο diff — κάντε κλικ για επιστροφή',
       brincadeiraInstrumentalOutra: 'Άλλη μία',
       diffsSalvosTitulo: 'Αποθηκευμένα diffs',
       diffsSalvosVazio: 'Δεν υπάρχουν αποθηκευμένα diffs ακόμα. Χρησιμοποίησε το κουμπί "Αποθήκευση" μέσα σε ένα Diff Check ή χειροκίνητο Diff για να κρατήσεις μια σύγκριση εδώ.',
@@ -3413,6 +4043,30 @@ browser.storage.onChanged.addListener((changes, area) => {
       diffsSalvosAbrirTooltip: 'Άνοιγμα',
       diffsSalvosExcluirTooltip: 'Διαγραφή',
       diffsSalvosVoltar: 'Πίσω στη λίστα',
+      blocoDeNotasTitulo: 'Σημειωματάριο',
+      blocoDeNotasVazio: 'Δεν υπάρχουν σημειώσεις ακόμα. Πάτησε "Νέα σημείωση" για να γράψεις την πρώτη.',
+      blocoDeNotasNovaNota: 'Νέα σημείωση',
+      blocoDeNotasEditarTooltip: 'Επεξεργασία',
+      blocoDeNotasExcluirTooltip: 'Διαγραφή',
+      blocoDeNotasExcluirConfirmar: 'Διαγραφή αυτής της σημείωσης; Η ενέργεια αυτή δεν αναιρείται.',
+      blocoDeNotasPlaceholderTexto: 'Γράψε τη σημείωσή σου εδώ...',
+      blocoDeNotasMusicaLabel: 'Τραγούδι (προαιρετικό)',
+      blocoDeNotasMusicaPlaceholder: 'Αναζήτηση τραγουδιού με τίτλο...',
+      blocoDeNotasMusicaLimpar: 'Αφαίρεση σύνδεσης με τραγούδι',
+      blocoDeNotasCicloLabel: 'Κύκλος (προαιρετικό)',
+      blocoDeNotasCicloNenhum: 'Κανένας κύκλος',
+      blocoDeNotasSalvar: 'Αποθήκευση σημείωσης',
+      blocoDeNotasCancelar: 'Ακύρωση',
+      blocoDeNotasVoltar: 'Πίσω στη λίστα',
+      blocoDeNotasSemTexto: 'Γράψε κάτι πριν αποθηκεύσεις τη σημείωση.',
+      ciclosTitulo: 'Κύκλοι',
+      cicloNumeroPadraoPrefixo: 'Κύκλος',
+      cicloAtualBadge: 'Τρέχων',
+      cicloRenomearTooltip: 'Μετονομασία κύκλου',
+      cicloVerNoLogTooltip: 'Δείτε στο log — πάει στο πρώτο τραγούδι αυτού του κύκλου',
+      cicloRenomearPrompt: 'Όνομα κύκλου',
+      cicloMusicaSingular: 'τραγούδι',
+      cicloMusicaPlural: 'τραγούδια',
       diffAvisoTelaRecomendada:
         'Το Diff Check λειτουργεί καλύτερα στις οθόνες Μεταγραφής και Συγχρονισμού — σε αυτή την οθόνη η καταγραφή των στίχων μπορεί να είναι ελλιπής ή λανθασμένη.',
       diffModoCapturaLabel: 'Λειτουργία καταγραφής του Diff Check',
@@ -3441,6 +4095,9 @@ browser.storage.onChanged.addListener((changes, area) => {
       letraAtualizada: 'Οι στίχοι ενημερώθηκαν!',
       editarLetraPlaceholder: 'Επεξεργαστείτε τους στίχους εδώ...',
       ordenarFiltrarTitulo: 'Ταξινόμηση / φίλτρο',
+      adicionarEntradaVaziaTitulo: 'Προσθήκη κενού τραγουδιού για χειροκίνητη συμπλήρωση',
+      adicionarEntradaVaziaBotao: 'Προσθήκη κενού τραγουδιού',
+      entradaVaziaAdicionadaToast: 'Κενό τραγούδι προστέθηκε. Κάντε κλικ σε αυτό στο log για να συμπληρώσετε τίτλο και καλλιτέχνη.',
       ordenarPorData: 'Ημερομηνία (πιο πρόσφατη)',
       ordenarPorMissao: 'Αποστολή',
       ordenarAlfabetica: 'Αλφαβητική σειρά',
@@ -3751,14 +4408,31 @@ browser.storage.onChanged.addListener((changes, area) => {
     if (typeof atualizarBadgeNotificacoes === 'function') atualizarBadgeNotificacoes();
   }
 
+  // V3.5.3: mesmo padrão de atualizarIndicadorUpdateToolbar, só que pro
+  // aviso de "há um Diff manual minimizado esperando" — em vez de um ícone
+  // novo na barra (versão anterior, revertida por complexidade), o próprio
+  // ícone do Log ganha essa bolinha de aviso, em ambos os lugares onde ele
+  // aparece (barra de edição e pill da lista de tasks). diffManualMinimizado
+  // é a única fonte de verdade; ver minimizarDiffManual/restaurarDiffManual.
+  function atualizarIndicadorMinimizadoToolbar() {
+    const pontos = document.querySelectorAll('#mxm-log-minimizado-dot, .mxm-log-minimizado-dot-el');
+    pontos.forEach((ponto) => {
+      ponto.style.display = diffManualMinimizado ? 'block' : 'none';
+    });
+  }
+
   // ---------- sistema de notificações (sino no cabeçalho) ----------
 
   const DICAS_ROTATIVAS = [
     { chave: 'notifDicaTemas', acaoChave: 'configuracoes', acao: () => abrirPainelConfiguracoes('tema') },
-    { chave: 'notifDicaDiffCheck' },
-    { chave: 'notifDicaCopiarLetra' },
+    { chave: 'notifDicaDiffCheck', acaoChave: 'abrirDiffCheckAcao', acao: () => abrirDiffCheckComAviso() },
+    {
+      chave: 'notifDicaCopiarLetra',
+      // sem ação de navegação: só faz sentido dentro da própria tela de
+      // Transcrição/Sincronização, então essa dica fica só informativa.
+    },
     { chave: 'notifDicaSons', acaoChave: 'configuracoes', acao: () => abrirPainelConfiguracoes('sons') },
-    { chave: 'notifDicaDiffManual' },
+    { chave: 'notifDicaDiffManual', acaoChave: 'abrirDiffManualAcao', acao: () => abrirDiffManual() },
     { chave: 'notifDicaResumoDia', acaoChave: 'abrirLogDetalhado', acao: () => abrirPainelDetalhado() },
   ];
 
@@ -3961,11 +4635,13 @@ browser.storage.onChanged.addListener((changes, area) => {
           corToken: 'primary',
           titulo: t('notifBackupAutoTitulo'),
           descricao: preencherTemplate(t('notifBackupAutoDesc'), { data: dataBackupAuto }),
-          // leva direto até o interruptor de backup automático nas
-          // Configurações (ver destacarItemConfiguracao) — antes essa
-          // notificação era só informativa, sem nenhum botão.
+          // leva direto até o painel dedicado "Backup e Restauração"
+          // (ver abrirPainelBackup) — antes essa notificação era só
+          // informativa, sem nenhum botão; depois apontava pro
+          // interruptor dentro de Configurações, mas essa seção saiu de
+          // lá (ver V3.5.53) e todo backup agora mora só no painel.
           acaoLabel: t('notifBackupAutoAcao'),
-          onAcao: () => abrirPainelConfiguracoes('backupAutomatico'),
+          onAcao: () => abrirPainelBackup(),
         });
       }
     }
@@ -3979,9 +4655,31 @@ browser.storage.onChanged.addListener((changes, area) => {
         titulo: t('notifBackupNuvemTitulo'),
         descricao: t('notifBackupNuvemDesc'),
         acaoLabel: t('notifBackupNuvemAcao'),
-        // agora rola até e destaca a seção de backup na nuvem em
-        // vez de só abrir o painel de Configurações no topo.
-        onAcao: () => abrirPainelConfiguracoes('backupNuvem'),
+        // agora leva pro painel dedicado "Backup e Restauração" (ver
+        // abrirPainelBackup) — a seção de backup na nuvem saiu de dentro
+        // de Configurações (ver V3.5.53).
+        onAcao: () => abrirPainelBackup(),
+      });
+    }
+
+    // V3.5.52: avisa sobre o novo painel "Backup e Restauração" (grade
+    // "Ferramentas úteis") — id fixo por versão, some sozinha quando o
+    // usuário clica em "Ver painel" (dispensarNotificacao é chamado pelo
+    // próprio clique no botão de ação, ver abrirMenuNotificacoes) ou
+    // dispensa manualmente pelo X.
+    const idNovidadeBackup = 'novidadeBackup352';
+    if (!dispensadas.includes(idNovidadeBackup)) {
+      ativas.push({
+        id: idNovidadeBackup,
+        iconeNome: 'shield',
+        corToken: 'primary',
+        titulo: t('notifNovidadeBackupTitulo'),
+        descricao: t('notifNovidadeBackupDesc'),
+        acaoLabel: t('notifNovidadeBackupAcao'),
+        onAcao: () => {
+          marcarNotificacaoDispensada(idNovidadeBackup);
+          abrirPainelBackup();
+        },
       });
     }
 
@@ -4633,103 +5331,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     });
   }
 
-  // ---------- mensagem única de reinauguração ----------
-  const RELANCAMENTO_VERSAO = '2.144';
-  const STORAGE_RELANCAMENTO_VISTO_KEY = 'mxm_log_relancamento_visto_versao';
-
-  function jaViuRelancamento() {
-    try {
-      return localStorage.getItem(STORAGE_RELANCAMENTO_VISTO_KEY) === RELANCAMENTO_VERSAO;
-    } catch (e) {
-      return true; // não dá pra checar — não insiste mostrando de novo
-    }
-  }
-
-  function marcarRelancamentoVisto() {
-    try {
-      localStorage.setItem(STORAGE_RELANCAMENTO_VISTO_KEY, RELANCAMENTO_VERSAO);
-    } catch (e) {
-      console.error('[MXM Log de Envios] Não foi possível salvar a flag de reinauguração:', e);
-    }
-  }
-
-  function abrirRelancamentoFirefox() {
-    // mesmo padrão de espera do iniciarObservadorDom logo abaixo — evita
-    // depender de document.body já existir no momento exato do boot
-    // (run_at: document_start).
-    if (!document.body) {
-      requestAnimationFrame(abrirRelancamentoFirefox);
-      return;
-    }
-    if (!isTourVisto() || jaViuRelancamento()) return;
-
-    document.querySelectorAll('#mxm-log-relancamento-overlay').forEach((el) => el.remove());
-
-    const overlay = document.createElement('div');
-    overlay.id = 'mxm-log-relancamento-overlay';
-    Object.assign(overlay.style, {
-      position: 'fixed',
-      inset: '0',
-      background: 'color-mix(in srgb, var(--md-sys-color-scrim) 60%, transparent)',
-      zIndex: String(proximoZIndexFlutuante()),
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-    });
-
-    const destaques = [t('relancamentoDestaque1'), t('relancamentoDestaque2'), t('relancamentoDestaque3')];
-
-    overlay.innerHTML = `
-      <div style="background:var(--md-sys-color-surface-container-low); color:var(--md-sys-color-on-surface); width:380px; max-width:90vw; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); font-family:sans-serif; overflow:hidden;">
-        <div style="padding:22px 22px 4px; display:flex; align-items:flex-start; gap:12px;">
-          <div style="width:38px; height:38px; border-radius:50%; background:var(--md-sys-color-primary-container); display:flex; align-items:center; justify-content:center; flex-shrink:0;" class="mxm-icone-pop">${icone(
-            'sparkles',
-            18,
-            'var(--md-sys-color-on-primary-container)'
-          )}</div>
-          <div style="min-width:0;">
-            <div style="font-size:16px; font-weight:700; margin-bottom:4px;">${escapeHtml(t('relancamentoTitulo'))}</div>
-            <div style="font-size:12.5px; color:var(--md-sys-color-on-surface-variant); line-height:1.55;">${escapeHtml(
-              t('relancamentoMensagem')
-            )}</div>
-          </div>
-        </div>
-        <ul style="margin:14px 22px 4px; padding-left:18px; font-size:12.5px; line-height:1.7; color:var(--md-sys-color-on-surface);">
-          ${destaques.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
-        </ul>
-        <div style="display:flex; gap:8px; padding:20px;">
-          <button id="mxm-log-relancamento-tour" style="flex:1; padding:9px; border-radius:var(--md-shape-sm); border:1px solid var(--md-sys-color-outline-variant); background:transparent; color:var(--md-sys-color-on-surface-variant); font-size:13px; cursor:pointer;">${escapeHtml(
-            t('relancamentoRevertour')
-          )}</button>
-          <button id="mxm-log-relancamento-fechar" style="flex:1; padding:9px; border-radius:var(--md-shape-sm); border:none; background:var(--md-sys-color-primary); color:var(--md-sys-color-on-primary); font-size:13px; font-weight:600; cursor:pointer;">${escapeHtml(
-            t('relancamentoFechar')
-          )}</button>
-        </div>
-      </div>
-    `;
-
-    document.body.appendChild(overlay);
-    const cartao = overlay.firstElementChild;
-    animarEntradaCartao(cartao, { distancia: 8, duracao: 180 });
-    trazerParaFrente(overlay);
-
-    function fechar() {
-      marcarRelancamentoVisto();
-      fecharOverlayAnimado(overlay, cartao, { distancia: 8, duracao: 180 });
-    }
-
-    document.getElementById('mxm-log-relancamento-fechar').addEventListener('click', () => {
-      tocarSom('fechar');
-      fechar();
-    });
-    document.getElementById('mxm-log-relancamento-tour').addEventListener('click', () => {
-      fechar();
-      repetirTutorial();
-    });
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) fechar();
-    });
-  }
+  // ---------- mensagem única de reinauguração (removida — ver CHANGELOG) ----------
 
   // Checagem silenciosa automática — no máximo uma vez a cada 24h, e só
   // mostra popup se realmente houver versão mais nova (sem incomodar o
@@ -4749,6 +5351,217 @@ browser.storage.onChanged.addListener((changes, area) => {
         mostrarPopupAtualizacaoDisponivel(resultado.versaoRemota, resultado.notas);
       }
     });
+  }
+
+  // ---------- integração visual com o Payflow ----------
+  // As duas extensões rodam no mesmo site mas são independentes (sem
+  // mensageria entre extensões) — a "conexão" é só um aceno visual pro
+  // usuário que tem as duas instaladas: cada uma planta um marcador
+  // simples num atributo do <html> assim que carrega, e cada uma observa
+  // se o marcador da outra apareceu. Detecção puramente informativa, não
+  // troca nenhum dado real entre elas.
+  const ECHOFORM_DOM_MARKER = 'data-echoform-ativo';
+  const STORAGE_INTEGRACAO_PAYFLOW_VISTA_KEY = 'mxm_log_integracao_payflow_vista';
+  // Chave COMPARTILHADA (localStorage da página, não GM_*) — lida e escrita
+  // tanto pelo Echoform quanto pelo Payflow (e pela tela de integração
+  // unificada). Existe pra garantir que só um popup avulso de integração
+  // apareça no total, não um de cada extensão. GM_getValue/GM_setValue são
+  // isolados por userscript, então não servem pra essa coordenação cruzada.
+  const STORAGE_INTEGRACAO_COMPARTILHADA_KEY = 'mxm_integracao_echoform_payflow_avisada';
+
+  // Ícones das duas extensões embutidos como data URI (128px) — usados só
+  // na tela de integração abaixo. Sem isso não haveria como referenciar o
+  // ícone de uma extensão de dentro do userscript da outra: cada extensão
+  // só enxerga seus próprios arquivos empacotados, não os da vizinha.
+  const ECHOFORM_ICONE_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAWfmNhQlgAABZ+anVtYgAAAB5qdW1kYzJwYQARABCAAACqADibcQNjMnBhAAAAFlhqdW1iAAAAR2p1bWRjMm1hABEAEIAAAKoAOJtxA3VybjpjMnBhOjU4MzE1OGQ2LWU4MjAtNDQ3OC1hNmVjLTZiNjA1YzA0YTlkMwAAAAOTanVtYgAAAClqdW1kYzJhcwARABCAAACqADibcQNjMnBhLmFzc2VydGlvbnMAAAAAuGp1bWIAAABEanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5pbmdyZWRpZW50LnYzAAAAABhjMnNoBmna1zmBnnbNrJclqWUvcAAAAGxjYm9yo2lkYzpmb3JtYXRpaW1hZ2UvcG5namluc3RhbmNlSUR4LHhtcDppaWQ6ZGJjNjM5YWItNGNmYi00ZjVmLWJkYmMtNDJhMjhmZTAzNDU0bHJlbGF0aW9uc2hpcGhwYXJlbnRPZgAAAeJqdW1iAAAAQWp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuYWN0aW9ucy52MgAAAAAYYzJzaIDpKETQ/bXbyUuw3Ri30p8AAAGZY2JvcqJnYWN0aW9uc4KiZmFjdGlvbmtjMnBhLm9wZW5lZGpwYXJhbWV0ZXJzoWtpbmdyZWRpZW50c4GiY3VybHgtc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5pbmdyZWRpZW50LnYzZGhhc2hYIM31Sg+NcVS6XTb9Kh1WgS3+Jh9KxVrj0bcmNuKHqOerpGZhY3Rpb254HWNvbS5hbnRocm9waWMuY2xhdWRlLnByb3ZpZGVkanBhcmFtZXRlcnOheB9jb20uYW50aHJvcGljLm9yaWdpbi1jb25maWRlbmNlZ3Vua25vd25rZGVzY3JpcHRpb254ZkNsYXVkZSBwcm92aWRlZCB0aGlzIGZpbGUgYXQgdGhlIHJlcXVlc3Qgb2YgYSB1c2VyIGFuZCBtYXkgaGF2ZSBjcmVhdGVkIG9yIG1vZGlmaWVkIHRoZSBmaWxlIGNvbnRlbnRzLm1zb2Z0d2FyZUFnZW50oWRuYW1lZkNsYXVkZXJhbGxBY3Rpb25zSW5jbHVkZWT1AAAAyGp1bWIAAABAanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5oYXNoLmRhdGEAAAAAGGMyc2ig+183yrQX3un1E8MR0ifqAAAAgGNib3KlY2FsZ2ZzaGEyNTZjcGFkTQAAAAAAAAAAAAAAAABkaGFzaFggx/TR44o+cd1OSvThGOmQ+fJJeMQ+qmLrgZ2T1V1AP/5kbmFtZW5qdW1iZiBtYW5pZmVzdGpleGNsdXNpb25zgaJlc3RhcnQYIWZsZW5ndGgZFooAAAI+anVtYgAAACdqdW1kYzJjbAARABCAAACqADibcQNjMnBhLmNsYWltLnYyAAAAAg9jYm9ypWNhbGdmc2hhMjU2aXNpZ25hdHVyZXhNc2VsZiNqdW1iZj0vYzJwYS91cm46YzJwYTo1ODMxNThkNi1lODIwLTQ0NzgtYTZlYy02YjYwNWMwNGE5ZDMvYzJwYS5zaWduYXR1cmVqaW5zdGFuY2VJRHgseG1wOmlpZDpkZDU4NmY5MC1jYjgzLTRhNWItODI0Ny00NzM3ZDhmOTIyMjNyY3JlYXRlZF9hc3NlcnRpb25zg6JjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggzfVKD41xVLpdNv0qHVaBLf4mH0rFWuPRtyY24oeo56uiY3VybHgqc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5hY3Rpb25zLnYyZGhhc2hYIHgvnhBo42YpUKRp3/Ms/BkYae4Ru1xDSW5o9yQPysAZomN1cmx4KXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaGFzaC5kYXRhZGhhc2hYIDqDPL3jN1Ot1fs2apsid9mf6y7fFEPIAyHp7q/hI0WWdGNsYWltX2dlbmVyYXRvcl9pbmZvo2RuYW1lb0FudGhyb3BpYyBGaWxlc2d2ZXJzaW9uZTEuMC4wa3NwZWNWZXJzaW9uZTIuNC4wAAAQOGp1bWIAAAAoanVtZGMyY3MAEQAQgAAAqgA4m3EDYzJwYS5zaWduYXR1cmUAAAAQCGNib3LShFkCEqIBJhghWQIKMIICBjCCAY2gAwIBAgIUQOWgCu7COdC+uIP6BkIFPWdVEwAwCgYIKoZIzj0EAwMwSTEXMBUGA1UEChMOQW50aHJvcGljLCBQQkMxLjAsBgNVBAMTJUFudGhyb3BpYyBDb250ZW50IENyZWRlbnRpYWxzIFJvb3QgQ0EwHhcNMjYwODA3MTg0MzU2WhcNMjgwODA2MTk0MzU2WjBEMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEpMCcGA1UEAxMgQW50aHJvcGljIENsYXVkZSBDb250ZW50IFNpZ25pbmcwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASYegpry1AYBRTVNL1CpTlbROnY3dey+UrsF9C3phYrATN3ZHf93Mo8RQN0KOUuOn19P4oWNFWe5n2/She9N7eTo1gwVjAOBgNVHQ8BAf8EBAMCB4AwFQYDVR0lBA4wDAYKKwYBBAGD6F4CATAMBgNVHRMBAf8EAjAAMB8GA1UdIwQYMBaAFM5R4gSBTmRbI/jjxM+aPpzB11zCMAoGCCqGSM49BAMDA2cAMGQCMDFzHRSeAXrSy1WOzkbhPZ6Km2wGTmZ/2gK18k8BQGXyqz88Rdrz6CTX9flAnYNVxgIwcF9c3fVhqmJKpi+UhasNUMko69cyX6STPfta3Q8EjyzDjzoyrol46FP6VFHhvUcJoWNwYWRZDZ4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA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';
+  const PAYFLOW_ICONE_B64 = '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';
+
+  function anunciarPresencaEchoform() {
+    if (document.documentElement) {
+      document.documentElement.setAttribute(ECHOFORM_DOM_MARKER, '1');
+    }
+  }
+
+  function payflowDetectado() {
+    return !!(document.documentElement && document.documentElement.getAttribute('data-payflow-ativo') === '1');
+  }
+
+  function integracaoJaAvisadaCompartilhada() {
+    try {
+      return localStorage.getItem(STORAGE_INTEGRACAO_COMPARTILHADA_KEY) === '1';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function marcarIntegracaoAvisadaCompartilhada() {
+    try {
+      localStorage.setItem(STORAGE_INTEGRACAO_COMPARTILHADA_KEY, '1');
+    } catch (e) {
+      /* localStorage indisponível — segue só com a marcação própria abaixo */
+    }
+  }
+
+  function jaMostrouIntegracaoPayflow() {
+    // Considera tanto a marcação própria (GM_*) quanto a compartilhada:
+    // se o Payflow (ou a tela unificada) já avisou, o Echoform não avisa de novo.
+    return GM_getValue(STORAGE_INTEGRACAO_PAYFLOW_VISTA_KEY, false) === true
+      || integracaoJaAvisadaCompartilhada();
+  }
+
+  function marcarIntegracaoPayflowVista() {
+    GM_setValue(STORAGE_INTEGRACAO_PAYFLOW_VISTA_KEY, true);
+    marcarIntegracaoAvisadaCompartilhada();
+  }
+
+  // Mesmo padrão estrutural dos outros dialogs modais da extensão (ex.:
+  // abrirBoasVindas): overlay escurecido cobrindo a tela + cartão
+  // centralizado, clique fora fecha. Visual próprio (gradiente
+  // roxo-do-Echoform → verde-do-Payflow), não usa as variáveis de tema
+  // --md-sys-color-* como o resto da extensão, porque a identidade visual
+  // combinada das duas extensões é o ponto central dessa tela.
+  function mostrarPopupIntegracaoPayflow(opcoes) {
+    const modoTeste = !!(opcoes && opcoes.modoTeste);
+    // Marca "já visto" (própria + compartilhada) já ao EXIBIR, não ao
+    // fechar. Entre o popup aparecer e o usuário fechar existe uma janela
+    // de vários segundos onde o intervalo de checagem do Payflow também
+    // roda — se a marcação só acontecesse no fechamento, os dois popups
+    // poderiam abrir juntos nessa janela (condição de corrida). Marcando
+    // aqui na abertura, o Payflow já vê a chave compartilhada marcada na
+    // checagem seguinte, mesmo enquanto este popup ainda está na tela.
+    if (!modoTeste) marcarIntegracaoPayflowVista();
+    tocarSom('avisoSuave');
+    document.querySelectorAll('#mxm-log-integracao-payflow-overlay').forEach((el) => el.remove());
+
+    const overlay = document.createElement('div');
+    overlay.id = 'mxm-log-integracao-payflow-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      background: 'rgba(8, 6, 16, 0.6)',
+      zIndex: proximoZIndexFlutuante(),
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '20px',
+      opacity: '0',
+      transition: 'opacity 0.25s ease',
+    });
+
+    const card = document.createElement('div');
+    Object.assign(card.style, {
+      width: '380px',
+      maxWidth: '100%',
+      maxHeight: '92vh',
+      overflowY: 'auto',
+      borderRadius: '20px',
+      boxShadow: '0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)',
+      background:
+        'radial-gradient(circle at 30% 20%, #3d2a6b 0%, transparent 55%), ' +
+        'radial-gradient(circle at 75% 75%, #1e5c4a 0%, transparent 55%), ' +
+        'linear-gradient(160deg, #1a1330 0%, #10141f 60%, #0c1a16 100%)',
+      padding: '32px 26px 26px',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      textAlign: 'center',
+      color: '#fff',
+      fontFamily: 'sans-serif',
+      transform: 'scale(0.96) translateY(6px)',
+      transition: 'transform 0.25s ease',
+    });
+
+    card.innerHTML = `
+      <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; color:#c9b8ff; background:rgba(157,122,255,0.15); border:1px solid rgba(157,122,255,0.35); padding:5px 14px; border-radius:999px; margin-bottom:26px; text-transform:uppercase;">✦ ${escapeHtml(
+        t('integracaoPayflowBadge')
+      )}</div>
+
+      <div style="display:flex; align-items:center; justify-content:center; margin-bottom:24px; position:relative;">
+        <div style="width:76px; height:76px; border-radius:20px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); box-shadow:0 0 30px rgba(147,112,219,0.45); margin-right:-13px; position:relative; z-index:2;">
+          <img src="data:image/png;base64,${ECHOFORM_ICONE_B64}" alt="Echoform" style="width:48px; height:48px; border-radius:11px;">
+        </div>
+        <div style="width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg, #9d7aff, #40c8a0); display:flex; align-items:center; justify-content:center; z-index:3; box-shadow:0 0 20px rgba(157,122,255,0.6); font-size:15px;">🔗</div>
+        <div style="width:76px; height:76px; border-radius:20px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); box-shadow:0 0 30px rgba(64,200,160,0.45); margin-left:-13px; position:relative; z-index:2;">
+          <img src="data:image/png;base64,${PAYFLOW_ICONE_B64}" alt="Payflow" style="width:48px; height:48px; border-radius:11px;">
+        </div>
+      </div>
+
+      <div style="font-size:19px; font-weight:700; margin:0 0 10px; background:linear-gradient(90deg, #c9b8ff, #7ee8c7); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;">${escapeHtml(
+        t('integracaoPayflowTitulo')
+      )}</div>
+      <div style="font-size:13px; color:#b8b8c9; line-height:1.6; margin:0 0 24px;">${escapeHtml(
+        t('integracaoPayflowTexto')
+      )}</div>
+
+      <div style="width:100%; display:flex; flex-direction:column; gap:9px; margin-bottom:24px;">
+        <div style="display:flex; align-items:center; gap:10px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:10px 13px; text-align:left; font-size:12px; color:#d8d8e6;">
+          <span style="width:7px; height:7px; border-radius:50%; background:#9d7aff; flex-shrink:0;"></span>${escapeHtml(
+            t('integracaoPayflowFeature1')
+          )}
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:10px 13px; text-align:left; font-size:12px; color:#d8d8e6;">
+          <span style="width:7px; height:7px; border-radius:50%; background:#40c8a0; flex-shrink:0;"></span>${escapeHtml(
+            t('integracaoPayflowFeature2')
+          )}
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:10px 13px; text-align:left; font-size:12px; color:#d8d8e6;">
+          <span style="width:7px; height:7px; border-radius:50%; background:#ffb347; flex-shrink:0;"></span>${escapeHtml(
+            t('integracaoPayflowFeature3')
+          )}
+        </div>
+      </div>
+
+      <button id="mxm-log-integracao-payflow-ativar" style="width:100%; padding:13px; border-radius:12px; border:none; background:linear-gradient(90deg, #9d7aff, #40c8a0); color:#0c0c14; font-weight:700; font-size:14px; cursor:pointer;">${escapeHtml(
+        t('integracaoPayflowBotaoAtivar')
+      )}</button>
+      <button id="mxm-log-integracao-payflow-agora-nao" style="margin-top:12px; font-size:12px; color:#8a8a9c; background:none; border:none; cursor:pointer; text-decoration:underline;">${escapeHtml(
+        t('integracaoPayflowBotaoAgoraNao')
+      )}</button>
+    `;
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    trazerParaFrente(overlay);
+
+    if (isAnimacoesAtiva()) {
+      requestAnimationFrame(() => {
+        overlay.style.opacity = '1';
+        card.style.transform = 'scale(1) translateY(0)';
+      });
+    } else {
+      overlay.style.transition = 'none';
+      card.style.transition = 'none';
+      overlay.style.opacity = '1';
+      card.style.transform = 'scale(1) translateY(0)';
+    }
+
+    const fechar = () => {
+      if (isAnimacoesAtiva()) {
+        overlay.style.opacity = '0';
+        card.style.transform = 'scale(0.96) translateY(6px)';
+        setTimeout(() => overlay.remove(), 200);
+      } else {
+        overlay.remove();
+      }
+    };
+
+    // A flag "já visto" já foi marcada na abertura (ver início da função),
+    // então aqui só precisamos fechar — em qualquer um dos três casos.
+    overlay.querySelector('#mxm-log-integracao-payflow-ativar').addEventListener('click', fechar);
+    overlay.querySelector('#mxm-log-integracao-payflow-agora-nao').addEventListener('click', fechar);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) fechar();
+    });
+  }
+
+  // Checagem leve (reaproveitando o intervalo curto do observador de DOM
+  // já existente não seria ideal aqui — o Payflow pode carregar bem
+  // depois do Echoform, então isso roda por conta própria, sem pressa,
+  // parando assim que encontra o marcador ou já mostrou o aviso 1x).
+  function verificarIntegracaoPayflow() {
+    if (jaMostrouIntegracaoPayflow()) return;
+    if (!payflowDetectado()) return;
+    mostrarPopupIntegracaoPayflow();
   }
 
   // ---------- Config: mostrar/esconder número no ícone (bolha verde) ----------
@@ -4787,6 +5600,17 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   // Reordena (e anota com _grupoChave/_grupoRotulo) as entradas já
   // filtradas pela busca, de acordo com o modo de ordenação atual. O
+  // Ordena as chaves "MM/YYYY" cronologicamente (ascendente) — usada pra
+  // numerar o rótulo "Ciclo N" de sub-grupos no mesmo dia (mais antigo = 1,
+  // mais novo = 2) dentro de aplicarOrdenacaoEAgrupamento, e também pra
+  // decidir qual lado de um corte de ciclo é "iniciado" vs "encerrado" em
+  // renderPainelLista, sem depender da ordem em que os grupos aparecem na
+  // tela (a lista pode estar em qualquer ordenação).
+  function ordemCronologicaChaveMesAno(chave) {
+    const [mes, ano] = chave.split('/').map(Number);
+    return ano * 12 + mes;
+  }
+
   // agrupamento visual (cabeçalhos "sticky" da lista) usa _grupoChave pra
   // decidir quando trocar de cabeçalho, e _grupoRotulo como texto do
   // cabeçalho — assim renderPainelLista não precisa saber os detalhes de
@@ -4839,6 +5663,11 @@ browser.storage.onChanged.addListener((changes, area) => {
     // sempre por último, depois de todos os grupos de data — mesmo padrão
     // já usado pelo modo "missão" pra agrupar o que não se encaixa nos
     // grupos normais (ali é "sem missão", aqui é a origem manual).
+    // V3.4.60: só o 'manual' antigo (marcação clicando numa linha da
+    // lista, com o modo manual ativo) sai do agrupamento por dia — o
+    // 'manual-vazio' (botão "+" de entrada em branco) segue o fluxo
+    // normal por data, aparecendo no topo do dia de hoje como
+    // qualquer outra entrada recém-criada.
     const automaticas = copia.filter((e) => e.origem !== 'manual');
     const manuais = copia.filter((e) => e.origem === 'manual');
 
@@ -4864,13 +5693,11 @@ browser.storage.onChanged.addListener((changes, area) => {
       ciclosPorData.get(e.data).add(ciclo);
     });
 
-    // Ordena as chaves "MM/YYYY" cronologicamente (ascendente) pra numerar
-    // "Ciclo 1" = o mais antigo (mês que está terminando), "Ciclo 2" = o
-    // mais novo (mês que já começou pra fins de missão).
-    function ordemCronologicaChaveMesAno(chave) {
-      const [mes, ano] = chave.split('/').map(Number);
-      return ano * 12 + mes;
-    }
+    // Ordena as chaves "MM/YYYY" cronologicamente (ascendente) — usada só
+    // pra numerar o rótulo "Ciclo N" de sub-grupos no mesmo dia (mais
+    // antigo = 1, mais novo = 2). O separador visual de corte de ciclo
+    // (mais abaixo) usa o nome do mês em vez de número — ver _chaveCiclo.
+    // (função movida para escopo de módulo, ver ordemCronologicaChaveMesAno acima)
 
     const automaticasAgrupadas = automaticas.map((e) => {
       const rotuloBase = formatarRotuloData(e.data);
@@ -4878,7 +5705,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       const ciclo = cicloPorEntradaAutomatica.get(e);
 
       if (!ciclo || !ciclosDoDia || ciclosDoDia.size < 2) {
-        return { ...e, _grupoChave: e.data, _grupoRotulo: rotuloBase };
+        return { ...e, _grupoChave: e.data, _grupoRotulo: rotuloBase, _chaveCiclo: ciclo || null };
       }
 
       const ordenados = Array.from(ciclosDoDia).sort(
@@ -4891,6 +5718,13 @@ browser.storage.onChanged.addListener((changes, area) => {
         _grupoChave: `${e.data}\u0000ciclo${ciclo}`,
         _grupoRotulo: `${rotuloBase} · ${t('cicloLabel')} ${numeroCiclo}`,
         _corteCiclo: true,
+        // chave crua do ciclo (ex: "09/2026") — usada no separador visual
+        // de corte de ciclo (ver renderPainelLista), formatada ali com
+        // formatarRotuloMes pra virar algo como "set/26". Um nome de mês
+        // não depende de nenhuma ordem de exibição pra fazer sentido,
+        // diferente de numerar "Ciclo 1/2" (que dava a impressão de
+        // inverter dependendo de qual grupo aparece primeiro na tela).
+        _chaveCiclo: ciclo,
       };
     });
 
@@ -4903,6 +5737,12 @@ browser.storage.onChanged.addListener((changes, area) => {
       const cicloAnterior = chaveCicloDaEntrada(anterior);
       if (cicloAtual && cicloAnterior && cicloAtual !== cicloAnterior) {
         atual._corteCiclo = true;
+        // este caminho (transição de dia detectada só aqui, fora do
+        // sub-agrupamento por dia acima) não passava por _chaveCiclo
+        // antes — o separador ficava sem nome de mês dos dois lados.
+        // Preenche aqui pra cobrir também este caso.
+        if (atual._chaveCiclo == null) atual._chaveCiclo = cicloAtual;
+        if (anterior._chaveCiclo == null) anterior._chaveCiclo = cicloAnterior;
       }
     }
 
@@ -5018,7 +5858,11 @@ browser.storage.onChanged.addListener((changes, area) => {
   // ---------- selo de "verificado" (easter egg escondido) ----------
 
   function isSeloVerificadoAtivo() {
-    return localStorage.getItem(STORAGE_SELO_VERIFICADO_KEY) === '1';
+    if (localStorage.getItem(STORAGE_SELO_VERIFICADO_KEY) === '1') return true;
+    // selo automático pra quem tem o backup automático na nuvem ligado —
+    // funciona como um indicativo de "conta com dados sincronizados",
+    // sem depender do easter egg de 15 cliques nem do nome do curator.
+    return isBackupNuvemAutomaticoAtivo();
   }
 
   function setSeloVerificadoAtivo(ativo) {
@@ -5233,6 +6077,33 @@ browser.storage.onChanged.addListener((changes, area) => {
     localStorage.setItem(STORAGE_SOM_ATIVO_KEY, value ? '1' : '0');
   }
 
+  // ---------- Config: notificar pelo Windows em vez do popup próprio ----------
+  // Quando ativo, o popup de "envio registrado" (showPopup) some e vira uma
+  // notificação nativa do sistema operacional (via background.js +
+  // browser.notifications) — não é uma opção sincronizada por backup de
+  // propósito: é uma preferência de dispositivo (o notebook pode não ser
+  // Windows, por exemplo), então cada instância decide por conta própria.
+  // Desligado por padrão (o popup próprio continua sendo o comportamento
+  // de sempre, quem quiser o outro comportamento liga explicitamente).
+
+  function isNotificarPeloWindowsAtivo() {
+    return localStorage.getItem(STORAGE_NOTIFICAR_WINDOWS_KEY) === '1';
+  }
+
+  function setNotificarPeloWindowsAtivo(value) {
+    localStorage.setItem(STORAGE_NOTIFICAR_WINDOWS_KEY, value ? '1' : '0');
+  }
+
+  // manda o texto equivalente ao popup pra background.js, que dispara a
+  // notificação nativa (content script não tem acesso direto à API
+  // browser.notifications). Falha em silêncio no console se o SO/Firefox
+  // recusar por qualquer motivo — não deve travar o registro do envio.
+  function enviarNotificacaoWindows({ titulo, corpo }) {
+    browser.runtime
+      .sendMessage({ type: 'mxm-log-notificacao-nativa', titulo, mensagem: corpo })
+      .catch((erro) => console.warn('[Log de Envios] Falha ao disparar notificação do Windows.', erro));
+  }
+
   // ---------- Config: mutar/desmutar a musiquinha do resumo mensal ----------
 
   function isResumoMusicaMutado() {
@@ -5246,7 +6117,7 @@ browser.storage.onChanged.addListener((changes, area) => {
   // ---------- Config: ligar/desligar aviso de recarregar antes do Diff Check ----------
 
   function isAvisoRecarregarDiffCheckAtivo() {
-    // mudado o padrão pra DESLIGADO a pedido do usuário — quem
+    // mudado o padrão pra DESLIGADO — quem
     // quiser o aviso de volta liga explicitamente aqui.
     return localStorage.getItem(STORAGE_AVISO_RECARREGAR_DIFFCHECK_KEY) === '1';
   }
@@ -5265,6 +6136,86 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   function setBackupAutomaticoAtivo(value) {
     localStorage.setItem(STORAGE_BACKUP_AUTOMATICO_ATIVO_KEY, value ? '1' : '0');
+  }
+
+  // ---------- Config: backup automático na nuvem ----------
+  // Opt-in (padrão desligado) porque, diferente do backup em disco, esse
+  // exige ter feito login com Google alguma vez — sem isso o envio
+  // silencioso simplesmente não faz nada (ver
+  // mxmVerificarBackupNuvemAutomaticoPeriodico). Pensado pra quem alterna
+  // entre PC e notebook e esquece de sincronizar manualmente.
+
+  function isBackupNuvemAutomaticoAtivo() {
+    return localStorage.getItem(STORAGE_BACKUP_NUVEM_AUTOMATICO_ATIVO_KEY) === '1';
+  }
+
+  function setBackupNuvemAutomaticoAtivo(value) {
+    localStorage.setItem(STORAGE_BACKUP_NUVEM_AUTOMATICO_ATIVO_KEY, value ? '1' : '0');
+  }
+
+  // Frequência do envio automático pra nuvem — três opções fixas, cada
+  // uma mapeada pro intervalo mínimo (em ms) que precisa ter passado
+  // desde o último envio automático (ver INTERVALOS_BACKUP_NUVEM_MS logo
+  // abaixo de mxmVerificarBackupNuvemAutomaticoPeriodico). 'diario' é o
+  // valor default — mesmo comportamento de antes desta opção existir.
+  function getFrequenciaBackupNuvemAutomatico() {
+    const valor = localStorage.getItem(STORAGE_FREQUENCIA_BACKUP_NUVEM_KEY);
+    return valor === 'semanal' || valor === 'mensal' ? valor : 'diario';
+  }
+
+  function setFrequenciaBackupNuvemAutomatico(valor) {
+    localStorage.setItem(STORAGE_FREQUENCIA_BACKUP_NUVEM_KEY, valor);
+  }
+
+  // Mesmo padrão acima, agora pro destino Google Drive — chaves próprias,
+  // não misturadas com as do Firestore (ver STORAGE_BACKUP_DRIVE_AUTOMATICO_ATIVO_KEY).
+  function isBackupDriveAutomaticoAtivo() {
+    return localStorage.getItem(STORAGE_BACKUP_DRIVE_AUTOMATICO_ATIVO_KEY) === '1';
+  }
+
+  function setBackupDriveAutomaticoAtivo(value) {
+    localStorage.setItem(STORAGE_BACKUP_DRIVE_AUTOMATICO_ATIVO_KEY, value ? '1' : '0');
+  }
+
+  function getFrequenciaBackupDriveAutomatico() {
+    const valor = localStorage.getItem(STORAGE_FREQUENCIA_BACKUP_DRIVE_KEY);
+    return valor === 'semanal' || valor === 'mensal' ? valor : 'diario';
+  }
+
+  function setFrequenciaBackupDriveAutomatico(valor) {
+    localStorage.setItem(STORAGE_FREQUENCIA_BACKUP_DRIVE_KEY, valor);
+  }
+
+  // ---------- palavras suspeitas na letra capturada (indício de erro no envio) ----------
+  // Se algum desses termos aparece na letra capturada, é bem provável que a
+  // letra tenha sido salva errada (ex: placeholder de idioma indeterminado,
+  // ou o nome do próprio idioma vazando pro corpo da letra por engano).
+  const PALAVRAS_LETRA_SUSPEITA = ['Undetermined', 'English', 'Portuguese', 'Reward', 'task completed'];
+  const REGEX_LETRA_SUSPEITA = new RegExp(
+    '\\b(?:' + PALAVRAS_LETRA_SUSPEITA.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b',
+    'i'
+  );
+
+  function letraPossuiPalavraSuspeita(texto) {
+    if (!texto) return false;
+    return REGEX_LETRA_SUSPEITA.test(texto);
+  }
+
+  // ---------- marcar aviso de letra suspeita como falso positivo ----------
+  // Guardado no próprio registro do log (sobrevive a export/import/backup
+  // igual aos outros campos) — uma vez marcado, o aviso some pra essa
+  // entrada mesmo que a letra ainda contenha os termos suspeitos.
+  function letraAvisoMarcadoComoFalsoPositivo(entrada) {
+    return !!(entrada && entrada.letraFalsoPositivo);
+  }
+
+  function marcarLetraComoFalsoPositivo(key) {
+    const logs = getLogs();
+    const entrada = logs[key];
+    if (!entrada) return;
+    entrada.letraFalsoPositivo = true;
+    saveLogs(logs);
+    renderPainelLista();
   }
 
   // ---------- Config: capturar letra completa (com tags de estrutura) junto com o registro, no momento do clique real em "Enviar" ----------
@@ -5306,8 +6257,8 @@ browser.storage.onChanged.addListener((changes, area) => {
   // ---------- Comparação exata: agora é o único comportamento do diff — o
   // texto é comparado exatamente como foi colado/capturado, sem normalizar
   // espaços/tabs/reticências antes. Existiu por um tempo como opção
-  // desligada por padrão (com botão pra ligar), mas o usuário pediu pra
-  // virar o padrão fixo e tirar o botão — normalizarLinhaLetra() não é
+  // desligada por padrão (com botão pra ligar), mas virou o padrão fixo
+  // e o botão foi removido — normalizarLinhaLetra() não é
   // mais usada em calcularDiffLinhas. ----------
   function isDiffComparacaoExataAtiva() {
     return true;
@@ -5434,6 +6385,11 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   // ---------- "Diffs salvos" — lista de comparações (do Diff Check ou do Diff manual) que o usuário decidiu guardar pra revisitar depois, sem precisar colar/capturar as letras de novo. Cada entrada carrega o texto completo dos dois lados, então usa o mesmo mecanismo de storage do log principal (GM_setValue), não localStorage — mais espaço e mais confiável pra dados desse tamanho. ----------
   const STORAGE_DIFFS_SALVOS_KEY = 'mxm_log_diffs_salvos_v1';
+  // "Bloco de notas" — anotações livres do usuário, opcionalmente
+  // vinculadas a uma música (título/artista) e/ou a um ciclo específico
+  // (chave "MM/AAAA", mesmo formato usado em getNomesCiclos). Ver
+  // getNotas/salvarNovaNota/atualizarNota/removerNota, logo abaixo.
+  const STORAGE_NOTAS_KEY = 'mxm_log_notas_v1';
 
   function getDiffsSalvos() {
     return GM_getValue(STORAGE_DIFFS_SALVOS_KEY, []);
@@ -5460,6 +6416,67 @@ browser.storage.onChanged.addListener((changes, area) => {
     const lista = getDiffsSalvos().filter((d) => d.id !== id);
     GM_setValue(STORAGE_DIFFS_SALVOS_KEY, lista);
     return lista;
+  }
+
+  // ---------- "Bloco de notas" — anotações livres do usuário (ver abrirBlocoDeNotas) ----------
+  // Cada nota é { id, criadoEm, atualizadoEm, texto, musicaTitulo,
+  // musicaArtista, cicloChave }. `musicaTitulo`/`musicaArtista` e
+  // `cicloChave` são opcionais — a nota pode não citar nem música nem
+  // ciclo, e servem só de contexto/filtro dentro do painel.
+
+  function getNotas() {
+    return GM_getValue(STORAGE_NOTAS_KEY, []);
+  }
+
+  // `entrada` é { texto, musicaTitulo, musicaArtista, cicloChave } — o
+  // resto (id/criadoEm/atualizadoEm) é preenchido aqui. Entra sempre no
+  // topo da lista (mais recente primeiro).
+  function salvarNovaNota(entrada) {
+    const lista = getNotas();
+    const agora = mxmAgoraMs();
+    lista.unshift({
+      id: `nota_${agora}_${Math.random().toString(36).slice(2, 8)}`,
+      criadoEm: agora,
+      atualizadoEm: agora,
+      ...entrada,
+    });
+    GM_setValue(STORAGE_NOTAS_KEY, lista);
+    return lista;
+  }
+
+  function atualizarNota(id, campos) {
+    const lista = getNotas();
+    const indice = lista.findIndex((n) => n.id === id);
+    if (indice === -1) return lista;
+    lista[indice] = { ...lista[indice], ...campos, atualizadoEm: mxmAgoraMs() };
+    GM_setValue(STORAGE_NOTAS_KEY, lista);
+    return lista;
+  }
+
+  function removerNota(id) {
+    const lista = getNotas().filter((n) => n.id !== id);
+    GM_setValue(STORAGE_NOTAS_KEY, lista);
+    return lista;
+  }
+
+  // lista { titulo, artista } únicos já vistos no log, mais recentes
+  // primeiro — usada como sugestão no autocomplete de "música" do Bloco
+  // de notas (ver abrirBlocoDeNotas).
+  function getMusicasConhecidasParaAutocomplete() {
+    const logs = getLogs();
+    const vistos = new Set();
+    const resultado = [];
+    Object.values(logs)
+      .slice()
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+      .forEach((entrada) => {
+        if (!entrada || !entrada.titulo) return;
+        const chave = normalizeKey(entrada.titulo, entrada.artista || '');
+        if (vistos.has(chave)) return;
+        vistos.add(chave);
+        resultado.push({ titulo: entrada.titulo, artista: entrada.artista || '' });
+      });
+    return resultado;
   }
 
   // ---------- Config: "Perfis de uso" (mostrar/esconder as features pesadas do cabeçalho: Detalhado, Reward, Comparar) ----------
@@ -7480,7 +8497,41 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   // ---------- tamanho ajustável do painel principal ----------
 
-  function getTamanhoPainelSalvo(chave) {
+  // Só o painel principal do log (mxm-log-painel) usa esse limite maior,
+  // e só quando há músicas suficientes pra lista não sofrer o bug de
+  // cálculo da barra de rolagem custom (ver PAINEL_ALTURA_MAX_EXPANDIDA).
+  // Respeita o modo de simulação de lista (vazia/1 música) do painel de
+  // debug — senão o teto continuaria "grande" mesmo simulando uma lista
+  // curta, já que o total real salvo no log não muda com a simulação.
+  function getAlturaMaximaPainelLog() {
+    const modoSimulacao = getModoSimulacaoLista();
+    const totalMusicas =
+      modoSimulacao === 'vazia' ? 0 : modoSimulacao === 'uma' ? 1 : Object.keys(getLogs()).length;
+    return totalMusicas > LIMITE_MUSICAS_ALTURA_EXPANDIDA ? PAINEL_ALTURA_MAX_EXPANDIDA : PAINEL_ALTURA_MAX;
+  }
+
+  // Reage ao vivo quando o total de músicas "visto" pelo painel muda
+  // enquanto ele já está aberto (hoje só disparado pelo simulador de
+  // lista do modo debug — ver aplicarModoSimulacaoLista). Se o novo teto
+  // for menor que a altura atual, encolhe o painel na hora (com
+  // transição suave) e já salva o tamanho novo, senão o próximo reload
+  // ia "esquecer" o encolhimento e reabrir do tamanho antigo de novo.
+  // Se o painel do log não estiver aberto, não faz nada.
+  function ajustarAlturaPainelLogAoVivo() {
+    const painel = document.getElementById('mxm-log-painel');
+    if (!painel) return;
+    const novaAlturaMaxima = getAlturaMaximaPainelLog();
+    const alturaAtual = painel.getBoundingClientRect().height;
+    if (alturaAtual <= novaAlturaMaxima) return;
+    painel.style.transition = 'height .22s ease';
+    painel.style.height = `${novaAlturaMaxima}px`;
+    setTamanhoPainelSalvo(STORAGE_TAMANHO_PAINEL_KEY, painel.getBoundingClientRect().width, novaAlturaMaxima);
+    setTimeout(() => {
+      painel.style.transition = '';
+    }, 240);
+  }
+
+  function getTamanhoPainelSalvo(chave, alturaMaxima) {
     try {
       const bruto = JSON.parse(localStorage.getItem(chave || STORAGE_TAMANHO_PAINEL_KEY));
       const largura = parseFloat(bruto && bruto.largura);
@@ -7488,7 +8539,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       if (!Number.isFinite(largura) || !Number.isFinite(altura)) return null;
       return {
         largura: Math.min(Math.max(largura, PAINEL_LARGURA_MIN), PAINEL_LARGURA_MAX),
-        altura: Math.min(Math.max(altura, PAINEL_ALTURA_MIN), PAINEL_ALTURA_MAX),
+        altura: Math.min(Math.max(altura, PAINEL_ALTURA_MIN), alturaMaxima || PAINEL_ALTURA_MAX),
       };
     } catch (e) {
       return null;
@@ -7527,7 +8578,11 @@ browser.storage.onChanged.addListener((changes, area) => {
   // mudar largura/altura (com limites mín/máx), trava dentro da tela e
   // salva o novo tamanho no localStorage a cada solta do mouse — assim a
   // próxima vez que o painel abrir, já nasce do tamanho escolhido.
-  function tornarRedimensionavel(janela, alca, storageKey) {
+  // alturaMaximaOverride: usado só pelo painel principal do log, que tem
+  // um teto de altura maior quando há músicas suficientes (ver
+  // getAlturaMaximaPainelLog) — os demais painéis não passam esse
+  // parâmetro e continuam limitados a PAINEL_ALTURA_MAX.
+  function tornarRedimensionavel(janela, alca, storageKey, alturaMaximaOverride) {
     if (!janela || !alca) return;
 
     let redimensionando = false;
@@ -7551,6 +8606,7 @@ browser.storage.onChanged.addListener((changes, area) => {
 
     function mover(e) {
       if (!redimensionando) return;
+      const alturaMaxima = alturaMaximaOverride || PAINEL_ALTURA_MAX;
       const espacoDisponivelLargura = window.innerWidth - janela.getBoundingClientRect().left;
       const espacoDisponivelAltura = window.innerHeight - janela.getBoundingClientRect().top;
 
@@ -7558,7 +8614,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       let novaAltura = alturaInicial + (e.clientY - mouseYInicial);
 
       novaLargura = Math.min(Math.max(novaLargura, PAINEL_LARGURA_MIN), Math.min(PAINEL_LARGURA_MAX, espacoDisponivelLargura));
-      novaAltura = Math.min(Math.max(novaAltura, PAINEL_ALTURA_MIN), Math.min(PAINEL_ALTURA_MAX, espacoDisponivelAltura));
+      novaAltura = Math.min(Math.max(novaAltura, PAINEL_ALTURA_MIN), Math.min(alturaMaxima, espacoDisponivelAltura));
 
       janela.style.width = `${novaLargura}px`;
       janela.style.height = `${novaAltura}px`;
@@ -7814,6 +8870,131 @@ browser.storage.onChanged.addListener((changes, area) => {
       .trim();
   }
 
+  // ---------- Deduplicação padrão (usada em qualquer mesclagem de logs) ----------
+
+  // Função padrão de deduplicação: dado um log (objeto chave->registro) e os
+  // dados de uma música que está entrando de fora (backup completo, .txt
+  // exportado, log de outro dispositivo/instância...), acha se essa MESMA
+  // música já existe no log — mesmo que sob uma chave diferente da que essa
+  // entrada geraria normalmente. Isso cobre o caso real de juntar logs feitos
+  // em instâncias diferentes (ex.: notebook x computador), onde a mesma
+  // música pode ter sido salva com ID de um lado e sem ID do outro, ou com
+  // pequenas diferenças de grafia — casos que uma simples comparação de
+  // chave (logs[chave]) deixa passar como "música nova" e cria duplicata.
+  //
+  // Ordem de prioridade pra achar duplicata:
+  //   1) chave por ID (id:<commontrackId>) — a mais confiável que existe.
+  //   2) qualquer registro já salvo que tenha esse MESMO commontrackId no
+  //      campo, ainda que esteja guardado sob uma chave diferente.
+  //   3) chave normalizada por título+artista.
+  //   4) qualquer registro cujo título+artista normalizados batam, mesmo
+  //      estando sob uma chave textual diferente (ex.: um lado tem ID, o
+  //      outro não, então geram chaves de texto diferentes pra mesma música).
+  // Retorna a CHAVE (string) do registro já existente, ou null se for uma
+  // música realmente nova pro log.
+  function encontrarChaveLogDuplicado(logs, entrada) {
+    const commontrackId = entrada && entrada.commontrackId;
+    const titulo = entrada && entrada.titulo;
+    const artista = entrada && entrada.artista;
+
+    if (commontrackId) {
+      const chaveId = `id:${commontrackId}`;
+      if (logs[chaveId]) return chaveId;
+      const porCampoId = Object.keys(logs).find((chave) => logs[chave] && logs[chave].commontrackId === commontrackId);
+      if (porCampoId) return porCampoId;
+    }
+
+    // Entradas "sem detalhes" usam título/artista placeholder (ex.: "Sem
+    // detalhes") pra todas as músicas não identificadas — comparar esse
+    // texto por normalizeKey juntaria várias músicas diferentes numa só.
+    // Por isso essas entradas só podem casar por ID (acima), nunca por nome.
+    if (titulo && artista && !(entrada && entrada.semDetalhes)) {
+      const chaveNome = normalizeKey(titulo, artista);
+      if (logs[chaveNome]) return chaveNome;
+      const porNome = Object.keys(logs).find((chave) => {
+        if (chave === chaveNome) return false; // já testado acima
+        const reg = logs[chave];
+        return (
+          reg &&
+          !reg.semDetalhes &&
+          reg.titulo &&
+          reg.artista &&
+          normalizeKey(reg.titulo, reg.artista) === chaveNome
+        );
+      });
+      if (porNome) return porNome;
+    }
+
+    return null;
+  }
+
+  // Escolhe a "melhor" letra entre duas versões da mesma música ao mesclar
+  // registros — prefere sempre a mais completa (mais longa), caindo pra
+  // qualquer uma não-vazia disponível quando só um dos lados tem letra salva.
+  function escolherMelhorLetraDuplicata(letraA, letraB) {
+    const a = (letraA || '').trim();
+    const b = (letraB || '').trim();
+    if (!a) return b || null;
+    if (!b) return a;
+    return b.length >= a.length ? b : a;
+  }
+
+  // Combina um registro já existente no log com uma entrada nova que a
+  // função acima identificou como a MESMA música — usado tanto quando a
+  // chave textual bate exatamente quanto quando bate só por ID/nome (chaves
+  // diferentes). Nunca cria um segundo registro: sempre devolve UM registro
+  // só, com o melhor de cada lado.
+  //
+  // mesmaChaveTextual=true preserva o comportamento já existente (mantém o
+  // MAIOR número de tentativas, sem somar) — importante pra reimportar o
+  // mesmo backup várias vezes não inflar o contador à toa.
+  // mesmaChaveTextual=false SOMA as tentativas: nesse caso os dois registros
+  // vieram de chaves diferentes, ou seja, de sessões/dispositivos que não
+  // sabiam da existência um do outro — são envios de fato distintos da
+  // mesma música, então a soma é a contagem real (ex.: o caso de juntar o
+  // log do notebook com o do computador).
+  function mesclarRegistrosDuplicados(existente, novo, { mesmaChaveTextual }) {
+    const existenteTemDetalhes = Boolean(existente) && !existente.semDetalhes;
+    const novoTemDetalhes = Boolean(novo) && !novo.semDetalhes;
+    const usarDetalhesDoNovo = !existenteTemDetalhes && novoTemDetalhes;
+
+    const timestampExistente = existente && Number.isFinite(existente.timestamp) ? existente.timestamp : null;
+    const timestampNovo = novo && Number.isFinite(novo.timestamp) ? novo.timestamp : null;
+    const manterDataExistente =
+      timestampExistente !== null && (timestampNovo === null || timestampExistente <= timestampNovo);
+
+    return {
+      ...novo,
+      titulo: usarDetalhesDoNovo ? novo.titulo : existente.titulo || novo.titulo,
+      artista: usarDetalhesDoNovo ? novo.artista : existente.artista || novo.artista,
+      semDetalhes: usarDetalhesDoNovo ? Boolean(novo.semDetalhes) : Boolean(existente.semDetalhes && novo.semDetalhes),
+      commontrackId: existente.commontrackId || novo.commontrackId || null,
+      imagemUrl: existente.imagemUrl || novo.imagemUrl || null,
+      data: manterDataExistente ? existente.data : novo.data,
+      hora: manterDataExistente ? existente.hora : novo.hora,
+      timestamp: manterDataExistente ? existente.timestamp : novo.timestamp,
+      tentativas: mesmaChaveTextual
+        ? Math.max(existente.tentativas || 1, novo.tentativas || 1)
+        : (existente.tentativas || 1) + (novo.tentativas || 1),
+      missao: novo.missao || existente.missao || null,
+      duracao: novo.duracao || existente.duracao || null,
+      duracaoSegundos: Number.isFinite(novo.duracaoSegundos) ? novo.duracaoSegundos : existente.duracaoSegundos ?? null,
+      letra: escolherMelhorLetraDuplicata(existente.letra, novo.letra),
+    };
+  }
+
+  // Quando a duplicata foi achada sob uma chave DIFERENTE da que o registro
+  // mesclado geraria, decide sob qual chave o resultado final deve ficar —
+  // sempre a chave por ID quando existir uma (mais estável), senão mantém a
+  // chave que já estava em uso no log (evita mexer no que não precisa).
+  function escolherChaveFinalDuplicata(chaveExistente, chaveNova, registroMesclado) {
+    if (registroMesclado.commontrackId) {
+      const chaveId = `id:${registroMesclado.commontrackId}`;
+      if (chaveExistente === chaveId || chaveNova === chaveId) return chaveId;
+    }
+    return chaveExistente;
+  }
+
   function formatDateHora(date) {
     const pad = (n) => String(n).padStart(2, '0');
     const data = `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`;
@@ -7828,6 +9009,30 @@ browser.storage.onChanged.addListener((changes, area) => {
     } catch (e) {
       return null;
     }
+  }
+
+  // V3.5.20: mesma URL pública já usada pelo botão "Abrir página da
+  // música" do painel Log de Envios (ver comentário da v3.5.12 logo
+  // acima de btnAbrirPagina) — centralizada aqui pra também ser
+  // reaproveitada pelo novo ícone da toolbar ao vivo, sem duplicar a
+  // montagem da URL em dois lugares.
+  function montarUrlPaginaMusica(commontrackId) {
+    return `https://www.musixmatch.com/lyrics/0/${encodeURIComponent(String(commontrackId))}`;
+  }
+
+  // V3.5.57: URL do Curators Studio no modo COMUM (sync), diferente do
+  // modo "missão" (mode=translate&duration_deviation_ms=...&skip_exact_duration_matching=true)
+  // que é o modo em que a extensão normalmente já está quando o usuário
+  // recebeu a faixa pra trabalhar. O modo comum é usado pra abrir uma
+  // música qualquer no Studio sem passar pelo fluxo de missão — o
+  // "referrer" (a própria página pública da música) é exigido pelo
+  // Curators Studio pra reconhecer a origem do pedido; reaproveita
+  // montarUrlPaginaMusica pra montar esse referrer com a mesma lógica já
+  // usada pelo botão "Abrir no site".
+  function montarUrlStudioModoComum(commontrackId) {
+    const idCodificado = encodeURIComponent(String(commontrackId));
+    const referrer = encodeURIComponent(montarUrlPaginaMusica(commontrackId));
+    return `https://curators.musixmatch.com/tool?commontrack_id=${idCodificado}&mode=sync&referrer=${referrer}`;
   }
 
   const MODOS_SEM_LETRA_CONFIAVEL = new Set(['tag_structure', 'tag_performer', 'analysis']);
@@ -8046,6 +9251,11 @@ browser.storage.onChanged.addListener((changes, area) => {
         title,
         artist: artist || '(artista não identificado)',
         imagemUrl: encontrarImagemDoCard(pai),
+        // V3.5.48: elemento real do título, exposto pra quem precisa
+        // ancorar algo visualmente perto dele (ver
+        // encontrarIconeInfoMusica) — não usado pelos consumidores
+        // antigos dessa função, que só liam os 3 campos de texto acima.
+        tituloEl: primario,
       };
     }
     return null;
@@ -8089,7 +9299,48 @@ browser.storage.onChanged.addListener((changes, area) => {
     return null;
   }
 
-  // ---------- Extração de título/artista/ID/imagem (linha da lista, modo manual) ----------
+  // V3.5.48: início do path do ícone circular nativo de "informação da
+  // música" (o "i" ao lado do título, na página de edição) — visto num
+  // HTML real capturado pelo usuário. Path exato, não reutilizado em
+  // nenhum outro ícone da própria extensão, então basta conferir o
+  // início pra identificar esse SVG específico sem ambiguidade.
+  const ICONE_INFO_MUSICA_PATH_INICIO = 'M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2z';
+
+  function svgEhIconeInfoMusica(svg) {
+    if (!svg) return false;
+    const path = svg.querySelector('path');
+    const d = path ? path.getAttribute('d') || '' : '';
+    return d.indexOf(ICONE_INFO_MUSICA_PATH_INICIO) === 0;
+  }
+
+  // Localiza o botão nativo do "i" de informação que fica colado ao
+  // título da faixa na página de edição (irmão direto do container de
+  // texto título+artista — ver captura real do HTML: o container do
+  // par título/artista e o wrapper do ícone "i" são filhos consecutivos
+  // do mesmo container-pai). Ancorado no próprio par título/artista já
+  // localizado por acharParTituloArtista(), em vez de um seletor de
+  // classe solto (as classes "css-XXXXX" desse site são atômicas e
+  // instáveis entre builds).
+  function encontrarIconeInfoMusica() {
+    const par = acharParTituloArtista(true) || acharParTituloArtista(false);
+    if (!par || !par.tituloEl) return null;
+
+    // container de texto (título+artista) — mesmo nível de
+    // encontrarImagemDoCard, mas aqui precisamos do container em si,
+    // não do pai dele.
+    const containerTexto = par.tituloEl.parentElement;
+    if (!containerTexto) return null;
+
+    let irmao = containerTexto.nextElementSibling;
+    for (let i = 0; i < 4 && irmao; i++) {
+      const svg = irmao.querySelector('svg');
+      if (svgEhIconeInfoMusica(svg)) {
+        return irmao.querySelector('div[tabindex="0"]') || irmao;
+      }
+      irmao = irmao.nextElementSibling;
+    }
+    return null;
+  }
 
   function extrairInfoDaLinha(row) {
     // V1.9: antes usava o MESMO seletor (cor primária) pra título e artista
@@ -8138,17 +9389,41 @@ browser.storage.onChanged.addListener((changes, area) => {
   let popupTimer = null;
 
   function showPopup({ titulo, artista, imagemUrl, commontrackId, data, hora, reenvio, tentativas, tipo, origem, missao, duracao, letra }) {
-    // bipe de sucesso ao registrar envio/reenvio/instrumental.
-    tocarSom('sucesso');
+    // bipe de sucesso ao registrar envio, ou de reenvio quando já existia
+    // (som diferente pra cada caso — ver SONS_ARQUIVO).
+    tocarSom(reenvio ? 'reenvio' : 'sucesso');
+
+    const ehInstrumental = tipo === 'instrumental';
+    const ehManual = origem === 'manual';
+    const tituloMsg = ehInstrumental
+      ? reenvio
+        ? t('instrumentalAtualizado')
+        : t('instrumentalMarcado')
+      : reenvio
+      ? t('reenvioRegistrado')
+      : t('envioRegistrado');
+
+    // Modo "Notificar pelo Windows": em vez do card sobreposto na página,
+    // manda o mesmo conteúdo como notificação nativa do SO e para por
+    // aqui — nenhum elemento do popup próprio chega a ser criado.
+    if (isNotificarPeloWindowsAtivo()) {
+      const linhasCorpo = [`${titulo} — ${artista}`];
+      if (missao) linhasCorpo.push(`${t('missaoLabel')}: ${missao}`);
+      if (duracao) linhasCorpo.push(`${t('duracaoLabel')}: ${duracao}`);
+      if (letra) linhasCorpo.push(t('letraCapturadaTag'));
+      linhasCorpo.push(`${data} ${t('as')} ${hora}${tentativas > 1 ? ` · ${t('tentativa')} ${tentativas}` : ''}`);
+      enviarNotificacaoWindows({
+        titulo: `${tituloMsg}${ehManual ? ` (${t('manual')})` : ''}`,
+        corpo: linhasCorpo.join('\n'),
+      });
+      return;
+    }
 
     let popup = document.getElementById('mxm-log-popup');
     if (popup) popup.remove();
 
     popup = document.createElement('div');
     popup.id = 'mxm-log-popup';
-
-    const ehInstrumental = tipo === 'instrumental';
-    const ehManual = origem === 'manual';
 
     const corToken = ehInstrumental ? 'tertiary' : reenvio ? 'tertiary' : 'primary';
     const corAcento = `var(--md-sys-color-${corToken})`;
@@ -8177,13 +9452,6 @@ browser.storage.onChanged.addListener((changes, area) => {
     // mesma lógica de cor de destaque do popup (ver corToken/corAcento).
     const corIcone = corAcento;
     const nomeIcone = ehInstrumental ? 'music' : reenvio ? 'repeat' : 'check';
-    const tituloMsg = ehInstrumental
-      ? reenvio
-        ? t('instrumentalAtualizado')
-        : t('instrumentalMarcado')
-      : reenvio
-      ? t('reenvioRegistrado')
-      : t('envioRegistrado');
 
     const mostrarImg = isImgVisible() && imagemUrl;
     const iconeHtml = mostrarImg
@@ -8308,6 +9576,12 @@ browser.storage.onChanged.addListener((changes, area) => {
     // chave usada quanto se um título/artista já conhecido antes deve
     // ser preservado em vez de sobrescrito pelo placeholder.
     semDetalhes = false,
+    // V3.4.58: true pula o popup de "envio registrado" (com som e
+    // animação, pensado pra um envio de verdade) — usado pelo botão "+"
+    // de adicionar entrada vazia manualmente (ver
+    // adicionarEntradaVaziaManual), onde esse popup ficaria enganoso
+    // ("registrado" sugerindo que algo foi de fato enviado à Musixmatch).
+    semPopup = false,
   }) {
     const now = mxmAgora();
     const { data: dataAgora, hora: horaAgora } = formatDateHora(now);
@@ -8370,26 +9644,32 @@ browser.storage.onChanged.addListener((changes, area) => {
     // calcularStatsConquistas.
     verificarNovasConquistas();
 
-    showPopup({
-      titulo: logs[key].titulo,
-      artista: logs[key].artista,
-      imagemUrl: logs[key].imagemUrl,
-      commontrackId,
-      // o toast continua mostrando a hora REAL desta tentativa (o
-      // que de fato acabou de acontecer agora) — só o valor GRAVADO no log
-      // (usado nas estatísticas) é que fica travado no primeiro envio.
-      data: dataAgora,
-      hora: horaAgora,
-      reenvio: Boolean(existente),
-      tentativas: logs[key].tentativas,
-      tipo,
-      origem,
-      missao: logs[key].missao,
-      duracao: logs[key].duracao,
-      letra: logs[key].letra,
-    });
+    if (!semPopup) {
+      showPopup({
+        titulo: logs[key].titulo,
+        artista: logs[key].artista,
+        imagemUrl: logs[key].imagemUrl,
+        commontrackId,
+        // o toast continua mostrando a hora REAL desta tentativa (o
+        // que de fato acabou de acontecer agora) — só o valor GRAVADO no log
+        // (usado nas estatísticas) é que fica travado no primeiro envio.
+        data: dataAgora,
+        hora: horaAgora,
+        reenvio: Boolean(existente),
+        tentativas: logs[key].tentativas,
+        tipo,
+        origem,
+        missao: logs[key].missao,
+        duracao: logs[key].duracao,
+        letra: logs[key].letra,
+      });
+    }
 
-    return logs[key];
+    // devolve a chave junto (spread do registro + _key) — usado pelo
+    // botão "+" (ver adicionarEntradaVaziaManual) pra abrir na hora a
+    // edição de detalhes da entrada recém-criada, sem precisar re-buscar
+    // no log por outro critério.
+    return { ...logs[key], _key: key };
   }
 
   function registrarEnvioComInfo(info, tipo, letraCapturada) {
@@ -8431,6 +9711,160 @@ browser.storage.onChanged.addListener((changes, area) => {
     });
     console.warn('[Log de Envios] Não consegui identificar título/artista — registrado como "sem detalhes" pra edição manual.');
     mostrarToastSimples(t('envioSemDetalhesToast'), 'erro');
+  }
+
+  // Botão "+" ao lado do funil (cabeçalho do primeiro grupo da lista) e
+  // botão equivalente na tela de log vazio — cria uma entrada em branco
+  // ("sem detalhes"), sem tentar captar nada da tela atual (diferente de
+  // registrarEnvioSemDetalhes, que é chamada durante um envio de verdade
+  // e por isso ainda tenta pegar duração/missão/ID da página). Aqui é
+  // uma decisão deliberada do usuário de criar uma entrada do zero, então
+  // fica tudo em branco pra ele preencher na mão — inclusive missão e
+  // instrumental, já disponíveis no menu de clique direito da própria
+  // entrada depois de criada (ver abrirMenuMissao/definirMissaoEntrada/
+  // alternarTipoInstrumentalEntrada). Título/artista se completam
+  // clicando na entrada (abrirEdicaoDetalhesEntrada), mesmo fluxo já
+  // usado pras entradas "sem detalhes" que a captura automática não
+  // conseguiu identificar.
+  function adicionarEntradaVaziaManual() {
+    const entrada = registrarNoLog({
+      titulo: t('semDetalhesTitulo'),
+      artista: '',
+      imagemUrl: null,
+      commontrackId: null,
+      tipo: null,
+      // V3.4.60: origem própria ('manual-vazio'), diferente do
+      // fluxo antigo de marcação manual numa linha da lista
+      // (registrarManual, origem:'manual'). Os dois ainda contam
+      // como "manual" onde faz sentido (tag laranja na linha,
+      // exportação, exclusão do cálculo de recorde/sequência), mas
+      // só o 'manual' antigo é tirado do agrupamento por dia e
+      // jogado na categoria separada "Marcadas manualmente" — ver
+      // aplicarOrdenacaoEAgrupamento. Reaproveitar 'manual' aqui
+      // fazia a entrada nova sumir do topo da lista (dia de hoje) e
+      // ir parar sozinha no fim da lista, dando a impressão de que
+      // nada tinha sido adicionado.
+      origem: 'manual-vazio',
+      missao: null,
+      duracao: null,
+      duracaoSegundos: null,
+      letra: null,
+      semDetalhes: true,
+      semPopup: true,
+    });
+    renderPainelLista();
+    tocarSom('clique');
+    // V3.4.61/62: em vez de só um toast, encadeia os popups de
+    // completar título, artista, missão e data/hora — reaproveitando os
+    // mesmos componentes já usados noutros fluxos (abrirPromptTexto,
+    // abrirMenuMissao, abrirEdicaoDataHoraEntrada). Cada etapa pode ser
+    // pulada (cancelar/Escape/clicar fora) sem travar o fluxo nem perder
+    // a entrada: ela já existe desde a criação acima, então pular tudo
+    // só deixa a entrada como "Sem detalhes", sem missão, com a
+    // data/hora do momento em que o "+" foi clicado — exatamente como
+    // antes dessa cadeia existir.
+    iniciarFluxoNovaEntradaManual(entrada._key);
+  }
+
+  // V3.4.62: cadeia de popups aberta logo após criar uma entrada em
+  // branco pelo botão "+" (ver adicionarEntradaVaziaManual) — título,
+  // depois artista, depois missão, depois data/hora, um de cada vez.
+  // Pular qualquer etapa (cancelar/Escape/clicar fora) só avança pra
+  // próxima, nunca trava o fluxo nem exige preencher nada.
+  function iniciarFluxoNovaEntradaManual(key) {
+    fluxoNovaEntradaTitulo(key);
+  }
+
+  function fluxoNovaEntradaTitulo(key) {
+    abrirPromptTexto({
+      titulo: t('editarDetalhesTitulo'),
+      mensagem: t('editarDetalhesTituloMensagem'),
+      valorInicial: '',
+      placeholder: t('editarDetalhesTituloPlaceholder'),
+      textoConfirmar: t('confirmar'),
+      aoConfirmar: (tituloDigitado) => {
+        const tituloFinal = (tituloDigitado || '').trim();
+        // sem título não dá pra pedir o artista de forma útil — pula
+        // direto pra missão, mas sem perder a chance de preencher
+        // missão/data-hora.
+        if (tituloFinal) {
+          fluxoNovaEntradaArtista(key, tituloFinal);
+        } else {
+          fluxoNovaEntradaMissao(key);
+        }
+      },
+      // V3.4.65: cancelar logo no primeiro passo (título) não pula mais
+      // pra missão — encerra a criação da nova música por completo,
+      // apagando a entrada em branco que tinha acabado de ser criada
+      // pelo botão "+" (adicionarEntradaVaziaManual). Diferente dos
+      // passos seguintes (artista/missão/data-hora), aqui o usuário
+      // ainda não confirmou nenhum dado da música, então cancelar é
+      // tratado como "desistir de criar", não como "pular esse campo".
+      aoCancelar: () => {
+        apagarEntrada(key);
+        mostrarToastSimples(t('novaEntradaCanceladaToast'), 'reenvio');
+      },
+    });
+  }
+
+  function fluxoNovaEntradaArtista(key, tituloFinal) {
+    abrirPromptTexto({
+      titulo: t('editarDetalhesTitulo'),
+      mensagem: t('editarDetalhesArtistaMensagem'),
+      valorInicial: '',
+      placeholder: t('editarDetalhesArtistaPlaceholder'),
+      textoConfirmar: t('confirmar'),
+      aoConfirmar: (artistaDigitado) => {
+        const logsAtual = getLogs();
+        const entradaAtual = logsAtual[key];
+        if (entradaAtual) {
+          entradaAtual.titulo = tituloFinal;
+          entradaAtual.artista = (artistaDigitado || '').trim() || '(artista não identificado)';
+          entradaAtual.semDetalhes = false;
+          saveLogs(logsAtual);
+          renderPainelLista();
+          mostrarToastSimples(t('detalhesAdicionadosToast'));
+        }
+        fluxoNovaEntradaMissao(key);
+      },
+      // cancelou o artista mas já tinha digitado um título — salva só o
+      // título (melhor que perder o que já foi digitado) e segue.
+      aoCancelar: () => {
+        const logsAtual = getLogs();
+        const entradaAtual = logsAtual[key];
+        if (entradaAtual && entradaAtual.semDetalhes) {
+          entradaAtual.titulo = tituloFinal;
+          saveLogs(logsAtual);
+          renderPainelLista();
+        }
+        fluxoNovaEntradaMissao(key);
+      },
+    });
+  }
+
+  function fluxoNovaEntradaMissao(key) {
+    // guarda contra o menu chamar o callback duas vezes (uma escolha de
+    // item chama aoAtualizar depois de salvar; um fechamento sem
+    // escolher nada chama aoFechar — os dois apontam pra mesma função
+    // aqui, então o guard evita avançar duas vezes de uma vez só).
+    let avancou = false;
+    function avancar() {
+      if (avancou) return;
+      avancou = true;
+      fluxoNovaEntradaDataHora(key);
+    }
+    // sem um clique de origem pra ancorar (o menu normalmente abre no
+    // ponto do clique direito), centraliza na tela — o próprio
+    // abrirMenuMissao já reposiciona pra não estourar as bordas.
+    const x = Math.round(window.innerWidth / 2 - 110);
+    const y = Math.round(window.innerHeight / 2 - 160);
+    abrirMenuMissao(x, y, key, avancar, avancar);
+  }
+
+  function fluxoNovaEntradaDataHora(key) {
+    // último passo da cadeia — abrirEdicaoDataHoraEntrada já tem seu
+    // próprio botão "Cancelar" pra pular sem alterar nada.
+    abrirEdicaoDataHoraEntrada(key);
   }
 
   // V3.4.29: se a primeira tentativa não achar título/artista, tenta mais
@@ -8641,7 +10075,16 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   // ---------- definir missão manualmente (clique direito na lista) ----------
 
-  const MISSOES_EXTRAS_MENU = ['Instrumental'];
+  // "Instrumental" ficava aqui como se fosse mais uma missão da lista —
+  // mas selecioná-la só preenchia entrada.missao com o texto literal
+  // "Instrumental", sem nunca ligar entrada.tipo='instrumental' (o campo
+  // que de fato desenha a tag roxa "Instrumental" ao lado do título, ver
+  // renderPainelLista). Pra quem clicava nessa opção esperando marcar a
+  // faixa como instrumental de verdade, o resultado era só um texto de
+  // missão com o mesmo nome — sem a tag real. Removida daqui; o toggle
+  // de verdade agora é um item separado no mesmo menu (ver
+  // abrirMenuMissao abaixo, alternarTipoInstrumentalEntrada).
+  const MISSOES_EXTRAS_MENU = [];
 
   // Junta as missões da tabela fixa de recompensas com as que já apareceram
   // no próprio log — assim o menu sempre mostra pelo menos as missões
@@ -8666,6 +10109,27 @@ browser.storage.onChanged.addListener((changes, area) => {
     if (typeof aoAtualizar === 'function') aoAtualizar();
   }
 
+  // Liga/desliga de verdade a tag "Instrumental" de uma entrada (o campo
+  // `tipo`, que é o que renderPainelLista usa pra desenhar a tag roxa
+  // com nota musical). Chamada pelo item próprio do menu de clique
+  // direito (abrirMenuMissao), separado da lista de missões — ver
+  // comentário em MISSOES_EXTRAS_MENU sobre por que a opção antiga
+  // ("Instrumental" como se fosse missão) não fazia isso de verdade.
+  function alternarTipoInstrumentalEntrada(key, aoAtualizar) {
+    const logs = getLogs();
+    const entrada = logs[key];
+    if (!entrada) return;
+    const ligando = entrada.tipo !== 'instrumental';
+    entrada.tipo = ligando ? 'instrumental' : null;
+    // limpa o resquício da opção antiga/quebrada, se essa entrada tiver
+    // sido marcada por ela (missão literalmente chamada "Instrumental"),
+    // pra não sobrar duplicado agora que a tag real está ligada.
+    if (ligando && entrada.missao === 'Instrumental') entrada.missao = null;
+    saveLogs(logs);
+    renderPainelLista();
+    if (typeof aoAtualizar === 'function') aoAtualizar();
+  }
+
   function fecharMenuMissao() {
     document.querySelectorAll('#mxm-log-missao-menu-overlay').forEach((el) => el.remove());
   }
@@ -8675,7 +10139,7 @@ browser.storage.onChanged.addListener((changes, area) => {
   // pra digitar uma missão avulsa. Não usa o padrão de overlay escurecido
   // dos outros popups do script — aqui é só uma camada transparente que
   // fecha o menu ao clicar fora, no espírito de um menu de contexto comum.
-  function abrirMenuMissao(x, y, key, aoAtualizar) {
+  function abrirMenuMissao(x, y, key, aoAtualizar, aoFechar) {
     fecharMenuMissao();
 
     const entrada = getLogs()[key];
@@ -8711,6 +10175,19 @@ browser.storage.onChanged.addListener((changes, area) => {
       'target',
       13
     )}<span>${t('outraMissao')}</span></div>`;
+
+    // item separado (não é uma "missão") pra ligar/desligar de verdade a
+    // tag "Instrumental" (entrada.tipo) desta entrada — ver
+    // alternarTipoInstrumentalEntrada.
+    const ehInstrumental = entrada.tipo === 'instrumental';
+    itensHtml += `<div style="height:1px; background:var(--md-sys-color-surface-container-high); margin:6px 4px;"></div>`;
+    itensHtml += `<div class="mxm-missao-opcao-instrumental" style="${itemStyle} color:${
+      ehInstrumental ? '#b6a3ff' : 'var(--md-sys-color-on-surface)'
+    }; ${ehInstrumental ? 'background:rgba(124,92,255,0.12);' : ''}">${icone(
+      'music',
+      13,
+      ehInstrumental ? '#b6a3ff' : undefined
+    )}<span>${escapeHtml(ehInstrumental ? t('menuInstrumentalDesmarcar') : t('menuInstrumentalMarcar'))}</span></div>`;
 
     const overlay = document.createElement('div');
     overlay.id = 'mxm-log-missao-menu-overlay';
@@ -8759,17 +10236,27 @@ browser.storage.onChanged.addListener((changes, area) => {
       document.removeEventListener('keydown', aoTeclar);
       fecharMenuMissao();
     }
+    // V3.4.62: fechar sem escolher nada (Escape/clique fora/menu de
+    // contexto fora) — dispara aoFechar, separado das escolhas reais de
+    // item (que já chamam aoAtualizar via definirMissaoEntrada/
+    // alternarTipoInstrumentalEntrada). Usado pelo fluxo encadeado do
+    // botão "+" pra avançar pro próximo passo mesmo quando o usuário
+    // pula a escolha de missão.
+    function fecharEAvisar() {
+      fechar();
+      if (typeof aoFechar === 'function') aoFechar();
+    }
     function aoTeclar(e) {
-      if (e.key === 'Escape') fechar();
+      if (e.key === 'Escape') fecharEAvisar();
     }
     document.addEventListener('keydown', aoTeclar);
 
     overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) fechar();
+      if (e.target === overlay) fecharEAvisar();
     });
     overlay.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      if (e.target === overlay) fechar();
+      if (e.target === overlay) fecharEAvisar();
     });
 
     menu.querySelectorAll('.mxm-missao-opcao').forEach((el) => {
@@ -8789,7 +10276,18 @@ browser.storage.onChanged.addListener((changes, area) => {
             valorInicial: entrada.missao || '',
             aoConfirmar: (digitada) => {
               const limpa = digitada.trim();
-              if (limpa) definirMissaoEntrada(key, limpa, aoAtualizar);
+              if (limpa) {
+                definirMissaoEntrada(key, limpa, aoAtualizar);
+              } else if (typeof aoAtualizar === 'function') {
+                // confirmou vazio — não há missão nova pra salvar, mas o
+                // fluxo encadeado do botão "+" ainda precisa avançar.
+                aoAtualizar();
+              }
+            },
+            // cancelou o campo de "outra missão" — mesmo raciocínio:
+            // nada muda na entrada, mas o fluxo encadeado avança.
+            aoCancelar: () => {
+              if (typeof aoAtualizar === 'function') aoAtualizar();
             },
           });
         } else {
@@ -8797,6 +10295,21 @@ browser.storage.onChanged.addListener((changes, area) => {
         }
       });
     });
+
+    const itemInstrumental = menu.querySelector('.mxm-missao-opcao-instrumental');
+    if (itemInstrumental) {
+      const jaEhInstrumental = entrada.tipo === 'instrumental';
+      itemInstrumental.addEventListener('mouseenter', () => {
+        if (!jaEhInstrumental) itemInstrumental.style.background = 'rgba(255,255,255,0.06)';
+      });
+      itemInstrumental.addEventListener('mouseleave', () => {
+        if (!jaEhInstrumental) itemInstrumental.style.background = 'transparent';
+      });
+      itemInstrumental.addEventListener('click', () => {
+        fechar();
+        alternarTipoInstrumentalEntrada(key, aoAtualizar);
+      });
+    }
   }
 
   // ---------- menu de contexto (clique direito) na tag "Letra" ----------
@@ -8910,6 +10423,143 @@ browser.storage.onChanged.addListener((changes, area) => {
             mensagem: t('confirmarExclusaoLetra'),
             textoConfirmar: t('excluir'),
             aoConfirmar: () => apagarLetraEntrada(key),
+          });
+        }
+      });
+    });
+  }
+
+  // ---------- menu de "mais opções" (3 pontinhos) da linha do log principal ----------
+
+  // V3.5.58: substitui o antigo ícone único de lixeira na linha do log
+  // por um menu com 3 opções — "Abrir no site" e "Abrir no Studio"
+  // reaproveitam as mesmas URLs/lógica já usadas no painel de detalhes
+  // da música (ver montarUrlPaginaMusica/montarUrlStudioModoComum,
+  // v3.5.12/v3.5.57); "Excluir" mantém o mesmo fluxo de confirmação que
+  // o ícone de lixeira já tinha. Mesmo padrão visual/comportamento do
+  // menu da tag "Letra" (abrirMenuLetra): overlay no ponto do clique,
+  // fecha com Esc/clique fora.
+  function fecharMenuLinhaLog() {
+    document.querySelectorAll('#mxm-log-linha-menu-overlay').forEach((el) => el.remove());
+  }
+
+  function abrirMenuLinhaLog(x, y, key) {
+    fecharMenuLinhaLog();
+
+    const entrada = getLogs()[key];
+    if (!entrada) return;
+
+    const itemStyle =
+      'padding:8px 10px; border-radius:var(--md-shape-sm); cursor:pointer; display:flex; align-items:center; gap:8px; white-space:nowrap;';
+
+    const temCommontrackId = !!entrada.commontrackId;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'mxm-log-linha-menu-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      zIndex: String(proximoZIndexFlutuante()),
+    });
+
+    const menu = document.createElement('div');
+    Object.assign(menu.style, {
+      position: 'fixed',
+      minWidth: '190px',
+      background: 'var(--md-sys-color-surface-container-low)',
+      color: 'var(--md-sys-color-on-surface)',
+      borderRadius: '10px',
+      boxShadow: 'var(--md-elevation-3)',
+      border: '1px solid var(--md-sys-color-surface-container-high)',
+      fontFamily: 'sans-serif',
+      fontSize: '13px',
+      padding: '6px',
+      left: `${x}px`,
+      top: `${y}px`,
+    });
+
+    menu.innerHTML = `
+      <div class="mxm-linha-menu-item" data-acao="abrir-site" style="${itemStyle} color:${
+      temCommontrackId ? 'var(--md-sys-color-on-surface)' : 'var(--md-sys-color-outline)'
+    }; ${temCommontrackId ? '' : 'opacity:.5; cursor:not-allowed;'}">${icone(
+      'globe',
+      13
+    )}<span>${t('abrirNoSite')}</span></div>
+      <div class="mxm-linha-menu-item" data-acao="abrir-studio" style="${itemStyle} color:${
+      temCommontrackId ? 'var(--md-sys-color-on-surface)' : 'var(--md-sys-color-outline)'
+    }; ${temCommontrackId ? '' : 'opacity:.5; cursor:not-allowed;'}">${icone(
+      'externalLink',
+      13
+    )}<span>${t('abrirNoStudio')}</span></div>
+      <div style="height:1px; background:var(--md-sys-color-surface-container-high); margin:6px 4px;"></div>
+      <div class="mxm-linha-menu-item" data-acao="excluir" style="${itemStyle} color:#f2a5a5;">${icone(
+      'trash',
+      13
+    )}<span>${t('excluir')}</span></div>
+    `;
+
+    overlay.appendChild(menu);
+    document.body.appendChild(overlay);
+
+    // Reposiciona pra não estourar a tela, já com o tamanho real renderizado.
+    const rect = menu.getBoundingClientRect();
+    let left = x;
+    let top = y;
+    if (left + rect.width > window.innerWidth) left = window.innerWidth - rect.width - 8;
+    if (top + rect.height > window.innerHeight) top = window.innerHeight - rect.height - 8;
+    menu.style.left = `${Math.max(8, left)}px`;
+    menu.style.top = `${Math.max(8, top)}px`;
+
+    function fechar() {
+      document.removeEventListener('keydown', aoTeclar);
+      fecharMenuLinhaLog();
+    }
+    function aoTeclar(e) {
+      if (e.key === 'Escape') fechar();
+    }
+    document.addEventListener('keydown', aoTeclar);
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) fechar();
+    });
+    overlay.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (e.target === overlay) fechar();
+    });
+
+    menu.querySelectorAll('.mxm-linha-menu-item').forEach((el) => {
+      el.addEventListener('mouseenter', () => {
+        if (el.style.cursor === 'not-allowed') return;
+        el.style.background = 'rgba(255,255,255,0.06)';
+      });
+      el.addEventListener('mouseleave', () => (el.style.background = 'transparent'));
+      el.addEventListener('click', () => {
+        const acao = el.getAttribute('data-acao');
+
+        if ((acao === 'abrir-site' || acao === 'abrir-studio') && !temCommontrackId) return;
+
+        fechar();
+
+        if (acao === 'abrir-site') {
+          try {
+            window.open(montarUrlPaginaMusica(entrada.commontrackId), '_blank', 'noopener,noreferrer');
+          } catch (e) {
+            console.warn('[Log de Envios] Falha ao montar o link da música.', e);
+            mostrarToastSimples(t('painelMusicaAbrirPaginaErro'), 'erro');
+          }
+        } else if (acao === 'abrir-studio') {
+          try {
+            window.open(montarUrlStudioModoComum(entrada.commontrackId), '_blank', 'noopener,noreferrer');
+          } catch (e) {
+            console.warn('[Log de Envios] Falha ao montar o link do Studio (modo comum).', e);
+            mostrarToastSimples(t('painelMusicaAbrirStudioErro'), 'erro');
+          }
+        } else if (acao === 'excluir') {
+          abrirConfirmacao({
+            titulo: t('confirmarExclusaoTitulo'),
+            mensagem: t('confirmarExclusaoRegistro'),
+            textoConfirmar: t('excluir'),
+            aoConfirmar: () => apagarEntrada(key),
           });
         }
       });
@@ -10235,7 +11885,7 @@ browser.storage.onChanged.addListener((changes, area) => {
   <div class="mxm-export-painel">
     <div class="mxm-export-cabecalho">${escapeHtml(tituloExport)}</div>
     ${diffHtmlInterno}
-    <div class="mxm-export-rodape">Exportado do Musixmatch Studio — Log de Envios, em ${escapeHtml(
+    <div class="mxm-export-rodape">Exportado do Musixmatch Studio — Echoform, em ${escapeHtml(
       new Date().toLocaleString('pt-BR')
     )}</div>
   </div>
@@ -10483,6 +12133,134 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   const DIFF_PROGRESSO_LINHAS_ESTIMATIVA = 60;
 
+  // ---------- resolução única da "letra atual na tela", com a mesma prioridade
+  // rede → Fiber → tela de Sincronização/Tradução → auto-scroll — usada
+  // tanto pelo Diff Check quanto pelo botão de "copiar letra" da toolbar.
+  // Existir só UMA função pra isso (em vez de cada botão ter sua própria
+  // cópia) é o que garante que os dois sempre concordam: se um pega as
+  // tags, o outro também pega, porque é literalmente o mesmo código
+  // rodando. `avisoTrocaDeTela(textoInicial)` é opcional — quem chamar
+  // decide como (ou se) quer mostrar um aviso visual enquanto uma troca de
+  // aba acontece; deve devolver o mesmo objeto de abrirAvisoAutomaticoDiffCheck
+  // ({ atualizarProgresso, fechar }). Sem ele, a troca acontece do mesmo
+  // jeito, só que silenciosa.
+  async function resolverLetraAtualNaTelaComPrioridade(avisoTrocaDeTela) {
+    const modoCaptura = getModoCapturaDiffCheck();
+    let letraViaRede = modoCaptura === 'rede' ? obterLetraReconstruidaViaRedeParaFaixaAtual() : null;
+    let precisaTentarPegarTagsViaRede = modoCaptura === 'rede' && (!letraViaRede || !letraViaRede.comTags);
+
+    if (precisaTentarPegarTagsViaRede) {
+      const conseguiuViaFetchDireto = await tentarBuscarTrackStructureViaFetchDireto(getCommontrackId());
+      if (conseguiuViaFetchDireto) {
+        letraViaRede = obterLetraReconstruidaViaRedeParaFaixaAtual();
+        precisaTentarPegarTagsViaRede = !letraViaRede || !letraViaRede.comTags;
+      }
+    }
+
+    let letraViaFiberAntecipada = null;
+    if (!letraViaRede && modoCaptura !== 'atual' && modoCaptura !== 'sincronizacao' && modoCaptura !== 'traducao') {
+      letraViaFiberAntecipada = capturarLetraViaFiber();
+      if (letraViaFiberAntecipada) {
+        debugLog(
+          '[Log de Envios][debug letra][captura unificada] Fiber capturou a letra antes de qualquer troca de aba — ' +
+            'pulando a tela de Tradução inteiramente (evita o ponto cego de trechos instrumentais).'
+        );
+      }
+    }
+
+    let progressoAtual = null;
+    function relatarProgresso(mensagemBase) {
+      return (contagem) => {
+        if (progressoAtual) {
+          progressoAtual.atualizarProgresso(contagem, `${mensagemBase} (${contagem} ${contagem === 1 ? 'linha' : 'linhas'})`);
+        }
+      };
+    }
+
+    if (modoCaptura === 'sincronizacao') {
+      const jaEstaNaTelaSincronizacao = estaNaTelaSincronizacao();
+      progressoAtual = avisoTrocaDeTela
+        ? avisoTrocaDeTela(jaEstaNaTelaSincronizacao ? t('diffCarregandoLetra') : t('diffIndoParaSincronizacao'))
+        : null;
+      await garantirTelaSincronizacao(relatarProgresso(t('diffIndoParaSincronizacao')));
+    } else if (modoCaptura === 'traducao') {
+      const jaEstaNaTelaTraducao = estaNaTelaTraducao();
+      progressoAtual = avisoTrocaDeTela
+        ? avisoTrocaDeTela(jaEstaNaTelaTraducao ? t('diffCarregandoLetra') : t('diffIndoParaTraducao'))
+        : null;
+      await garantirTelaTraducao(relatarProgresso(t('diffIndoParaTraducao')));
+    } else if ((!letraViaRede || precisaTentarPegarTagsViaRede) && !letraViaFiberAntecipada && modoCaptura !== 'atual') {
+      const priorizarSincronizacao = isDiffPriorizarSincronizacaoAtivo();
+      if (priorizarSincronizacao) {
+        const jaEstaNaTelaSincronizacao = estaNaTelaSincronizacao();
+        progressoAtual = avisoTrocaDeTela
+          ? avisoTrocaDeTela(jaEstaNaTelaSincronizacao ? t('diffCarregandoLetra') : t('diffIndoParaSincronizacao'))
+          : null;
+        await garantirTelaSincronizacao(relatarProgresso(t('diffIndoParaSincronizacao')));
+      } else {
+        const jaEstaNaTelaTraducao = estaNaTelaTraducao();
+        progressoAtual = avisoTrocaDeTela
+          ? avisoTrocaDeTela(jaEstaNaTelaTraducao ? t('diffCarregandoLetra') : t('diffIndoParaTraducao'))
+          : null;
+        await garantirTelaTraducao(relatarProgresso(t('diffIndoParaTraducao')));
+      }
+      if (precisaTentarPegarTagsViaRede) {
+        for (let tentativa = 0; tentativa < 10; tentativa++) {
+          tentarReconstruirLetraComEstrutura();
+          letraViaRede = obterLetraReconstruidaViaRedeParaFaixaAtual();
+          if (letraViaRede && letraViaRede.comTags) break;
+          await aguardar(150);
+        }
+      }
+      // fecha só depois de letraAtualNaTela ser resolvida, mais abaixo.
+    }
+
+    const atualizarBarraCaptura = progressoAtual ? relatarProgresso(t('diffCarregandoLetra')) : null;
+
+    // letraVeioDeFonteQueRepresentaInstrumental: true quando a captura
+    // veio de uma fonte que consegue mesmo representar um trecho
+    // instrumental (Rede-com-tags reconstruída ou Fiber lendo o array cru)
+    // — nesses casos a tag "#Instrumental" (se existir) é real e
+    // comparável. Continua rodando o corte incondicional pra qualquer
+    // captura que passe pela tela de Tradução/DOM/auto-scroll, que é cega
+    // pra instrumental (ver V2.261 no CHANGELOG).
+    let letraVeioDeFonteQueRepresentaInstrumental = false;
+    let letraAtualNaTela;
+    if (letraViaRede && letraViaRede.comTags) {
+      letraAtualNaTela = letraViaRede.texto;
+      letraVeioDeFonteQueRepresentaInstrumental = true;
+    } else if (letraViaFiberAntecipada) {
+      letraAtualNaTela = letraViaFiberAntecipada;
+      letraVeioDeFonteQueRepresentaInstrumental = true;
+    } else if (letraViaRede) {
+      debugLog('[Log de Envios][debug letra][captura unificada] letra da rede veio sem tags — tentando Fiber na tela de Sincronização antes de aceitar a versão crua...');
+      const viaFiberFinal = capturarLetraViaFiber();
+      if (viaFiberFinal) {
+        debugLog('[Log de Envios][debug letra][captura unificada] Fiber capturou a letra com tags na tela de Sincronização.');
+        letraAtualNaTela = viaFiberFinal;
+        letraVeioDeFonteQueRepresentaInstrumental = true;
+      } else {
+        debugLog('[Log de Envios][debug letra][captura unificada] Fiber não achou nada — tentando a tela de Tradução antes de aceitar a versão crua...');
+        const viaTraducaoComTags = await capturarLetraCompletaViaTraducao(atualizarBarraCaptura);
+        debugLog('[Log de Envios][debug letra][captura unificada] resultado da tentativa via Tradução:', viaTraducaoComTags ? 'OK' : 'null (vai usar a versão crua da rede)');
+        letraAtualNaTela = viaTraducaoComTags || letraViaRede.texto;
+      }
+    } else {
+      letraAtualNaTela = await capturarLetraCompletaComAutoScroll(
+        atualizarBarraCaptura,
+        modoCaptura === 'sincronizacao' ? { pularTraducao: true } : undefined
+      );
+    }
+
+    if (progressoAtual) progressoAtual.fechar();
+
+    if (letraAtualNaTela) {
+      letraAtualNaTela = forcarTagsDeEstruturaEmMaiusculo(letraAtualNaTela);
+    }
+
+    return { texto: letraAtualNaTela, letraVeioDeFonteQueRepresentaInstrumental };
+  }
+
   function abrirAvisoAutomaticoDiffCheck(texto, nomeIcone) {
     document.querySelectorAll('#mxm-log-aviso-automatico-diffcheck-overlay').forEach((el) => el.remove());
 
@@ -10614,7 +12392,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     overlay.innerHTML = `
       <div style="background:var(--md-sys-color-surface-container-low); color:var(--md-sys-color-on-surface); width:340px; max-width:90vw; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); font-family:sans-serif; overflow:hidden;">
         <div style="padding:18px 18px 4px; display:flex; align-items:flex-start; gap:10px;">
-          <div style="width:34px; height:34px; border-radius:var(--md-shape-sm); background:rgba(242,165,165,0.12); display:flex; align-items:center; justify-content:center; flex-shrink:0;" class="mxm-icone-pop">${icone(
+          <div style="width:34px; height:34px; border-radius:var(--md-shape-sm); background:rgba(242,165,165,0.12); display:flex; align-items:center; justify-content:center; flex-shrink:0;" class="mxm-icone-pop-reto">${icone(
             'alertTriangle',
             17,
             '#f2a5a5'
@@ -10646,6 +12424,69 @@ browser.storage.onChanged.addListener((changes, area) => {
     };
     document.getElementById('mxm-log-aviso-erro-diffcheck-ok').addEventListener('click', fechar);
     document.getElementById('mxm-log-aviso-erro-diffcheck-fechar-x').addEventListener('click', fechar);
+  }
+
+  // ---------- cálculo puro do diff da faixa atual (sem nenhum DOM/painel) ----------
+  // Extraído de dentro de abrirDiffCheck pra poder ser chamado tanto por
+  // ele (que também monta o painel visível) quanto por um botão que só
+  // quer o RESULTADO — ex.: copiar o diff direto pro clipboard sem abrir
+  // a janela. Mesma função nos dois lugares = mesmo resultado sempre.
+  async function calcularResultadoDiffParaFaixaAtual(avisoTrocaDeTela) {
+    const info = obterEntradaLogFaixaAtual();
+    if (!info) return { erro: 'semFaixa' };
+    if (!info.entrada || !info.entrada.letra) return { erro: 'semVersaoSalva' };
+
+    const { texto: letraAtualNaTelaResolvida, letraVeioDeFonteQueRepresentaInstrumental } =
+      await resolverLetraAtualNaTelaComPrioridade(avisoTrocaDeTela);
+    let letraAtualNaTela = letraAtualNaTelaResolvida;
+
+    if (!letraAtualNaTela) return { erro: 'semCapturaAtual', info };
+
+    let letraSalvaParaComparar = info.entrada.letra;
+    let tagsIgnoradasNestaComparacao = false;
+
+    letraSalvaParaComparar = forcarTagsDeEstruturaEmMaiusculo(letraSalvaParaComparar);
+    letraAtualNaTela = forcarTagsDeEstruturaEmMaiusculo(letraAtualNaTela);
+
+    let instrumentalIgnoradaNestaComparacao = false;
+    if (
+      !letraVeioDeFonteQueRepresentaInstrumental &&
+      (possuiTagInstrumental(letraSalvaParaComparar) || possuiTagInstrumental(letraAtualNaTela))
+    ) {
+      letraSalvaParaComparar = removerLinhasDeTagInstrumental(letraSalvaParaComparar);
+      letraAtualNaTela = removerLinhasDeTagInstrumental(letraAtualNaTela);
+      instrumentalIgnoradaNestaComparacao = true;
+    }
+
+    if (possuiTagsEstrutura(letraSalvaParaComparar) && !possuiTagsEstrutura(letraAtualNaTela)) {
+      letraSalvaParaComparar = removerLinhasDeTag(letraSalvaParaComparar);
+      tagsIgnoradasNestaComparacao = true;
+    }
+
+    letraSalvaParaComparar = normalizarEspacosInvisiveis(letraSalvaParaComparar);
+    letraAtualNaTela = normalizarEspacosInvisiveis(letraAtualNaTela);
+
+    const diff = calcularDiffLinhas(letraSalvaParaComparar, letraAtualNaTela);
+    const adicionadas = diff.filter((l) => l.tipo === 'adicionada').length;
+    const removidas = diff.filter((l) => l.tipo === 'removida').length;
+
+    // mesmo texto que o botão "Copiar diff" do painel monta.
+    const textoDiffFormatado = diff
+      .map((l) => `${l.tipo === 'adicionada' ? '+ ' : l.tipo === 'removida' ? '- ' : '  '}${l.texto}`)
+      .join('\n');
+
+    return {
+      info,
+      diff,
+      textoDiffFormatado,
+      adicionadas,
+      removidas,
+      semDiferencas: adicionadas === 0 && removidas === 0,
+      letraSalvaParaComparar,
+      letraAtualNaTela,
+      instrumentalIgnoradaNestaComparacao,
+      tagsIgnoradasNestaComparacao,
+    };
   }
 
   async function abrirDiffCheck() {
@@ -10771,96 +12612,15 @@ browser.storage.onChanged.addListener((changes, area) => {
       return;
     }
 
-    const modoCaptura = getModoCapturaDiffCheck();
-    let letraViaRede = modoCaptura === 'rede' ? obterLetraReconstruidaViaRedeParaFaixaAtual() : null;
-    let precisaTentarPegarTagsViaRede = modoCaptura === 'rede' && (!letraViaRede || !letraViaRede.comTags);
+    // guard de "painel ainda não existe" ANTES de qualquer captura assíncrona
+    // (troca de aba etc.) — evita abrir dois painéis se o usuário clicar
+    // duas vezes rápido.
+    if (document.getElementById('mxm-log-diffcheck-overlay')) return;
 
-    if (precisaTentarPegarTagsViaRede) {
-      const conseguiuViaFetchDireto = await tentarBuscarTrackStructureViaFetchDireto(getCommontrackId());
-      if (conseguiuViaFetchDireto) {
-        letraViaRede = obterLetraReconstruidaViaRedeParaFaixaAtual();
-        precisaTentarPegarTagsViaRede = !letraViaRede || !letraViaRede.comTags;
-      }
-    }
+    const resultado = await calcularResultadoDiffParaFaixaAtual((textoInicial) =>
+      abrirAvisoAutomaticoDiffCheck(textoInicial, 'refresh')
+    );
 
-    let letraViaFiberAntecipada = null;
-    if (!letraViaRede && modoCaptura !== 'atual' && modoCaptura !== 'sincronizacao' && modoCaptura !== 'traducao') {
-      letraViaFiberAntecipada = capturarLetraViaFiber();
-      if (letraViaFiberAntecipada) {
-        debugLog(
-          '[Log de Envios][debug letra][diff check] Fiber capturou a letra antes de qualquer troca de aba — ' +
-            'pulando a tela de Tradução inteiramente (evita o ponto cego de trechos instrumentais).'
-        );
-      }
-    }
-
-    let avisoAutomatico = null;
-    if (modoCaptura === 'sincronizacao') {
-      const jaEstaNaTelaSincronizacao = estaNaTelaSincronizacao();
-      avisoAutomatico = abrirAvisoAutomaticoDiffCheck(
-        jaEstaNaTelaSincronizacao ? t('diffCarregandoLetra') : t('diffIndoParaSincronizacao'),
-        'refresh'
-      );
-      await garantirTelaSincronizacao((contagem) =>
-        avisoAutomatico.atualizarProgresso(
-          contagem,
-          `${t('diffIndoParaSincronizacao')} (${contagem} ${contagem === 1 ? 'linha' : 'linhas'})`
-        )
-      );
-    } else if (modoCaptura === 'traducao') {
-      const jaEstaNaTelaTraducao = estaNaTelaTraducao();
-      avisoAutomatico = abrirAvisoAutomaticoDiffCheck(
-        jaEstaNaTelaTraducao ? t('diffCarregandoLetra') : t('diffIndoParaTraducao'),
-        'refresh'
-      );
-      await garantirTelaTraducao((contagem) =>
-        avisoAutomatico.atualizarProgresso(
-          contagem,
-          `${t('diffIndoParaTraducao')} (${contagem} ${contagem === 1 ? 'linha' : 'linhas'})`
-        )
-      );
-    } else if ((!letraViaRede || precisaTentarPegarTagsViaRede) && !letraViaFiberAntecipada && modoCaptura !== 'atual') {
-      const priorizarSincronizacao = isDiffPriorizarSincronizacaoAtivo();
-      if (priorizarSincronizacao) {
-        const jaEstaNaTelaSincronizacao = estaNaTelaSincronizacao();
-        avisoAutomatico = abrirAvisoAutomaticoDiffCheck(
-          jaEstaNaTelaSincronizacao ? t('diffCarregandoLetra') : t('diffIndoParaSincronizacao'),
-          'refresh'
-        );
-        await garantirTelaSincronizacao((contagem) =>
-          avisoAutomatico.atualizarProgresso(
-            contagem,
-            `${t('diffIndoParaSincronizacao')} (${contagem} ${contagem === 1 ? 'linha' : 'linhas'})`
-          )
-        );
-      } else {
-        const jaEstaNaTelaTraducao = estaNaTelaTraducao();
-        avisoAutomatico = abrirAvisoAutomaticoDiffCheck(
-          jaEstaNaTelaTraducao ? t('diffCarregandoLetra') : t('diffIndoParaTraducao'),
-          'refresh'
-        );
-        await garantirTelaTraducao((contagem) =>
-          avisoAutomatico.atualizarProgresso(
-            contagem,
-            `${t('diffIndoParaTraducao')} (${contagem} ${contagem === 1 ? 'linha' : 'linhas'})`
-          )
-        );
-      }
-      if (precisaTentarPegarTagsViaRede) {
-        for (let tentativa = 0; tentativa < 10; tentativa++) {
-
-          // chamava capturarLetraViaTextoEstatico e arriscava puxar texto
-          // de outros painéis da tela — relatado pelo usuário — foi
-          // removida por conta disso).
-          tentarReconstruirLetraComEstrutura();
-          letraViaRede = obterLetraReconstruidaViaRedeParaFaixaAtual();
-          if (letraViaRede && letraViaRede.comTags) break;
-          await aguardar(150);
-        }
-      }
-      // aviso NÃO fecha mais aqui — ver comentário grande acima; fecha
-      // logo depois de letraAtualNaTela ser resolvida, mais abaixo.
-    }
     // o guard lá em cima já deveria evitar isso, mas confere de novo antes
     // de criar o painel: nada como ter certeza de que ele ainda não existe.
     if (document.getElementById('mxm-log-diffcheck-overlay')) return;
@@ -10872,100 +12632,20 @@ browser.storage.onChanged.addListener((changes, area) => {
       mensagemVaziaEm(corpo, texto);
     }
 
-
-    const atualizarBarraCaptura = avisoAutomatico
-      ? (contagem) =>
-          avisoAutomatico.atualizarProgresso(
-            contagem,
-            `${t('diffCarregandoLetra')} (${contagem} ${contagem === 1 ? 'linha' : 'linhas'})`
-          )
-      : null;
-
-    // letraVeioDeFonteQueRepresentaInstrumental: true quando a captura
-    // veio de uma fonte que consegue mesmo representar um trecho
-    // instrumental (Rede-com-tags reconstruída ou Fiber lendo o array cru)
-    // — nesses casos a tag "#Instrumental" (se existir) é real e
-    // comparável, então o corte incondicional mais abaixo (ver
-    // possuiTagInstrumental/removerLinhasDeTagInstrumental) não deve
-    // rodar. Continua rodando como antes pra qualquer captura que passe
-    // pela tela de Tradução/DOM/auto-scroll, que é cega pra instrumental
-    // (ver V2.261 no CHANGELOG).
-    let letraVeioDeFonteQueRepresentaInstrumental = false;
-    let letraAtualNaTela;
-    if (letraViaRede && letraViaRede.comTags) {
-      letraAtualNaTela = letraViaRede.texto;
-      letraVeioDeFonteQueRepresentaInstrumental = true;
-    } else if (letraViaFiberAntecipada) {
-      letraAtualNaTela = letraViaFiberAntecipada;
-      letraVeioDeFonteQueRepresentaInstrumental = true;
-    } else if (letraViaRede) {
-      debugLog('[Log de Envios][debug letra][diff check] letra da rede veio sem tags — tentando Fiber na tela de Sincronização antes de aceitar a versão crua...');
-      const viaFiberFinal = capturarLetraViaFiber();
-      if (viaFiberFinal) {
-        debugLog('[Log de Envios][debug letra][diff check] Fiber capturou a letra com tags na tela de Sincronização.');
-        letraAtualNaTela = viaFiberFinal;
-        letraVeioDeFonteQueRepresentaInstrumental = true;
-      } else {
-        debugLog('[Log de Envios][debug letra][diff check] Fiber não achou nada — tentando a tela de Tradução antes de aceitar a versão crua...');
-        const viaTraducaoComTags = await capturarLetraCompletaViaTraducao(atualizarBarraCaptura);
-        debugLog('[Log de Envios][debug letra][diff check] resultado da tentativa via Tradução:', viaTraducaoComTags ? 'OK' : 'null (vai usar a versão crua da rede)');
-        letraAtualNaTela = viaTraducaoComTags || letraViaRede.texto;
-      }
-    } else {
-      letraAtualNaTela = await capturarLetraCompletaComAutoScroll(
-        atualizarBarraCaptura,
-        modoCaptura === 'sincronizacao' ? { pularTraducao: true } : undefined
-      );
-    }
-    // só agora (captura de verdade já terminou) o aviso automático
-    // fecha — ver comentário grande junto de "avisoAutomatico" mais acima.
-    if (avisoAutomatico) avisoAutomatico.fechar();
-    // o usuário pode ter fechado o painel enquanto a rolagem automática
-    // ainda estava rodando — nesse caso não há mais onde renderizar nada.
-    if (!document.getElementById('mxm-log-diffcheck-overlay')) return;
-    if (!letraAtualNaTela) {
+    if (resultado.erro === 'semCapturaAtual' || !resultado.letraAtualNaTela) {
       mensagemVazia(t('diffSemCapturaAtual'));
       return;
     }
 
-    let letraSalvaParaComparar = info.entrada.letra;
-    let tagsIgnoradasNestaComparacao = false;
-
-    letraSalvaParaComparar = forcarTagsDeEstruturaEmMaiusculo(letraSalvaParaComparar);
-    letraAtualNaTela = forcarTagsDeEstruturaEmMaiusculo(letraAtualNaTela);
-
-    let instrumentalIgnoradaNestaComparacao = false;
-    if (
-      !letraVeioDeFonteQueRepresentaInstrumental &&
-      (possuiTagInstrumental(letraSalvaParaComparar) || possuiTagInstrumental(letraAtualNaTela))
-    ) {
-      letraSalvaParaComparar = removerLinhasDeTagInstrumental(letraSalvaParaComparar);
-      letraAtualNaTela = removerLinhasDeTagInstrumental(letraAtualNaTela);
-      instrumentalIgnoradaNestaComparacao = true;
-    }
-
-    if (possuiTagsEstrutura(letraSalvaParaComparar) && !possuiTagsEstrutura(letraAtualNaTela)) {
-      letraSalvaParaComparar = removerLinhasDeTag(letraSalvaParaComparar);
-      tagsIgnoradasNestaComparacao = true;
-    }
-
-    // Só AQUI (captura ao vivo do DOM vs letra salva) faz sentido limpar
-    // espaços "invisíveis" (nbsp etc.) que o navegador injeta sozinho no
-    // contenteditable — é ruído da leitura da tela, não texto real, e a
-    // letra salva não tem esse ruído por não vir dessa mesma leitura.
-    // calcularDiffLinhas em si fica 100% cru (ver comentário grande
-    // junto de isDiffComparacaoExataAtiva): confirmado com print lado a
-    // lado que o próprio site oficial NÃO normaliza tab/nbsp/zero-width —
-    // ele marca como diferença de 1 caractere, igual a qualquer outra.
-    // Normalizar dentro de calcularDiffLinhas (como a v3.3/v3.4 fizeram)
-    // quebrava essa paridade pro Diff Manual/Diffs Salvos (texto colado
-    // manualmente, que deve continuar cru pra bater com o site).
-    letraSalvaParaComparar = normalizarEspacosInvisiveis(letraSalvaParaComparar);
-    letraAtualNaTela = normalizarEspacosInvisiveis(letraAtualNaTela);
-
-    let diff = calcularDiffLinhas(letraSalvaParaComparar, letraAtualNaTela);
-    const adicionadas = diff.filter((l) => l.tipo === 'adicionada').length;
-    const removidas = diff.filter((l) => l.tipo === 'removida').length;
+    const {
+      diff,
+      adicionadas,
+      removidas,
+      letraSalvaParaComparar,
+      letraAtualNaTela,
+      instrumentalIgnoradaNestaComparacao,
+      tagsIgnoradasNestaComparacao,
+    } = resultado;
 
     const avisoInstrumentalHtml = instrumentalIgnoradaNestaComparacao
       ? `<div style="margin:14px 14px 0; padding:8px 12px; border-radius:var(--md-shape-sm); background:rgba(255,255,255,0.05); color:${DIFF_TEXTO_FRACO}; font-size:11.5px; line-height:1.5;">${escapeHtml(
@@ -11065,11 +12745,8 @@ browser.storage.onChanged.addListener((changes, area) => {
       botaoCopiar.style.display = 'flex';
       ligarHoverPill(botaoCopiar);
       botaoCopiar.onclick = () => {
-        const texto = diff
-          .map((l) => `${l.tipo === 'adicionada' ? '+ ' : l.tipo === 'removida' ? '- ' : '  '}${l.texto}`)
-          .join('\n');
         navigator.clipboard
-          .writeText(texto)
+          .writeText(resultado.textoDiffFormatado)
           .then(() => mostrarToastSimples(t('diffCopiado')))
           .catch(() => {});
       };
@@ -11126,12 +12803,62 @@ browser.storage.onChanged.addListener((changes, area) => {
   // ---------- Diff manual — o usuário cola duas letras quaisquer (não precisa ser do log, nem da mesma música) e vê a comparação lado a lado entre elas. Diferente do Diff Check (que sempre compara a última versão salva de UMA música com o que está na tela agora), esse aqui não depende de nenhuma música identificada nem de captura automática — então a janela abre direto com dois campos de texto, sem os estados de "sem faixa"/"sem versão salva" que o Diff Check precisa cobrir. ----------
 
   function fecharDiffManual() {
+    diffManualMinimizado = false;
     fecharPorIdAnimado('mxm-log-diffmanual-overlay', { distancia: 8, duracao: 180 });
+  }
+
+  // Única fonte de verdade sobre "existe um Diff manual minimizado agora"
+  // — lida por atualizarIndicadorMinimizadoToolbar() (bolinha no ícone do
+  // Log) e por atualizarAvisoDiffManualMinimizado() (banner dentro do
+  // painel do Log).
+  let diffManualMinimizado = false;
+
+  // V3.5.3: esconde o painel (sem destruir DOM/estado — textos colados e
+  // resultado do diff continuam intactos). O aviso de "minimizado" vive só
+  // na bolinha do ícone do Log e no banner do painel do Log — nada de
+  // pastilha flutuante em cima do conteúdo da página (versão anterior,
+  // removida por pedido do usuário: atrapalhava exatamente o que esse
+  // sistema deveria evitar). Ver botão "Minimizar" no header, montado em
+  // abrirDiffManual.
+  function minimizarDiffManual() {
+    const overlay = document.getElementById('mxm-log-diffmanual-overlay');
+    const painel = document.getElementById('mxm-log-diffmanual-painel');
+    if (!overlay || !painel) return;
+    animarSaidaCartao(painel, { distancia: 8, duracao: 160 }, () => {
+      overlay.style.display = 'none';
+    });
+    diffManualMinimizado = true;
+    atualizarIndicadorMinimizadoToolbar();
+  }
+
+  // Traz o painel minimizado de volta exatamente como estava — desfaz o
+  // estado final (opacidade 0, leve encolhimento) deixado por
+  // animarSaidaCartao antes de reexibir, senão voltaria invisível.
+  function restaurarDiffManual() {
+    const overlay = document.getElementById('mxm-log-diffmanual-overlay');
+    if (!overlay) return;
+    diffManualMinimizado = false;
+    atualizarIndicadorMinimizadoToolbar();
+    overlay.style.display = 'flex';
+    const painel = document.getElementById('mxm-log-diffmanual-painel');
+    if (painel) {
+      painel.style.transition = 'none';
+      painel.style.opacity = '1';
+      painel.style.transform = 'none';
+    }
+    trazerParaFrente(overlay);
   }
 
   function abrirDiffManual() {
     const overlayExistente = document.getElementById('mxm-log-diffmanual-overlay');
     if (overlayExistente) {
+      if (overlayExistente.style.display === 'none') {
+        // estava minimizado (ex.: reaberto pelo menu/atalho em vez da
+        // pastilha) — restaura em vez de só subir o z-index de um
+        // overlay invisível.
+        restaurarDiffManual();
+        return;
+      }
       trazerParaFrente(overlayExistente);
       return;
     }
@@ -11182,6 +12909,12 @@ browser.storage.onChanged.addListener((changes, area) => {
               escondido: true,
               cor: DIFF_TEXTO_FRACO,
             })}
+            <div id="mxm-log-diffmanual-minimizar-btn" title="${escapeHtml(
+              t('minimizar')
+            )}" style="cursor:pointer; color:${DIFF_TEXTO_FRACO}; font-size:16px; display:flex; padding:9px; border-radius:50%; transition:background-color .15s ease, color .15s ease;">${icone(
+      'minus',
+      16
+    )}</div>
             ${botaoHeaderFechar('mxm-log-diffmanual-fechar', DIFF_TEXTO_FRACO)}
           </div>
         </div>
@@ -11213,6 +12946,18 @@ browser.storage.onChanged.addListener((changes, area) => {
     botaoFecharHeader.addEventListener('click', () => {
       tocarSom('fechar');
       fecharDiffManual();
+    });
+
+    // V3.5.2: "Minimizar" — pedido de usuário que só queria dar uma
+    // espiada rápida na música/tela e voltar pro mesmo Diff manual com um
+    // clique, sem ter que colar e comparar tudo de novo. Em vez de fechar
+    // (que destrói o painel e perde os campos/resultado), só esconde o
+    // overlay e deixa uma pastilha flutuante no canto pra restaurar.
+    const botaoMinimizarHeader = document.getElementById('mxm-log-diffmanual-minimizar-btn');
+    ligarHoverPill(botaoMinimizarHeader);
+    botaoMinimizarHeader.addEventListener('click', () => {
+      tocarSom('clique');
+      minimizarDiffManual();
     });
 
     const corpo = document.getElementById('mxm-log-diffmanual-conteudo');
@@ -11705,6 +13450,381 @@ browser.storage.onChanged.addListener((changes, area) => {
     mostrarLista();
   }
 
+  // ---------- "Bloco de notas" — anotações livres do usuário, com vínculo opcional a uma música (título/artista já vistos no log) e/ou a um ciclo específico (ver getNotas/salvarNovaNota/atualizarNota/removerNota, mais acima nesse arquivo). Mesmo esqueleto visual do painel "Diffs salvos" (lista <-> detalhe/edição, arrastável, com botão de fechar no header). ----------
+
+  function fecharBlocoDeNotas() {
+    fecharPorIdAnimado('mxm-log-notas-overlay', { distancia: 8, duracao: 180 });
+  }
+
+  function abrirBlocoDeNotas() {
+    const overlayExistente = document.getElementById('mxm-log-notas-overlay');
+    if (overlayExistente) {
+      trazerParaFrente(overlayExistente);
+      return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'mxm-log-notas-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      background: 'transparent',
+      pointerEvents: 'none',
+      zIndex: String(proximoZIndexFlutuante()),
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    });
+
+    overlay.innerHTML = `
+      <div id="mxm-log-notas-painel" style="background:${DIFF_PAINEL_FUNDO}; color:${DIFF_TEXTO_FORTE}; width:560px; max-width:96vw; max-height:82vh; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); display:flex; flex-direction:column; font-family:sans-serif; overflow:hidden; pointer-events:auto;">
+        <div id="mxm-log-notas-header" style="display:flex; align-items:center; justify-content:space-between; padding:14px 16px; gap:10px;">
+          <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+            <div style="display:flex; flex-shrink:0; color:${DIFF_TEXTO_FRACO};" class="mxm-icone-pop">${icone('fileText', 16)}</div>
+            <div id="mxm-log-notas-titulo" style="font-size:15px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:${DIFF_TEXTO_FORTE};">${escapeHtml(
+              t('blocoDeNotasTitulo')
+            )}</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+            ${botaoHeaderComTexto('mxm-log-notas-nova-btn', 'plus', t('blocoDeNotasNovaNota'), {
+              cor: DIFF_ACENTO,
+            })}
+            ${botaoHeaderFechar('mxm-log-notas-fechar', DIFF_TEXTO_FRACO)}
+          </div>
+        </div>
+        <div id="mxm-log-notas-conteudo" style="overflow-y:auto; padding:0; font-size:12.5px; color:${DIFF_TEXTO_FORTE}; flex:1; background:${DIFF_PAINEL_FUNDO};"></div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    const painel = document.getElementById('mxm-log-notas-painel');
+    animarEntradaCartao(painel);
+    tornarArrastavel(painel, document.getElementById('mxm-log-notas-header'), overlay);
+
+    function ligarHoverPill(el, corParada) {
+      el.addEventListener('mouseenter', () => {
+        el.style.background = `color-mix(in srgb, ${DIFF_TEXTO_FORTE} 8%, transparent)`;
+        el.style.color = DIFF_TEXTO_FORTE;
+      });
+      el.addEventListener('mouseleave', () => {
+        el.style.background = 'transparent';
+        el.style.color = corParada ? corParada() : DIFF_TEXTO_FRACO;
+      });
+    }
+
+    const titulo = document.getElementById('mxm-log-notas-titulo');
+    const corpo = document.getElementById('mxm-log-notas-conteudo');
+    const botaoNova = document.getElementById('mxm-log-notas-nova-btn');
+    const botaoFecharHeader = document.getElementById('mxm-log-notas-fechar');
+
+    ligarHoverPill(botaoFecharHeader);
+    botaoFecharHeader.addEventListener('click', () => {
+      tocarSom('fechar');
+      fecharBlocoDeNotas();
+    });
+
+    ligarHoverPill(botaoNova, () => DIFF_ACENTO);
+    botaoNova.addEventListener('click', () => mostrarEditor(null));
+
+    // rótulo curto pra mostrar no cartão da lista quando a nota tem
+    // música e/ou ciclo vinculados — ex.: "Faixa X · Ciclo 3".
+    function rotuloContextoNota(nota) {
+      const partes = [];
+      if (nota.musicaTitulo) {
+        partes.push(nota.musicaArtista ? `${nota.musicaTitulo} — ${nota.musicaArtista}` : nota.musicaTitulo);
+      }
+      if (nota.cicloChave) {
+        const cicloCorrespondente = listarCiclosDoAnoAtual().find((c) => c.chave === nota.cicloChave);
+        partes.push(
+          cicloCorrespondente
+            ? getNomeCiclo(cicloCorrespondente.chave, cicloCorrespondente.numero)
+            : nota.cicloChave
+        );
+      }
+      return partes.join(' · ');
+    }
+
+    function cartaoNota(nota) {
+      const dataFormatada = new Date(nota.atualizadoEm || nota.criadoEm).toLocaleString();
+      const contexto = rotuloContextoNota(nota);
+      const primeiraLinha = (nota.texto || '').split('\n').find((linha) => linha.trim()) || '';
+      return `
+        <div class="mxm-nota-item" data-id="${escapeHtml(nota.id)}" style="display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid ${DIFF_SUPERFICIE}; cursor:pointer;">
+          <div style="min-width:0; flex:1;">
+            <div style="font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(
+              primeiraLinha || t('blocoDeNotasPlaceholderTexto')
+            )}</div>
+            <div style="display:flex; align-items:center; gap:8px; margin-top:3px; font-size:11px; color:${DIFF_TEXTO_FRACO}; overflow:hidden;">
+              <span style="flex-shrink:0;">${escapeHtml(dataFormatada)}</span>
+              ${
+                contexto
+                  ? `<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:${DIFF_ACENTO};">${escapeHtml(
+                      contexto
+                    )}</span>`
+                  : ''
+              }
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:2px; flex-shrink:0;">
+            <div class="mxm-nota-editar" title="${escapeHtml(
+              t('blocoDeNotasEditarTooltip')
+            )}" style="cursor:pointer; color:${DIFF_TEXTO_FRACO}; display:flex; align-items:center; padding:7px; border-radius:var(--md-shape-sm); transition:background .15s ease, color .15s ease;">${icone(
+        'edit',
+        16
+      )}</div>
+            <div class="mxm-nota-excluir" title="${escapeHtml(
+              t('blocoDeNotasExcluirTooltip')
+            )}" style="cursor:pointer; color:${DIFF_TEXTO_FRACO}; display:flex; align-items:center; padding:7px; border-radius:var(--md-shape-sm); transition:background .15s ease, color .15s ease;">${icone(
+        'trash2',
+        16
+      )}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function mostrarLista() {
+      titulo.textContent = t('blocoDeNotasTitulo');
+      botaoNova.style.display = 'flex';
+
+      const lista = getNotas();
+      if (!lista.length) {
+        corpo.innerHTML = `<div style="padding:28px 22px; text-align:center; color:${DIFF_TEXTO_FRACO}; line-height:1.55;">${escapeHtml(
+          t('blocoDeNotasVazio')
+        )}</div>`;
+        return;
+      }
+
+      corpo.innerHTML = lista.map(cartaoNota).join('');
+      corpo.querySelectorAll('.mxm-nota-item').forEach((item) => {
+        const id = item.getAttribute('data-id');
+        const botaoEditar = item.querySelector('.mxm-nota-editar');
+        const botaoExcluir = item.querySelector('.mxm-nota-excluir');
+        [botaoEditar, botaoExcluir].forEach((b) => {
+          b.addEventListener('mouseenter', () => {
+            b.style.background = `color-mix(in srgb, ${DIFF_TEXTO_FORTE} 8%, transparent)`;
+            b.style.color = DIFF_TEXTO_FORTE;
+          });
+          b.addEventListener('mouseleave', () => {
+            b.style.background = 'transparent';
+            b.style.color = DIFF_TEXTO_FRACO;
+          });
+        });
+        const abrirParaEdicao = () => {
+          const nota = getNotas().find((n) => n.id === id);
+          if (nota) mostrarEditor(nota);
+        };
+        item.addEventListener('click', abrirParaEdicao);
+        botaoEditar.addEventListener('click', (e) => {
+          e.stopPropagation();
+          abrirParaEdicao();
+        });
+        botaoExcluir.addEventListener('click', (e) => {
+          e.stopPropagation();
+          abrirConfirmacao({
+            titulo: t('confirmarExclusaoTitulo'),
+            mensagem: t('blocoDeNotasExcluirConfirmar'),
+            textoConfirmar: t('excluir'),
+            aoConfirmar: () => {
+              removerNota(id);
+              mostrarLista();
+            },
+          });
+        });
+      });
+    }
+
+    // `notaExistente` é null pra criar uma nota nova, ou o objeto da
+    // nota pra editar uma já salva.
+    function mostrarEditor(notaExistente) {
+      titulo.textContent = notaExistente ? t('blocoDeNotasEditarTooltip') : t('blocoDeNotasNovaNota');
+      botaoNova.style.display = 'none';
+
+      const musicas = getMusicasConhecidasParaAutocomplete();
+      const ciclos = listarCiclosDoAnoAtual();
+      const musicaInicial = notaExistente && notaExistente.musicaTitulo ? notaExistente : null;
+
+      corpo.innerHTML = `
+        <div style="padding:16px; display:flex; flex-direction:column; gap:14px;">
+          <textarea id="mxm-log-notas-textarea" placeholder="${escapeHtml(
+            t('blocoDeNotasPlaceholderTexto')
+          )}" style="width:100%; box-sizing:border-box; min-height:140px; resize:vertical; padding:12px; border-radius:var(--md-shape-lg); border:1px solid ${DIFF_BORDA}; background:${DIFF_SUPERFICIE}; color:${DIFF_TEXTO_FORTE}; font-size:13px; font-family:inherit; line-height:1.5; outline:none;">${escapeHtml(
+            (notaExistente && notaExistente.texto) || ''
+          )}</textarea>
+
+          <div>
+            <div style="font-size:11.5px; font-weight:600; color:${DIFF_TEXTO_FRACO}; margin-bottom:6px;">${escapeHtml(
+              t('blocoDeNotasMusicaLabel')
+            )}</div>
+            <div style="position:relative;">
+              <input id="mxm-log-notas-musica-input" type="text" autocomplete="off" placeholder="${escapeHtml(
+                t('blocoDeNotasMusicaPlaceholder')
+              )}" value="${escapeHtml(
+                musicaInicial
+                  ? musicaInicial.musicaArtista
+                    ? `${musicaInicial.musicaTitulo} — ${musicaInicial.musicaArtista}`
+                    : musicaInicial.musicaTitulo
+                  : ''
+              )}" style="width:100%; box-sizing:border-box; padding:10px 34px 10px 12px; border-radius:var(--md-shape-md); border:1px solid ${DIFF_BORDA}; background:${DIFF_SUPERFICIE}; color:${DIFF_TEXTO_FORTE}; font-size:12.5px; outline:none;">
+              <div id="mxm-log-notas-musica-limpar" title="${escapeHtml(
+                t('blocoDeNotasMusicaLimpar')
+              )}" style="display:${
+                musicaInicial ? 'flex' : 'none'
+              }; position:absolute; right:6px; top:50%; transform:translateY(-50%); cursor:pointer; color:${DIFF_TEXTO_FRACO}; align-items:center; justify-content:center; padding:5px; border-radius:50%; transition:background .15s ease, color .15s ease;">${icone(
+        'x',
+        13
+      )}</div>
+              <div id="mxm-log-notas-musica-sugestoes" style="display:none; position:absolute; left:0; right:0; top:calc(100% + 4px); max-height:180px; overflow-y:auto; background:${DIFF_SUPERFICIE}; border:1px solid ${DIFF_BORDA}; border-radius:var(--md-shape-md); box-shadow:var(--md-elevation-2); z-index:2;"></div>
+            </div>
+          </div>
+
+          <div>
+            <div style="font-size:11.5px; font-weight:600; color:${DIFF_TEXTO_FRACO}; margin-bottom:6px;">${escapeHtml(
+              t('blocoDeNotasCicloLabel')
+            )}</div>
+            <select id="mxm-log-notas-ciclo-select" style="width:100%; box-sizing:border-box; padding:10px 12px; border-radius:var(--md-shape-md); border:1px solid ${DIFF_BORDA}; background:${DIFF_SUPERFICIE}; color:${DIFF_TEXTO_FORTE}; font-size:12.5px; outline:none;">
+              <option value="">${escapeHtml(t('blocoDeNotasCicloNenhum'))}</option>
+              ${ciclos
+                .map(
+                  (c) =>
+                    `<option value="${escapeHtml(c.chave)}" ${
+                      notaExistente && notaExistente.cicloChave === c.chave ? 'selected' : ''
+                    }>${escapeHtml(getNomeCiclo(c.chave, c.numero))}</option>`
+                )
+                .join('')}
+            </select>
+          </div>
+
+          <div style="display:flex; gap:8px;">
+            <button id="mxm-log-notas-voltar-btn" type="button" style="cursor:pointer; background:transparent; border:1px solid ${DIFF_BORDA}; color:${DIFF_TEXTO_FRACO}; font-size:12.5px; padding:9px 14px; border-radius:var(--md-shape-sm); transition:background .15s ease, border-color .15s ease;">${escapeHtml(
+              t('blocoDeNotasCancelar')
+            )}</button>
+            <button id="mxm-log-notas-salvar-btn" type="button" style="flex:1; cursor:pointer; background:${DIFF_ACENTO}; border:none; color:#08211d; font-size:12.5px; font-weight:700; padding:9px 14px; border-radius:var(--md-shape-sm);">${escapeHtml(
+              t('blocoDeNotasSalvar')
+            )}</button>
+          </div>
+        </div>
+      `;
+
+      let musicaSelecionada = musicaInicial
+        ? { titulo: musicaInicial.musicaTitulo, artista: musicaInicial.musicaArtista || '' }
+        : null;
+
+      const inputMusica = document.getElementById('mxm-log-notas-musica-input');
+      const botaoLimparMusica = document.getElementById('mxm-log-notas-musica-limpar');
+      const sugestoesEl = document.getElementById('mxm-log-notas-musica-sugestoes');
+
+      function esconderSugestoes() {
+        sugestoesEl.style.display = 'none';
+        sugestoesEl.innerHTML = '';
+      }
+
+      function mostrarSugestoes(filtro) {
+        const termo = normalizarParaOrdenacao(filtro || '');
+        const encontradas = (
+          termo ? musicas.filter((m) => normalizarParaOrdenacao(m.titulo).includes(termo)) : musicas
+        ).slice(0, 8);
+        if (!encontradas.length) {
+          esconderSugestoes();
+          return;
+        }
+        sugestoesEl.innerHTML = encontradas
+          .map(
+            (m, i) =>
+              `<div class="mxm-nota-musica-sugestao" data-indice="${i}" style="padding:9px 12px; cursor:pointer; font-size:12.5px; color:${DIFF_TEXTO_FORTE}; border-bottom:1px solid ${DIFF_BORDA};">${escapeHtml(
+                m.artista ? `${m.titulo} — ${m.artista}` : m.titulo
+              )}</div>`
+          )
+          .join('');
+        sugestoesEl.style.display = 'block';
+        sugestoesEl.querySelectorAll('.mxm-nota-musica-sugestao').forEach((el) => {
+          el.addEventListener('mouseenter', () => {
+            el.style.background = `color-mix(in srgb, ${DIFF_TEXTO_FORTE} 8%, transparent)`;
+          });
+          el.addEventListener('mouseleave', () => {
+            el.style.background = 'transparent';
+          });
+          el.addEventListener('mousedown', (e) => {
+            // mousedown (não click) pra disparar antes do blur do input
+            // fechar a lista de sugestões.
+            e.preventDefault();
+            const escolhida = encontradas[Number(el.getAttribute('data-indice'))];
+            musicaSelecionada = escolhida;
+            inputMusica.value = escolhida.artista ? `${escolhida.titulo} — ${escolhida.artista}` : escolhida.titulo;
+            botaoLimparMusica.style.display = 'flex';
+            esconderSugestoes();
+          });
+        });
+      }
+
+      inputMusica.addEventListener('focus', () => mostrarSugestoes(inputMusica.value));
+      inputMusica.addEventListener('input', () => {
+        musicaSelecionada = null;
+        botaoLimparMusica.style.display = 'none';
+        mostrarSugestoes(inputMusica.value);
+      });
+      inputMusica.addEventListener('blur', () => {
+        // pequeno atraso pra permitir o mousedown da sugestão rodar antes.
+        setTimeout(esconderSugestoes, 120);
+      });
+
+      botaoLimparMusica.addEventListener('mouseenter', () => {
+        botaoLimparMusica.style.background = `color-mix(in srgb, ${DIFF_TEXTO_FORTE} 10%, transparent)`;
+        botaoLimparMusica.style.color = DIFF_TEXTO_FORTE;
+      });
+      botaoLimparMusica.addEventListener('mouseleave', () => {
+        botaoLimparMusica.style.background = 'transparent';
+        botaoLimparMusica.style.color = DIFF_TEXTO_FRACO;
+      });
+      botaoLimparMusica.addEventListener('click', () => {
+        musicaSelecionada = null;
+        inputMusica.value = '';
+        botaoLimparMusica.style.display = 'none';
+        esconderSugestoes();
+        inputMusica.focus();
+      });
+
+      const botaoVoltar = document.getElementById('mxm-log-notas-voltar-btn');
+      botaoVoltar.addEventListener('mouseenter', () => {
+        botaoVoltar.style.background = 'rgba(255,255,255,0.06)';
+      });
+      botaoVoltar.addEventListener('mouseleave', () => {
+        botaoVoltar.style.background = 'transparent';
+      });
+      botaoVoltar.addEventListener('click', mostrarLista);
+
+      const botaoSalvar = document.getElementById('mxm-log-notas-salvar-btn');
+      const selectCiclo = document.getElementById('mxm-log-notas-ciclo-select');
+      botaoSalvar.addEventListener('click', () => {
+        const textoEl = document.getElementById('mxm-log-notas-textarea');
+        const texto = (textoEl.value || '').trim();
+        if (!texto) {
+          textoEl.style.borderColor = DIFF_ERRO;
+          mostrarToastSimples(t('blocoDeNotasSemTexto'));
+          return;
+        }
+        // se o usuário digitou um texto livre no campo de música sem
+        // escolher uma sugestão da lista, guarda mesmo assim como título
+        // solto (sem artista) — não obriga a bater com uma música do log.
+        if (!musicaSelecionada && inputMusica.value.trim()) {
+          musicaSelecionada = { titulo: inputMusica.value.trim(), artista: '' };
+        }
+        const campos = {
+          texto,
+          musicaTitulo: musicaSelecionada ? musicaSelecionada.titulo : null,
+          musicaArtista: musicaSelecionada ? musicaSelecionada.artista || null : null,
+          cicloChave: selectCiclo.value || null,
+        };
+        if (notaExistente) atualizarNota(notaExistente.id, campos);
+        else salvarNovaNota(campos);
+        tocarSom('sucesso');
+        mostrarLista();
+      });
+    }
+
+    mostrarLista();
+  }
+
   // ---------- menu de contexto (clique direito) no botão da barra (ao lado do "Enviar") — antes abria direto as Configurações; agora oferece também o Diff Check ----------
 
   function fecharMenuBotaoBarra() {
@@ -11905,7 +14025,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     overlay.innerHTML = `
       <div style="background:var(--md-sys-color-surface-container-low); color:var(--md-sys-color-on-surface); width:340px; max-width:90vw; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); font-family:sans-serif; overflow:hidden;">
         <div style="padding:18px 18px 4px; display:flex; align-items:flex-start; gap:10px;">
-          <div style="width:34px; height:34px; border-radius:var(--md-shape-sm); background:color-mix(in srgb, #f2b705 18%, transparent); display:flex; align-items:center; justify-content:center; flex-shrink:0;" class="mxm-icone-pop">${icone(
+          <div style="width:34px; height:34px; border-radius:var(--md-shape-sm); background:color-mix(in srgb, #f2b705 18%, transparent); display:flex; align-items:center; justify-content:center; flex-shrink:0;" class="mxm-icone-pop-reto">${icone(
             'alertTriangle',
             17,
             '#f2b705'
@@ -11981,7 +14101,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     });
   }
 
-  function abrirPromptTexto({ titulo, mensagem, valorInicial, placeholder, textoConfirmar, aoConfirmar }) {
+  function abrirPromptTexto({ titulo, mensagem, valorInicial, placeholder, textoConfirmar, aoConfirmar, aoCancelar }) {
     document.querySelectorAll('#mxm-log-prompt-overlay').forEach((el) => el.remove());
 
     const overlay = document.createElement('div');
@@ -12051,16 +14171,25 @@ browser.storage.onChanged.addListener((changes, area) => {
       fechar();
       aoConfirmar(valor);
     }
+    // V3.4.62: fechar sem confirmar (botão "Cancelar", Escape ou clique
+    // fora) — separado de `confirmar()` de propósito, pra não disparar
+    // os dois callbacks no mesmo fechamento. Usado pelo fluxo
+    // encadeado do botão "+" (ver iniciarFluxoNovaEntradaManual) pra
+    // avançar pro próximo passo mesmo quando o usuário pula este.
+    function cancelar() {
+      fechar();
+      if (typeof aoCancelar === 'function') aoCancelar();
+    }
     function aoTeclar(e) {
-      if (e.key === 'Escape') fechar();
+      if (e.key === 'Escape') cancelar();
       else if (e.key === 'Enter') confirmar();
     }
     document.addEventListener('keydown', aoTeclar);
 
     overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) fechar();
+      if (e.target === overlay) cancelar();
     });
-    document.getElementById('mxm-log-prompt-cancelar').addEventListener('click', fechar);
+    document.getElementById('mxm-log-prompt-cancelar').addEventListener('click', cancelar);
     document.getElementById('mxm-log-prompt-ok').addEventListener('click', confirmar);
   }
 
@@ -12307,7 +14436,7 @@ browser.storage.onChanged.addListener((changes, area) => {
 
     // botão-fantasma de tamanho fixo pra manter o cabeçalho alinhado
     // quando a linha de tags (instrumental/manual/sem detalhes) some.
-    function linhaInfo({ nomeIcone, label, valor, corValor, acao, tituloAcao }) {
+    function linhaInfo({ nomeIcone, label, valor, corValor, acao, tituloAcao, iconeAcao }) {
       return `
         <div style="display:flex; align-items:center; gap:10px; padding:9px 4px;">
           <div style="width:30px; height:30px; border-radius:var(--md-shape-sm); background:var(--md-sys-color-surface-container-high); display:flex; align-items:center; justify-content:center; flex-shrink:0; color:var(--md-sys-color-on-surface-variant);">${icone(
@@ -12327,7 +14456,7 @@ browser.storage.onChanged.addListener((changes, area) => {
               ? `<button data-acao="${acao}" title="${escapeHtml(
                   tituloAcao || ''
                 )}" style="flex-shrink:0; width:28px; height:28px; padding:0; border:none; border-radius:50%; background:transparent; color:var(--md-sys-color-primary); cursor:pointer; display:flex; align-items:center; justify-content:center;">${icone(
-                  'edit',
+                  iconeAcao || 'edit',
                   13
                 )}</button>`
               : ''
@@ -12351,6 +14480,7 @@ browser.storage.onChanged.addListener((changes, area) => {
         : '';
 
       const dataHoraTexto = entrada.data && entrada.hora ? `${entrada.data} ${t('as')} ${entrada.hora}` : '—';
+      const tentativasTexto = entrada.tentativas > 1 ? ` · ${entrada.tentativas} ${t('tentativasLabel')}` : '';
       const duracaoTexto = entrada.duracao || t('painelMusicaDuracaoIndisponivel');
       const missaoTexto = entrada.missao || t('semMissaoIdentificada');
 
@@ -12374,7 +14504,7 @@ browser.storage.onChanged.addListener((changes, area) => {
           ${linhaInfo({
             nomeIcone: 'calendar',
             label: t('painelMusicaDataHoraLabel'),
-            valor: dataHoraTexto,
+            valor: `${dataHoraTexto}${tentativasTexto}`,
             acao: 'data-hora',
             tituloAcao: t('painelMusicaEditarDataHoraTitulo'),
           })}
@@ -12391,6 +14521,42 @@ browser.storage.onChanged.addListener((changes, area) => {
             acao: 'missao',
             tituloAcao: t('painelMusicaEditarMissaoTitulo'),
           })}
+          ${
+            entrada.commontrackId
+              ? linhaInfo({
+                  nomeIcone: 'hash',
+                  label: t('id'),
+                  valor: String(entrada.commontrackId),
+                  acao: 'copiar-id',
+                  tituloAcao: t('painelMusicaCopiarIdTitulo'),
+                  iconeAcao: 'copy',
+                })
+              : ''
+          }
+          ${
+            entrada.commontrackId
+              ? linhaInfo({
+                  nomeIcone: 'externalLink',
+                  label: t('painelMusicaAbrirPaginaLabel'),
+                  valor: t('painelMusicaAbrirPaginaValor'),
+                  acao: 'abrir-pagina-musica',
+                  tituloAcao: t('painelMusicaAbrirPaginaTitulo'),
+                  iconeAcao: 'externalLink',
+                })
+              : ''
+          }
+          ${
+            entrada.commontrackId
+              ? linhaInfo({
+                  nomeIcone: 'externalLink',
+                  label: t('painelMusicaAbrirStudioLabel'),
+                  valor: t('painelMusicaAbrirStudioValor'),
+                  acao: 'abrir-studio-modo-comum',
+                  tituloAcao: t('painelMusicaAbrirStudioTitulo'),
+                  iconeAcao: 'externalLink',
+                })
+              : ''
+          }
         </div>
         <div style="padding:12px 18px 18px; flex-shrink:0;">
           ${
@@ -12399,11 +14565,10 @@ browser.storage.onChanged.addListener((changes, area) => {
                   'fileText',
                   14
                 )}${t('painelMusicaVerLetra')}</button>`
-              : `<div style="display:flex; align-items:center; gap:8px; padding:10px; border-radius:var(--md-shape-sm); background:var(--md-sys-color-surface-container-high); color:var(--md-sys-color-outline); font-size:12.5px;">${icone(
+              : `<button id="mxm-log-painel-entrada-adicionar-letra" style="width:100%; box-sizing:border-box; display:flex; align-items:center; justify-content:center; gap:6px; padding:10px; border-radius:var(--md-shape-sm); border:1px dashed var(--md-sys-color-outline-variant); background:transparent; color:var(--md-sys-color-on-surface-variant); font-size:13px; font-weight:600; cursor:pointer;">${icone(
                   'fileText',
-                  14,
-                  'var(--md-sys-color-outline)'
-                )}${t('painelMusicaSemLetra')}</div>`
+                  14
+                )}${t('painelMusicaAdicionarLetra')}</button>`
           }
         </div>
       `;
@@ -12419,6 +14584,93 @@ browser.storage.onChanged.addListener((changes, area) => {
             artista: entrada.artista,
             letra: entrada.letra,
           });
+        });
+      }
+
+      const btnAdicionarLetra = cartao.querySelector('#mxm-log-painel-entrada-adicionar-letra');
+      if (btnAdicionarLetra) {
+        btnAdicionarLetra.addEventListener('click', () => {
+          abrirVisualizadorLetra({
+            key,
+            titulo: entrada.titulo,
+            artista: entrada.artista,
+            letra: entrada.letra || '',
+            abrirEmEdicao: true,
+          });
+        });
+      }
+
+      const btnCopiarId = cartao.querySelector('[data-acao="copiar-id"]');
+      if (btnCopiarId) {
+        btnCopiarId.addEventListener('mouseenter', () => {
+          btnCopiarId.style.backgroundColor = 'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)';
+        });
+        btnCopiarId.addEventListener('mouseleave', () => {
+          btnCopiarId.style.backgroundColor = 'transparent';
+        });
+        btnCopiarId.addEventListener('click', () => {
+          navigator.clipboard
+            .writeText(String(entrada.commontrackId))
+            .then(() => {
+              tocarSom('sucesso');
+              mostrarToastSimples(t('painelMusicaIdCopiadoToast'));
+            })
+            .catch(() => {});
+        });
+      }
+
+      // V3.5.12: leva direto pra página pública da música no site do
+      // Musixmatch (musixmatch.com/lyrics/...), não no Curators Studio —
+      // é isso que o Kreobio pediu: poder abrir a página real da faixa
+      // (letra, infos) a partir do log, com um ícone de redirecionamento.
+      // A URL pública de verdade é "lyrics/<track_id>/<commontrack_id>"
+      // com um slug bonito (ex: lyrics/70523031/224791377), mas o
+      // <track_id> não é exposto em lugar nenhum no Curators Studio — só
+      // o commontrack_id (ver getCommontrackId). Testado manualmente:
+      // "lyrics/0/<commontrack_id>" (qualquer valor no lugar do
+      // track_id) já é suficiente pro Musixmatch resolver e redirecionar
+      // pra página certa da música.
+      // V3.5.20: esse mesmo link também ganhou um ícone próprio, direto
+      // na toolbar do Studio ao vivo (ver criarBotaoAbrirPaginaToolbar) —
+      // este aqui continua funcionando igual, pra faixas já registradas
+      // no log.
+      const btnAbrirPagina = cartao.querySelector('[data-acao="abrir-pagina-musica"]');
+      if (btnAbrirPagina) {
+        btnAbrirPagina.addEventListener('mouseenter', () => {
+          btnAbrirPagina.style.backgroundColor = 'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)';
+        });
+        btnAbrirPagina.addEventListener('mouseleave', () => {
+          btnAbrirPagina.style.backgroundColor = 'transparent';
+        });
+        btnAbrirPagina.addEventListener('click', () => {
+          try {
+            window.open(montarUrlPaginaMusica(entrada.commontrackId), '_blank', 'noopener,noreferrer');
+          } catch (e) {
+            console.warn('[Log de Envios] Falha ao montar o link da música.', e);
+            mostrarToastSimples(t('painelMusicaAbrirPaginaErro'), 'erro');
+          }
+        });
+      }
+
+      // V3.5.57: mesma ideia do botão "Abrir no site" acima, mas levando
+      // direto pro Curators Studio no modo comum (mode=sync), em vez do
+      // modo missão em que a extensão normalmente já opera — útil pra
+      // abrir uma faixa qualquer do log fora do fluxo de missão.
+      const btnAbrirStudio = cartao.querySelector('[data-acao="abrir-studio-modo-comum"]');
+      if (btnAbrirStudio) {
+        btnAbrirStudio.addEventListener('mouseenter', () => {
+          btnAbrirStudio.style.backgroundColor = 'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)';
+        });
+        btnAbrirStudio.addEventListener('mouseleave', () => {
+          btnAbrirStudio.style.backgroundColor = 'transparent';
+        });
+        btnAbrirStudio.addEventListener('click', () => {
+          try {
+            window.open(montarUrlStudioModoComum(entrada.commontrackId), '_blank', 'noopener,noreferrer');
+          } catch (e) {
+            console.warn('[Log de Envios] Falha ao montar o link do Studio (modo comum).', e);
+            mostrarToastSimples(t('painelMusicaAbrirStudioErro'), 'erro');
+          }
         });
       }
 
@@ -12456,7 +14708,7 @@ browser.storage.onChanged.addListener((changes, area) => {
   // visualizador da letra completa capturada (beta) — mesmo padrão
   // visual do cartão de confirmação (overlay + animação de entrada), mas
   // com o corpo rolável pra caber letras longas e um botão de copiar.
-  function abrirVisualizadorLetra({ key, titulo, artista, letra }) {
+  function abrirVisualizadorLetra({ key, titulo, artista, letra, abrirEmEdicao }) {
     document.querySelectorAll('#mxm-log-letra-overlay').forEach((el) => el.remove());
 
     const overlay = document.createElement('div');
@@ -12580,6 +14832,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     }
 
     renderModoView();
+    if (abrirEmEdicao) renderModoEdicao();
     animarEntradaCartao(cartao, { distancia: 8, duracao: 180 });
 
     const fechar = () => fecharOverlayAnimado(overlay, cartao, { distancia: 8, duracao: 180 });
@@ -12731,6 +14984,38 @@ browser.storage.onChanged.addListener((changes, area) => {
     });
   }
 
+  // Uma entrada fake completa (mesmos campos que registrarEnvio salva de
+  // verdade — ver logs[key] = {...} logo abaixo, na função registrarEnvio
+  // — pra nada no resto do render quebrar por campo faltando). key
+  // prefixada com "debug:" pra nunca colidir com uma chave real (chaves
+  // reais são "id:<commontrackId>" ou o resultado de
+  // normalizeKey/chaveUnicaSemDetalhes — nenhuma delas começa com
+  // "debug:"). Usada só por renderPainelLista quando isSimulacaoListaAtiva()
+  // — nunca é gravada em getLogs()/saveLogs(), então o log real nunca é
+  // tocado por essa simulação.
+  function criarEntradaFakeSimulacaoLista() {
+    const agora = mxmAgora();
+    const { data, hora } = formatDateHora(agora);
+    return {
+      key: 'debug:entrada-simulada',
+      titulo: 'Música de exemplo (simulação)',
+      artista: 'Artista de exemplo',
+      semDetalhes: false,
+      imagemUrl: null,
+      commontrackId: null,
+      data,
+      hora,
+      timestamp: agora.getTime(),
+      tentativas: 1,
+      tipo: 'lyrics',
+      origem: 'debug',
+      missao: null,
+      duracao: '2:16',
+      duracaoSegundos: 136,
+      letra: null,
+    };
+  }
+
   function renderPainelLista() {
     const lista = document.getElementById('mxm-log-lista');
     const busca = document.getElementById('mxm-log-busca');
@@ -12747,10 +15032,36 @@ browser.storage.onChanged.addListener((changes, area) => {
     // aplica o modo de ordenação/agrupamento escolhido no botão de
     // funil (data / missão / ordem alfabética) — cada entrada sai anotada
     // com _grupoChave/_grupoRotulo, usados abaixo no lugar de e.data.
-    const entradas = aplicarOrdenacaoEAgrupamento(entradasFiltradas);
+    let entradas = aplicarOrdenacaoEAgrupamento(entradasFiltradas);
+
+    // V3.5.10.1 (debug): simulador de tamanho de lista — substitui só a
+    // variável `entradas` (usada daqui pra baixo, puramente pra
+    // renderizar) por um cenário fake de "lista vazia" ou "só 1 música",
+    // pra testar rapidamente estados como o marcador "Fim da lista"/o
+    // bloco de dicas de lista curta sem precisar apagar de verdade o
+    // histórico de quem está testando. getLogs()/saveLogs() nunca são
+    // chamados por causa disso — só essa variável local muda. Ignorado
+    // se houver um termo de busca digitado (não faria sentido simular
+    // "sem resultado nenhum" por cima de uma busca de verdade — ver
+    // isSimulacaoListaAtiva() e a ressalva logo abaixo, no cálculo de
+    // logRealmenteVazio).
+    const modoSimulacaoLista = !termo ? getModoSimulacaoLista() : 'off';
+    if (modoSimulacaoLista === 'vazia') {
+      entradas = [];
+    } else if (modoSimulacaoLista === 'uma') {
+      entradas = aplicarOrdenacaoEAgrupamento([criarEntradaFakeSimulacaoLista()]);
+    }
 
     if (entradas.length === 0) {
-      const logRealmenteVazio = !termo && Object.keys(getLogs()).length === 0;
+      // logRealmenteVazio decide qual mensagem de estado vazio mostrar
+      // (a completa, com botões de importar/adicionar, só faz sentido
+      // quando o log de verdade está vazio — ver abaixo). Continua
+      // olhando pro storage real (getLogs()) mesmo com a simulação
+      // ativa: simular "vazia" deve mostrar a MESMA tela que um usuário
+      // com log genuinamente vazio veria, então isso é o comportamento
+      // certo, não um vazamento da simulação pro estado real.
+      const logRealmenteVazio =
+        modoSimulacaoLista === 'vazia' || (!termo && Object.keys(getLogs()).length === 0);
       if (logRealmenteVazio) {
         lista.innerHTML = `
           <div style="padding:28px 20px; text-align:center;">
@@ -12767,6 +15078,11 @@ browser.storage.onChanged.addListener((changes, area) => {
               'logVazioDescricao'
             )}</div>
             <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+              <button id="mxm-log-vazio-adicionar" style="display:flex; align-items:center; gap:6px; padding:9px 14px; border:none; border-radius:var(--md-shape-sm); background:var(--md-sys-color-surface-container-high); color:var(--md-sys-color-on-surface); font-size:12px; font-weight:600; cursor:pointer;">${icone(
+                'plus',
+                14,
+                'var(--md-sys-color-on-surface)'
+              )}${t('adicionarEntradaVaziaBotao')}</button>
               <button id="mxm-log-vazio-importar-local" style="display:flex; align-items:center; gap:6px; padding:9px 14px; border:none; border-radius:var(--md-shape-sm); background:var(--md-sys-color-surface-container-high); color:var(--md-sys-color-on-surface); font-size:12px; font-weight:600; cursor:pointer;">${icone(
                 'upload',
                 14,
@@ -12778,6 +15094,8 @@ browser.storage.onChanged.addListener((changes, area) => {
             </div>
           </div>
         `;
+        const botaoAdicionarVazio = document.getElementById('mxm-log-vazio-adicionar');
+        if (botaoAdicionarVazio) botaoAdicionarVazio.addEventListener('click', adicionarEntradaVaziaManual);
         const botaoImportarLocal = document.getElementById('mxm-log-vazio-importar-local');
         if (botaoImportarLocal) botaoImportarLocal.addEventListener('click', abrirSeletorArquivoBackup);
         const botaoImportarNuvem = document.getElementById('mxm-log-vazio-importar-nuvem');
@@ -12792,6 +15110,16 @@ browser.storage.onChanged.addListener((changes, area) => {
     }
 
     const mostrarImg = isImgVisible();
+
+    // contagem de quantas entradas cada grupo de data tem, usada pro
+    // número ao lado do rótulo quando o grupo está recolhido — como
+    // "entradas" já vem ordenada e agrupada por _grupoChave (mudança
+    // de chave marca início/fim de grupo), um único passo simples
+    // conta cada grupo sem precisar de outro agrupamento por Map.
+    const contagemPorGrupo = new Map();
+    entradas.forEach((e) => {
+      contagemPorGrupo.set(e._grupoChave, (contagemPorGrupo.get(e._grupoChave) || 0) + 1);
+    });
 
     let html = '';
     let dataAnterior = null;
@@ -12809,29 +15137,75 @@ browser.storage.onChanged.addListener((changes, area) => {
         const grupoRecolhido = gruposRecolhidos.has(e._grupoChave);
         html += `<div style="position:relative;">`;
         if (corte) {
+          // "iniciado" é sempre o ciclo mais RECENTE dos dois lados do
+          // corte, e "encerrado" o mais ANTIGO — não importa qual dos
+          // dois é `e` (grupo que a lista está entrando agora) ou
+          // `entradas[indice-1]` (último item do grupo anterior no
+          // array), porque a lista pode estar em ordem mais-recente-
+          // primeiro (padrão) ou não, dependendo de getOrdenacaoLog().
+          // Comparando as duas chaves de ciclo com ordemCronologicaChaveMesAno
+          // (já usada em outros pontos deste arquivo) descobrimos qual é
+          // qual sem depender da ordem de exibição — bug anterior: cada
+          // lado usava sempre a mesma posição no array (`e` = iniciado,
+          // anterior = encerrado), o que só dava certo por acaso na
+          // ordenação padrão e invertia o significado quando a chave real
+          // mais recente calhava de vir depois no array.
+          const entradaAnteriorLoop = entradas[indice - 1];
+          const chaveA = e._chaveCiclo;
+          const chaveB = entradaAnteriorLoop && entradaAnteriorLoop._chaveCiclo;
+          let chaveIniciado = chaveA;
+          let chaveEncerrado = chaveB;
+          if (chaveA && chaveB && ordemCronologicaChaveMesAno(chaveA) < ordemCronologicaChaveMesAno(chaveB)) {
+            chaveIniciado = chaveB;
+            chaveEncerrado = chaveA;
+          }
+          const mesCicloAtual = chaveIniciado ? rotuloCicloParaMarcador(chaveIniciado) : '';
+          const mesCicloAnterior = chaveEncerrado ? rotuloCicloParaMarcador(chaveEncerrado) : '';
           html += `
-            <div style="display:flex; align-items:center; gap:8px; padding:${
+            <div style="display:flex; align-items:center; justify-content:center; gap:8px; padding:${
               primeiroGrupo ? '4px' : '20px'
-            } 4px 0;">
-              <div style="flex:1; height:1px; background:linear-gradient(90deg, transparent, color-mix(in srgb, var(--md-sys-color-tertiary) 55%, transparent));"></div>
-              <div style="flex-shrink:0; display:inline-flex; align-items:center; gap:5px; padding:4px 11px; border-radius:var(--md-shape-full); background:color-mix(in srgb, var(--md-sys-color-tertiary) 16%, var(--md-sys-color-surface)); border:1px solid color-mix(in srgb, var(--md-sys-color-tertiary) 40%, transparent); font-size:10px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:var(--md-sys-color-tertiary);">${icone(
-                'sparkles',
+            } 4px 12px;">
+              <div style="flex-shrink:0; display:inline-flex; align-items:center; gap:5px; padding:4px 10px; border-radius:var(--md-shape-full); background:var(--md-sys-color-primary-container); font-size:10px; font-weight:700; color:var(--md-sys-color-on-primary-container); margin-top:-7px;">${icone(
+                'arrowUp',
                 11,
-                'var(--md-sys-color-tertiary)'
-              )}${t('inicioNovoCiclo')}</div>
-              <div style="flex:1; height:1px; background:linear-gradient(90deg, color-mix(in srgb, var(--md-sys-color-tertiary) 55%, transparent), transparent);"></div>
+                'var(--md-sys-color-on-primary-container)'
+              )}${escapeHtml(mesCicloAtual)} ${t('cicloIniciado')}</div>
+              ${
+                mesCicloAnterior
+                  ? `<span style="flex-shrink:0; color:var(--md-sys-color-outline); display:inline-flex; transform:rotate(135deg);">${icone(
+                      'chevronRight',
+                      12
+                    )}</span>
+                    <div style="flex-shrink:0; display:inline-flex; align-items:center; gap:5px; padding:4px 10px; border-radius:var(--md-shape-full); background:var(--md-sys-color-surface-container-high); font-size:10px; font-weight:600; color:var(--md-sys-color-on-surface-variant); margin-top:7px;">${icone(
+                      'arrowDown',
+                      11
+                    )}${escapeHtml(mesCicloAnterior)} ${t('cicloEncerrado')}</div>`
+                  : ''
+              }
             </div>
           `;
         }
         html += `
-          <div class="mxm-log-data-header" data-grupo-key="${chaveGrupoAttr}" style="position:sticky; top:0; z-index:2; margin:0; padding:20px 4px 10px; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; column-gap:6px; background:var(--md-sys-color-surface);">
+          <div class="mxm-log-data-header" data-grupo-key="${chaveGrupoAttr}" style="position:sticky; top:0; z-index:2; margin:0; padding:20px 4px 10px; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; column-gap:6px; background:var(--md-sys-color-surface-container-low);">
             <span class="mxm-log-grupo-chevron${
               grupoRecolhido ? ' mxm-grupo-chevron-fechado' : ''
             }" style="justify-self:end; display:inline-flex; color:var(--md-sys-color-outline); flex-shrink:0; pointer-events:none;">${icone('chevronDown', 13)}</span>
             <button type="button" class="mxm-log-grupo-toggle" data-grupo-key="${chaveGrupoAttr}" style="justify-self:center; display:inline-flex; align-items:center; gap:5px; padding:4px 12px; border:none; border-radius:var(--md-shape-full); background:var(--md-sys-color-surface-container-high); font-size:10.5px; font-weight:700; letter-spacing:0.4px; text-transform:uppercase; color:var(--md-sys-color-on-surface-variant); font-family:inherit;">
-              ${escapeHtml(e._grupoRotulo)}
+              ${escapeHtml(e._grupoRotulo)}<span class="mxm-log-grupo-contagem" style="opacity:.65; font-weight:600;">· ${
+                contagemPorGrupo.get(e._grupoChave) || 0
+              }</span>
             </button>
-            <div style="justify-self:start; display:flex; align-items:center;">
+            <div style="justify-self:start; display:flex; align-items:center; gap:6px;">
+              ${
+                primeiroGrupo
+                  ? `<button id="mxm-log-add-vazio-btn" title="${t(
+                      'adicionarEntradaVaziaTitulo'
+                    )}" style="display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; padding:0; border:none; border-radius:50%; background:var(--md-sys-color-surface-container-high); color:var(--md-sys-color-on-surface-variant); cursor:pointer; flex-shrink:0;">${icone(
+                      'plus',
+                      13
+                    )}</button>`
+                  : ''
+              }
               ${
                 primeiroGrupo
                   ? `<button id="mxm-log-ordenar-btn" title="${t(
@@ -12858,32 +15232,69 @@ browser.storage.onChanged.addListener((changes, area) => {
       const anterior = entradas[indice - 1];
       const primeiraDoDia = !anterior || anterior._grupoChave !== e._grupoChave;
       const ultimaDoDia = !proxima || proxima._grupoChave !== e._grupoChave;
-      const raioTopo = primeiraDoDia ? 'var(--md-shape-md)' : '0px';
-      const raioBase = ultimaDoDia ? 'var(--md-shape-md)' : '0px';
+      // cantos do meio não ficam 100% retos — um raio de 8px mantém a
+      // curva discreta mas perceptível ao lado do raio bem maior das
+      // pontas do grupo (var(--md-shape-md) = 12px).
+      const raioTopo = primeiraDoDia ? 'var(--md-shape-md)' : '8px';
+      const raioBase = ultimaDoDia ? 'var(--md-shape-md)' : '8px';
       const raioBloco = `${raioTopo} ${raioTopo} ${raioBase} ${raioBase}`;
-      const margemBloco = `0 4px ${ultimaDoDia ? '6px' : '0px'}`;
+      // gap FIXO de 4px entre TODOS os cards, sem variar por posição —
+      // antes usava 2px dentro do dia e 6px depois do último do dia, mas
+      // como a altura de cada card varia (linha de missão e tags são
+      // condicionais), o espaço em volta de cards mais altos/baixos
+      // parecia inconsistente mesmo com o valor "certo" aplicado. Um
+      // valor único elimina essa ambiguidade visual de vez. A separação
+      // entre grupos continua vindo do cabeçalho de data/corte de ciclo,
+      // não do tamanho do gap.
+      const margemBloco = `0 4px 4px`;
+      // altura mínima do card, pra reduzir a variação de altura entre
+      // entradas com/sem linha de missão — deixa o espaçamento entre
+      // cards mais uniforme aos olhos mesmo quando o conteúdo interno
+      // difere um pouco.
+      const alturaMinimaBloco = e.missao ? 'auto' : '54px';
 
       const selecionada = itensSelecionados.has(e.key);
 
       // no modo de seleção, o ícone de excluir individual dá lugar a
       // uma caixa de seleção; a linha toda também fica clicável.
+      // V3.5.58: o antigo ícone de lixeira (ação única "excluir") virou
+      // um botão de "mais opções" (3 pontinhos) que abre um menu com
+      // "Abrir no site", "Abrir no Studio" e "Excluir" — ver
+      // abrirMenuLinhaLog, mesmo padrão visual do menu da tag "Letra"
+      // (abrirMenuLetra).
       const acaoHtml = modoSelecaoAtivo
         ? `<div data-key="${e.key}" class="mxm-log-select mxm-log-row-action" style="cursor:pointer; color:${
             selecionada ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline)'
           };">${icone(selecionada ? 'checkSquare' : 'square', 18)}</div>`
-        : `<div data-key="${e.key}" class="mxm-log-del mxm-log-row-action" style="cursor:pointer; font-size:15px;" title="${t(
-            'remover'
-          )}">${icone('trash', 15)}</div>`;
+        : `<div data-key="${e.key}" class="mxm-log-menu-linha mxm-log-row-action" style="cursor:pointer; font-size:15px;" title="${t(
+            'maisOpcoes'
+          )}">${icone('moreVertical', 15)}</div>`;
 
       html += `
-        <div data-row-key="${e.key}" class="mxm-log-row" style="display:flex; align-items:center; gap:10px; padding:9px 10px; margin:${margemBloco}; border-radius:${raioBloco}; background:${
-        selecionada ? 'color-mix(in srgb, var(--md-sys-color-primary) 14%, var(--md-sys-color-surface-container-low))' : 'var(--md-sys-color-surface-container-low)'
+        <div data-row-key="${e.key}" class="mxm-log-row" style="display:flex; align-items:center; gap:10px; padding:9px 10px; margin:${margemBloco}; min-height:${alturaMinimaBloco}; border-radius:${raioBloco}; background:${
+        selecionada ? 'color-mix(in srgb, var(--md-sys-color-primary) 14%, color-mix(in srgb, var(--md-sys-color-surface-container) 45%, var(--md-sys-color-surface-container-high)))' : 'color-mix(in srgb, var(--md-sys-color-surface-container) 45%, var(--md-sys-color-surface-container-high))'
       }; cursor:pointer;">
           ${
             mostrarImg
               ? e.imagemUrl
-                ? `<img src="${e.imagemUrl}" style="width:38px; height:38px; border-radius:var(--md-shape-sm); object-fit:cover; flex-shrink:0;">`
-                : renderCapaPlaceholder(`${e.titulo}|${e.artista}`, '38px', 16)
+                ? `<div data-key="${e.key}" class="mxm-log-capa-preview" title="${escapeHtml(
+                    t('logCapaOuvirPreviaTooltip')
+                  )}" style="position:relative; width:38px; height:38px; flex-shrink:0; cursor:pointer;">${svgAnelProgressoCapa()}<div style="position:relative; z-index:1; width:100%; height:100%; border-radius:var(--md-shape-sm); overflow:hidden;"><img src="${e.imagemUrl}" style="width:100%; height:100%; border-radius:var(--md-shape-sm); object-fit:cover; display:block;"><div class="mxm-log-capa-preview-hover" style="position:absolute; inset:0; border-radius:var(--md-shape-sm); background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity .12s ease;">${icone(
+                    'play',
+                    14,
+                    '#fff'
+                  )}</div></div></div>`
+                : `<div data-key="${e.key}" class="mxm-log-capa-preview" title="${escapeHtml(
+                    t('logCapaOuvirPreviaTooltip')
+                  )}" style="position:relative; width:38px; height:38px; flex-shrink:0; cursor:pointer;">${svgAnelProgressoCapa()}<div style="position:relative; z-index:1; width:100%; height:100%; border-radius:var(--md-shape-sm); overflow:hidden;">${renderCapaPlaceholder(
+                    `${e.titulo}|${e.artista}`,
+                    '100%',
+                    16
+                  )}<div class="mxm-log-capa-preview-hover" style="position:absolute; inset:0; border-radius:var(--md-shape-sm); background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity .12s ease;">${icone(
+                    'play',
+                    14,
+                    '#fff'
+                  )}</div></div></div>`
               : ''
           }
           <div style="flex:1; min-width:0;">
@@ -12898,7 +15309,7 @@ browser.storage.onChanged.addListener((changes, area) => {
             )}${t('instrumentalTag')}</span>`
           : ''
       }${
-        e.origem === 'manual'
+        (e.origem === 'manual' || e.origem === 'manual-vazio')
           ? `<span style="display:inline-flex; flex-shrink:0; align-items:center; gap:3px; font-size:10px; font-weight:600; color:#ff8a3d; background:rgba(255,138,61,0.15); border-radius:var(--md-shape-full); padding:1px 5px;">${icone(
               'cursor',
               10
@@ -12915,24 +15326,38 @@ browser.storage.onChanged.addListener((changes, area) => {
           : ''
       }${
         e.letra
-          ? `<span data-key="${e.key}" class="mxm-log-ver-letra" title="${t(
-              'letraCapturadaTooltip'
-            )}" style="display:inline-flex; flex-shrink:0; align-items:center; gap:3px; font-size:10px; font-weight:600; color:var(--md-sys-color-primary); background:color-mix(in srgb, var(--md-sys-color-primary) 15%, transparent); border-radius:var(--md-shape-full); padding:1px 5px; cursor:pointer;">${icone(
-              'fileText',
-              10
-            )}${t('letraCapturadaTag')}</span>`
+          ? (() => {
+              const letraSuspeita = letraPossuiPalavraSuspeita(e.letra) && !letraAvisoMarcadoComoFalsoPositivo(e);
+              const corTag = letraSuspeita ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-primary)';
+              const tooltipTag = letraSuspeita ? t('letraSuspeitaTooltip') : t('letraCapturadaTooltip');
+              return `<span data-key="${e.key}" class="mxm-log-ver-letra" title="${tooltipTag}" style="display:inline-flex; flex-shrink:0; align-items:center; gap:3px; font-size:10px; font-weight:600; color:${corTag}; background:color-mix(in srgb, ${corTag} 15%, transparent); border-radius:var(--md-shape-full); padding:1px 5px; cursor:pointer;">${icone(
+                'fileText',
+                10
+              )}${t('letraCapturadaTag')}</span>${
+                letraSuspeita
+                  ? `<span data-key="${e.key}" class="mxm-log-letra-aviso-falso-positivo" title="${t(
+                      'letraSuspeitaTooltip'
+                    )}" style="display:inline-flex; flex-shrink:0; align-items:center; justify-content:center; width:20px; height:20px; box-sizing:border-box; padding:0; border-radius:var(--md-shape-full); background:color-mix(in srgb, var(--md-sys-color-error) 15%, transparent); cursor:pointer;">${icone(
+                      'alertTriangle',
+                      13,
+                      'var(--md-sys-color-error)'
+                    )}</span>`
+                  : ''
+              }`;
+            })()
           : ''
       }
             </div>
             <div style="font-size:12px; color:var(--md-sys-color-outline); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(e.artista)}</div>
             <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:11px; color:var(--md-sys-color-outline); margin-top:2px;">
-              <span>${escapeHtml(e.hora)}${e.tentativas > 1 ? ` · ${e.tentativas} ${t('tentativa')}` : ''}</span>
+              <span style="display:inline-flex; align-items:center; gap:3px;">${icone('calendar', 10)}${escapeHtml(
+                e.hora
+              )}</span>
               ${
                 e.duracao
                   ? `<span style="display:inline-flex; align-items:center; gap:3px;">${icone('clock', 10)}${e.duracao}</span>`
                   : ''
               }
-              ${e.commontrackId ? `<span>${t('id')} ${e.commontrackId}</span>` : ''}
             </div>
             ${
               e.missao
@@ -12954,7 +15379,108 @@ browser.storage.onChanged.addListener((changes, area) => {
 
     if (entradas.length > 0) html += `</div></div></div>`;
 
+    // V3.4.82: "Fim da lista" — marcador real no fluxo do documento, não
+    // padding nem scroll-margin (isso já foi tentado e revertido nas
+    // v3.4.78/79: não resolvia o travamento de scroll e virou suspeito de
+    // piorar as coisas — a causa raiz de verdade era outra, ver V3.4.80/81
+    // no CHANGELOG). Por ocupar espaço de verdade, a última entrada
+    // nunca fica colada na borda de baixo nem atrás do FAB — sem precisar
+    // calcular nenhum valor de espaçamento. Só aparece quando há
+    // entradas de verdade na lista (não no estado vazio nem no "nenhum
+    // resultado", que têm suas próprias mensagens acima).
+    // V3.5.10.1: adicionado padding-bottom (era 0) — sem folga embaixo, o
+    // texto "FIM DA LISTA" ficava colado bem na borda inferior do painel
+    // (que é arredondada), dando a impressão de estar cortado/picotado
+    // pela moldura ao rolar até o fim. O padding-top de 44px (histórico,
+    // ver V3.4.83 no CHANGELOG) resolvia a separação da última música mas
+    // nunca cobria esse lado — o de baixo nunca tinha sido dado.
+    if (entradas.length > 0) {
+      html += `
+        <div style="padding:44px 10px 28px 10px;">
+          <div style="width:56px; height:2px; margin:0 auto 16px auto; border-radius:1px; background:var(--md-sys-color-outline-variant);"></div>
+          <div class="mxm-log-fim-lista" style="text-align:center; font-size:12px; font-weight:600; letter-spacing:.03em; text-transform:uppercase; color:var(--md-sys-color-outline); opacity:.75; user-select:none;">${t(
+            'fimDaLista'
+          )}</div>
+        </div>
+      `;
+    }
+
+    // V3.4.89: bloco de dicas pra listas pequenas (≤10 músicas) — em vez
+    // de continuar refinando a precisão do cálculo de arredondamento
+    // (v3.4.86/87/88), esse bloco ataca o problema de um jeito estrutural:
+    // conteúdo real e generoso, sempre com a MESMA altura (nada sorteado
+    // por render, senão criaríamos uma nova fonte de jitter de tamanho),
+    // empurra a "sobra de rolagem" da lista bem pra cima da tolerância de
+    // arredondamento — deixa de ser um empate por 1-2px e passa a ser uma
+    // diferença de centenas de pixels, então o veredito "cabe"/"não cabe"
+    // nunca mais fica em cima do risco de virar de lado à toa. Reaproveita
+    // o texto das dicas rotativas do sino de notificações (DICAS_ROTATIVAS),
+    // já traduzido nos 3 idiomas — mostra todas de uma vez, sempre na
+    // mesma ordem, em vez de sortear um subconjunto.
+    if (entradas.length > 0 && entradas.length <= 10) {
+      const linhasDicas = DICAS_ROTATIVAS.map((dica, i) => {
+        const temAcao = typeof dica.acao === 'function' && dica.acaoChave;
+        const botaoId = `mxm-dica-lista-acao-${i}`;
+        return `
+          <div style="display:flex; align-items:flex-start; gap:12px; padding:14px 0;">
+            <div style="margin-top:1px;">${icone('lightbulb', 16, 'var(--md-sys-color-primary)')}</div>
+            <div style="flex:1; min-width:0;">
+              <span style="font-size:13px; line-height:1.5; color:var(--md-sys-color-on-surface-variant);">${t(
+                dica.chave
+              )}</span>
+              ${
+                temAcao
+                  ? `
+                <div
+                  id="${botaoId}"
+                  data-dica-acao-index="${i}"
+                  style="display:inline-flex; align-items:center; gap:4px; margin-top:8px; cursor:pointer; font-size:11.5px; font-weight:700; color:var(--md-sys-color-primary); padding:5px 10px 5px 12px; border-radius:var(--md-shape-full); background:color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent); transition:background-color .15s ease;"
+                >
+                  ${escapeHtml(t(dica.acaoChave))}
+                  ${icone('chevronRight', 13, 'var(--md-sys-color-primary)')}
+                </div>
+              `
+                  : ''
+              }
+            </div>
+          </div>
+        `;
+      }).join(
+        '<div style="height:1px; margin:0 2px; background:linear-gradient(to right, var(--md-sys-color-outline-variant), transparent 85%); opacity:.6;"></div>'
+      );
+      html += `
+        <div style="margin:22px 10px 24px 10px; padding:20px 18px; border-radius:var(--md-shape-lg); background:var(--md-sys-color-surface-container-low); border:1px solid var(--md-sys-color-outline-variant);">
+          <div style="display:flex; align-items:center; gap:8px; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--md-sys-color-primary); margin-bottom:4px;">
+            ${icone('lightbulb', 14, 'var(--md-sys-color-primary)')}
+            ${t('dicasListaCurtaTitulo')}
+          </div>
+          ${linhasDicas}
+        </div>
+      `;
+    }
+
     lista.innerHTML = html;
+
+    // liga os botõezinhos de link de cada dica ("Abrir Configurações",
+    // "Abrir Diff Check" etc.) do bloco de dicas pra lista curta — ver
+    // DICAS_ROTATIVAS acima. Só dicas com acaoChave/acao renderizam o
+    // botão, então esse forEach nunca encontra elemento pra chave ausente.
+    lista.querySelectorAll('[data-dica-acao-index]').forEach((el) => {
+      const indice = Number(el.getAttribute('data-dica-acao-index'));
+      const dica = DICAS_ROTATIVAS[indice];
+      if (!dica || typeof dica.acao !== 'function') return;
+      el.addEventListener('mouseenter', () => {
+        el.style.background = 'color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent)';
+      });
+      el.addEventListener('mouseleave', () => {
+        el.style.background = 'color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent)';
+      });
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        tocarSom('clique');
+        dica.acao();
+      });
+    });
 
     // botão de funil ao lado da primeira data — abre o menu de
     // ordenação (data/missão/alfabética). Posicionado a partir do próprio
@@ -12966,6 +15492,18 @@ browser.storage.onChanged.addListener((changes, area) => {
         tocarSom('clique');
         const retangulo = botaoOrdenar.getBoundingClientRect();
         abrirMenuOrdenacao(retangulo.left, retangulo.bottom + 4);
+      });
+    }
+
+    // botão "+" ao lado do funil — adiciona uma entrada vazia ("sem
+    // detalhes") pro usuário completar na mão (mesmo fluxo de completar
+    // já usado quando a captura automática falha — ver
+    // abrirEdicaoDetalhesEntrada). Ver adicionarEntradaVaziaManual.
+    const botaoAddVazioHeader = document.getElementById('mxm-log-add-vazio-btn');
+    if (botaoAddVazioHeader) {
+      botaoAddVazioHeader.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        adicionarEntradaVaziaManual();
       });
     }
 
@@ -13005,6 +15543,31 @@ browser.storage.onChanged.addListener((changes, area) => {
       });
     });
 
+    // ícone de aviso (triângulo) ao lado da tag "Letra" — clique pede
+    // confirmação e, se aceito, marca esse registro como falso positivo:
+    // a letra continua com o termo suspeito, mas o aviso some pra ele.
+    lista.querySelectorAll('.mxm-log-letra-aviso-falso-positivo').forEach((el) => {
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const key = el.getAttribute('data-key');
+        abrirConfirmacao({
+          titulo: t('confirmarFalsoPositivoLetraTitulo'),
+          mensagem: t('confirmarFalsoPositivoLetraMensagem'),
+          textoConfirmar: t('confirmarFalsoPositivoLetraBotao'),
+          aoConfirmar: () => {
+            marcarLetraComoFalsoPositivo(key);
+            mostrarToastSimples(t('falsoPositivoLetraMarcado'));
+          },
+        });
+      });
+      // não deixa o contextmenu (clique direito) da tag "Letra" por trás
+      // disparar junto — mesmo cuidado de isolamento dos outros badges.
+      el.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+      });
+    });
+
     lista.querySelectorAll('.mxm-log-instrumental-tag').forEach((el) => {
       el.addEventListener('click', (ev) => {
         ev.stopPropagation();
@@ -13024,10 +15587,24 @@ browser.storage.onChanged.addListener((changes, area) => {
       });
     });
 
+    // Entrada fake da simulação de lista (debug) nunca deve se comportar
+    // como uma entrada real: bloqueia menu de missão, exclusão, seleção e
+    // abertura do painel, já que 'debug:entrada-simulada' não existe em
+    // getLogs() e essas ações quebrariam ou agiriam sobre o storage real
+    // de forma confusa.
+    const ehEntradaSimuladaDebug = (key) => typeof key === 'string' && key.startsWith('debug:');
+    const avisarEntradaDemonstracao = () => {
+      mostrarToastSimples(t('avisoEntradaDemonstracaoDebug'), 'erro');
+    };
+
     lista.querySelectorAll('[data-row-key]').forEach((row) => {
       row.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         const key = row.getAttribute('data-row-key');
+        if (ehEntradaSimuladaDebug(key)) {
+          avisarEntradaDemonstracao();
+          return;
+        }
         abrirMenuMissao(e.clientX, e.clientY, key);
       });
     });
@@ -13036,23 +15613,44 @@ browser.storage.onChanged.addListener((changes, area) => {
       lista.querySelectorAll('[data-row-key]').forEach((row) => {
         row.addEventListener('click', () => {
           const key = row.getAttribute('data-row-key');
+          if (ehEntradaSimuladaDebug(key)) {
+            avisarEntradaDemonstracao();
+            return;
+          }
           alternarSelecaoItem(key);
           renderPainelLista();
         });
       });
     } else {
-      lista.querySelectorAll('.mxm-log-del').forEach((el) => {
-        el.addEventListener('mouseenter', () => (el.style.color = '#f2a5a5'));
+      lista.querySelectorAll('.mxm-log-menu-linha').forEach((el) => {
+        el.addEventListener('mouseenter', () => (el.style.color = 'var(--md-sys-color-on-surface)'));
         el.addEventListener('mouseleave', () => (el.style.color = 'var(--md-sys-color-outline)'));
         el.addEventListener('click', (ev) => {
           ev.stopPropagation();
           const key = el.getAttribute('data-key');
-          abrirConfirmacao({
-            titulo: t('confirmarExclusaoTitulo'),
-            mensagem: t('confirmarExclusaoRegistro'),
-            textoConfirmar: t('excluir'),
-            aoConfirmar: () => apagarEntrada(key),
-          });
+          if (ehEntradaSimuladaDebug(key)) {
+            avisarEntradaDemonstracao();
+            return;
+          }
+          const rect = el.getBoundingClientRect();
+          abrirMenuLinhaLog(rect.left, rect.bottom + 4, key);
+        });
+      });
+
+      // PoC preview Apple Music — clicar na capa toca os 30s da faixa em
+      // vez de abrir o painel de detalhes da linha (mesmo stopPropagation
+      // usado pelo menu de 3 pontinhos acima).
+      lista.querySelectorAll('.mxm-log-capa-preview').forEach((el) => {
+        el.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const key = el.getAttribute('data-key');
+          if (ehEntradaSimuladaDebug(key)) {
+            avisarEntradaDemonstracao();
+            return;
+          }
+          const entrada = getLogs()[key];
+          if (!entrada) return;
+          alternarPreviewAppleMusicNaCapa(el, entrada.titulo, entrada.artista);
         });
       });
 
@@ -13064,6 +15662,10 @@ browser.storage.onChanged.addListener((changes, area) => {
       lista.querySelectorAll('[data-row-key]').forEach((row) => {
         row.addEventListener('click', () => {
           const key = row.getAttribute('data-row-key');
+          if (ehEntradaSimuladaDebug(key)) {
+            avisarEntradaDemonstracao();
+            return;
+          }
           abrirPainelEntrada(key);
         });
       });
@@ -13148,7 +15750,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     const ignorarManuais = !!(opcoes && opcoes.ignorarManuais);
     const porData = {};
     entradas.forEach((e) => {
-      if (ignorarManuais && e.origem === 'manual') return;
+      if (ignorarManuais && (e.origem === 'manual' || e.origem === 'manual-vazio')) return;
       porData[e.data] = (porData[e.data] || 0) + 1;
     });
     return porData;
@@ -13392,37 +15994,72 @@ browser.storage.onChanged.addListener((changes, area) => {
     }">${icone(def.icone, Math.round(tamanho * 0.5))}</div>`;
   }
 
-  // Fileira compacta de badges desbloqueadas, exibida embaixo do nome do
-  // curator no painel Detalhado (ver renderPainelDetalhado). Sem nenhuma
-  // desbloqueada ainda, o bloco inteiro some (display:none) em vez de
-  // aparecer vazio — mesmo padrão já usado pela citação/mashup ao lado.
+  // Indicador de progresso de conquistas, exibido embaixo do nome do
+  // curator no painel Detalhado (ver renderPainelDetalhado) — mescla os
+  // selos das conquistas desbloqueadas mais recentemente (sobrepostos,
+  // mesmo esquema de cor por tier de htmlBadgeConquista/corConquista) com
+  // uma barra de progresso em gradiente e um troféu + contagem no final
+  // (que ganha um leve brilho ao completar 100%). Clicável do mesmo jeito
+  // pra abrir o modal completo de conquistas. Sem nenhuma desbloqueada
+  // ainda, o bloco inteiro some (display:none) em vez de aparecer vazio —
+  // mesmo padrão já usado pela citação/mashup ao lado.
   function htmlFileiraConquistas() {
-    // sistema desligado (padrão) — fileira nem aparece, mesmo que
+    // sistema desligado (padrão) — indicador nem aparece, mesmo que
     // exista alguma badge de uma ativação anterior (respeita o toggle na
     // hora, sem precisar apagar o dado guardado).
     if (!isConquistasAtivo()) return '<div id="mxm-log-detalhado-conquistas" style="display:none;"></div>';
+    // reservado a quem tem o backup automático na nuvem ligado —
+    // funciona como um "benefício" extra de quem já confia os dados do
+    // log à nuvem, sem depender de nenhum outro toggle além desse.
+    if (!isBackupNuvemAutomaticoAtivo()) return '<div id="mxm-log-detalhado-conquistas" style="display:none;"></div>';
     const desbloqueadas = getConquistasDesbloqueadas();
+    const total = CONQUISTAS_DEFINICOES.length;
     const defsDesbloqueadas = CONQUISTAS_DEFINICOES.filter((d) => desbloqueadas[d.id]).sort(
       (a, b) => (desbloqueadas[b.id] || 0) - (desbloqueadas[a.id] || 0)
     );
-    const total = CONQUISTAS_DEFINICOES.length;
     const qtd = defsDesbloqueadas.length;
+    const pct = total ? Math.round((qtd / total) * 100) : 0;
+    const completou = total > 0 && qtd >= total;
+
+    const selosRecentesHtml = defsDesbloqueadas
+      .slice(0, 3)
+      .map((def, i) => {
+        const cor = corConquista(def.tier);
+        return `<div class="mxm-conquista-badge" data-id="${def.id}" title="${escapeHtml(
+          tituloConquista(def)
+        )}" style="width:18px; height:18px; border-radius:50%; background:${cor.bg}; color:${
+          cor.fg
+        }; display:flex; align-items:center; justify-content:center; flex-shrink:0; ${
+          i > 0 ? 'margin-left:-6px;' : ''
+        }">${icone(def.icone, 9)}</div>`;
+      })
+      .join('');
+
+    const barraGradiente = completou
+      ? 'linear-gradient(90deg, var(--md-sys-color-primary), #fac775)'
+      : 'linear-gradient(90deg, var(--md-sys-color-primary), #5dcaa5)';
+
     return `
-      <div id="mxm-log-detalhado-conquistas" style="display:${
+      <div id="mxm-log-detalhado-conquistas" title="${t('conquistasTitulo')}" style="display:${
         qtd ? 'flex' : 'none'
-      }; align-items:center; gap:5px; max-width:100%; overflow-x:auto; padding:1px 4px;">
-        ${defsDesbloqueadas
-          .slice(0, 8)
-          .map((def) => htmlBadgeConquista(def, true, 24))
-          .join('')}
-        <div id="mxm-log-detalhado-conquistas-ver-mais" style="cursor:pointer; font-size:10.5px; font-weight:700; color:var(--md-sys-color-primary); white-space:nowrap; padding:2px 6px; border-radius:var(--md-shape-xs); flex-shrink:0;">${qtd}/${total}</div>
+      }; align-items:center; gap:8px; width:100%; max-width:240px; cursor:pointer; padding:2px 4px;">
+        <div style="display:flex; margin-right:2px; flex-shrink:0;">${selosRecentesHtml}</div>
+        <div style="flex:1; height:6px; border-radius:3px; background:var(--md-sys-color-surface-container-high); overflow:hidden;">
+          <div style="width:${pct}%; height:100%; border-radius:3px; background:${barraGradiente}; transition:width .3s ease;"></div>
+        </div>
+        <div id="mxm-log-detalhado-conquistas-ver-mais" style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+          <span style="display:flex; color:#fac775; ${
+            completou ? 'filter:drop-shadow(0 0 3px #fac77599);' : ''
+          }">${icone('star', 14)}</span>
+          <span style="font-size:10.5px; font-weight:700; color:#fac775; white-space:nowrap;">${qtd}/${total}</span>
+        </div>
       </div>
     `;
   }
 
-  // Só atualiza a fileira de badges (sem reabrir/recriar o painel inteiro)
-  // — chamada depois que uma nova conquista é desbloqueada com o painel já
-  // aberto na tela.
+  // Só atualiza a barra (sem reabrir/recriar o painel inteiro) — chamada
+  // depois que uma nova conquista é desbloqueada com o painel já aberto
+  // na tela.
   function atualizarBadgesConquistasNoPainel() {
     const bloco = document.getElementById('mxm-log-detalhado-conquistas');
     if (!bloco || !bloco.parentElement) return;
@@ -13434,11 +16071,8 @@ browser.storage.onChanged.addListener((changes, area) => {
   }
 
   function vincularCliqueFileiraConquistas() {
-    const verMais = document.getElementById('mxm-log-detalhado-conquistas-ver-mais');
-    if (verMais) verMais.addEventListener('click', abrirModalConquistas);
-    document.querySelectorAll('#mxm-log-detalhado-conquistas .mxm-conquista-badge').forEach((el) => {
-      el.addEventListener('click', abrirModalConquistas);
-    });
+    const bloco = document.getElementById('mxm-log-detalhado-conquistas');
+    if (bloco) bloco.addEventListener('click', abrirModalConquistas);
   }
 
   // Modal com a lista completa de conquistas (desbloqueadas e bloqueadas),
@@ -13549,6 +16183,20 @@ browser.storage.onChanged.addListener((changes, area) => {
     const nomes = MESES_ABREV[getIdioma()] || MESES_ABREV.pt;
     const nome = nomes[mesNum - 1] || mesStr;
     return `${nome}/${(anoStr || '').slice(2)}`;
+  }
+
+  // Nome de exibição de um ciclo a partir da sua chave ("MM/AAAA") — usa
+  // o nome customizado salvo em getNomeCiclo/setNomeCiclo quando existir
+  // (mesma fonte usada na tela "Ciclos"), senão cai no rótulo de mês
+  // (formatarRotuloMes) como fallback, já que "Ciclo N" sozinho não diz
+  // muita coisa fora do contexto daquela tela. O número do ciclo dentro
+  // do ano é sempre o próprio número do mês (ciclo 1 = janeiro etc.).
+  function rotuloCicloParaMarcador(mesAnoChave) {
+    if (!mesAnoChave) return '';
+    const nomes = getNomesCiclos();
+    const custom = nomes[mesAnoChave];
+    if (custom && custom.trim()) return custom.trim();
+    return formatarRotuloMes(mesAnoChave);
   }
 
   // nomes curtos de dia da semana (seg→dom), pro heatmap de distribuição
@@ -13855,6 +16503,39 @@ browser.storage.onChanged.addListener((changes, area) => {
     return candidatoDesteMes;
   }
 
+  // ---------- tela "Ciclos" (ver abrirPainelCiclos) ----------
+  // Monta a lista de ciclos do ANO CIVIL de `dataEfetivaParaCiclo(mxmAgora())`
+  // (ano em que o ciclo atual efetivamente cai, não necessariamente o ano
+  // do calendário na virada de dezembro/janeiro) — do ciclo 1 (janeiro) até
+  // o ciclo atual, sem nenhum ciclo futuro ainda não vivido. Cada item já
+  // vem com início/fim reais (viradaDeCicloDoMes) e a chave de ciclo usada
+  // em todo o resto do script (chaveMesAno) pra filtrar o log/nome custom.
+  function listarCiclosDoAnoAtual() {
+    const agoraEfetivo = dataEfetivaParaCiclo(mxmAgora());
+    const anoAtual = agoraEfetivo.getFullYear();
+    const mesAtualIndex = agoraEfetivo.getMonth(); // 0=jan ... 11=dez, já é o ciclo corrente
+
+    const ciclos = [];
+    for (let mesIndex = 0; mesIndex <= mesAtualIndex; mesIndex++) {
+      // início = virada do mês anterior (ou 1º de janeiro pro ciclo 1,
+      // que não tem "dezembro do ano anterior" como referência própria
+      // dentro deste ano civil — mostrado como o início do próprio ano).
+      const inicio =
+        mesIndex === 0 ? new Date(anoAtual, 0, 1, 0, 0, 0, 0) : viradaDeCicloDoMes(anoAtual, mesIndex - 1);
+      const fim = viradaDeCicloDoMes(anoAtual, mesIndex);
+      const chave = chaveMesAno(new Date(anoAtual, mesIndex, 15)); // dia 15: sempre dentro do mês certo, longe de virada
+      ciclos.push({
+        chave,
+        numero: mesIndex + 1,
+        inicio,
+        fim,
+        atual: mesIndex === mesAtualIndex,
+      });
+    }
+    // mais recente primeiro — o ciclo atual é o que mais interessa ver de cara.
+    return ciclos.reverse();
+  }
+
   // Formata um intervalo em ms como contagem regressiva legível — com dias
   // quando falta mais de 1, só horas/minutos/segundos no resto (evitar
   // "0d 03h 12m" por padrão, só compacto quando falta pouco).
@@ -13920,6 +16601,10 @@ browser.storage.onChanged.addListener((changes, area) => {
   }
 
   let cronometroCicloMainIntervalId = null;
+  // intervalo do cartão de cronômetro dentro da tela "Ciclos" (ver
+  // renderPainelCiclos/abrirPainelCiclos) — separado do de cima porque
+  // vive num painel diferente, com ciclo de vida próprio.
+  let ciclosCronometroIntervalId = null;
 
   function pararCronometroCicloMain() {
     if (!cronometroCicloMainIntervalId) return;
@@ -14003,7 +16688,7 @@ browser.storage.onChanged.addListener((changes, area) => {
               <span id="mxm-cronometro-modal-valor" style="font-size:15px; font-weight:800; color:var(--md-sys-color-on-surface); font-variant-numeric:tabular-nums; line-height:1.3;"></span>
             </div>
           </div>
-          <div title="${t('cronometroEstiloSiteTooltip')}" style="margin-top:8px; font-size:11px; font-weight:600; color:var(--md-sys-color-on-surface-variant); font-variant-numeric:tabular-nums;">🌐 <span id="mxm-cronometro-modal-valor-site"></span> (${t('cronometroEstiloSiteLabel')})</div>
+          <div title="${t('cronometroEstiloSiteTooltip')}" style="margin-top:8px; font-size:11px; font-weight:600; color:var(--md-sys-color-on-surface-variant); font-variant-numeric:tabular-nums;">⏰ <span id="mxm-cronometro-modal-valor-site"></span> (${t('cronometroEstiloSiteLabel')})</div>
           <div style="margin-top:14px; font-size:11.5px; color:var(--md-sys-color-on-surface-variant); text-align:center; line-height:1.5;">${t(
             'proximoCicloDescricao'
           )}</div>
@@ -14052,6 +16737,156 @@ browser.storage.onChanged.addListener((changes, area) => {
     });
     document.getElementById('mxm-cronometro-modal-fechar').addEventListener('click', fechar);
     document.getElementById('mxm-cronometro-modal-saiba-mais').addEventListener('click', () => abrirExplicacaoCiclosMissoes());
+  }
+
+  // Janela "Sobre" — explica o que é a extensão e linka pro repositório
+  // open source no GitHub. Aberta ao clicar no bloco de identidade
+  // (nome + versão) no topo do painel de Configurações (ver
+  // renderizarConfiguracoes, próximo a `identidade.innerHTML`).
+  function abrirJanelaSobre() {
+    document.querySelectorAll('#mxm-log-sobre-overlay').forEach((el) => el.remove());
+
+    const overlay = document.createElement('div');
+    overlay.id = 'mxm-log-sobre-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      background: 'color-mix(in srgb, var(--md-sys-color-scrim) 60%, transparent)',
+      zIndex: String(proximoZIndexFlutuante()),
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    });
+
+    overlay.innerHTML = `
+      <div style="background:var(--md-sys-color-surface-container-low); color:var(--md-sys-color-on-surface); width:360px; max-width:90vw; max-height:80vh; display:flex; flex-direction:column; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); font-family:sans-serif; overflow:hidden;">
+        <div style="padding:20px 20px 4px; display:flex; align-items:flex-start; gap:10px; flex-shrink:0;">
+          <div style="width:34px; height:34px; border-radius:50%; background:color-mix(in srgb, var(--md-sys-color-primary) 20%, transparent); display:flex; align-items:center; justify-content:center; flex-shrink:0;" class="mxm-icone-pop">${icone(
+            'info',
+            17,
+            'var(--md-sys-color-primary)'
+          )}</div>
+          <div style="margin-top:5px;">
+            <div style="font-size:14.5px; font-weight:700;">${escapeHtml(t('sobreTitulo'))}</div>
+            <div style="font-size:11px; color:var(--md-sys-color-outline); margin-top:2px;">${t(
+              'versaoInstalada'
+            )} v${escapeHtml(getVersaoInstalada() || '?')}</div>
+          </div>
+        </div>
+        <div style="padding:12px 20px 4px; overflow-y:auto;">
+          <div style="font-size:12.5px; color:var(--md-sys-color-on-surface-variant); line-height:1.6;">${escapeHtml(
+            t('sobreDescricao')
+          )}</div>
+        </div>
+        <div style="padding:18px 20px; display:flex; flex-direction:column; gap:8px; flex-shrink:0;">
+          <a href="${GITHUB_REPO_PAGE_URL}" target="_blank" rel="noopener noreferrer" style="display:flex; align-items:center; justify-content:center; gap:8px; text-decoration:none; width:100%; box-sizing:border-box; padding:9px; border-radius:var(--md-shape-sm); border:1px solid var(--md-sys-color-outline-variant); background:var(--md-sys-color-surface-container-highest); color:var(--md-sys-color-on-surface); font-size:12.5px; font-weight:600;">${icone(
+            'github',
+            15
+          )}<span>${escapeHtml(t('sobreLinkGithub'))}</span></a>
+          <button id="mxm-sobre-fechar" style="width:100%; padding:9px; border-radius:var(--md-shape-sm); border:none; background:var(--md-sys-color-primary); color:var(--md-sys-color-on-primary); font-size:13px; font-weight:600; cursor:pointer;">${escapeHtml(
+            t('fechar')
+          )}</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    const cartao = overlay.firstElementChild;
+    animarEntradaCartao(cartao, { distancia: 8, duracao: 180 });
+    trazerParaFrente(overlay);
+
+    function fechar() {
+      document.removeEventListener('keydown', aoTeclarSobre);
+      fecharOverlayAnimado(overlay, cartao, { distancia: 8, duracao: 180 });
+    }
+    function aoTeclarSobre(e) {
+      if (e.key === 'Escape') fechar();
+    }
+    document.addEventListener('keydown', aoTeclarSobre);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) fechar();
+    });
+    document.getElementById('mxm-sobre-fechar').addEventListener('click', fechar);
+  }
+
+  // Popup de apresentação do Tabs V3 (layout/tema interno do painel),
+  // aberto ao clicar na linha "Versão do Tabs V3" dentro do bloco de
+  // identidade das Configurações. Mostra o banner da versão atual
+  // (mesma paleta do Echoform: fundo #3b2266, acento #c9a3ff) e um
+  // changelog curto do que mudou no tema nesta versão.
+  function abrirJanelaTabsV3() {
+    document.querySelectorAll('#mxm-log-tabsv3-overlay').forEach((el) => el.remove());
+
+    const overlay = document.createElement('div');
+    overlay.id = 'mxm-log-tabsv3-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      background: 'color-mix(in srgb, var(--md-sys-color-scrim) 60%, transparent)',
+      zIndex: String(proximoZIndexFlutuante()),
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    });
+
+    const changelogItens = (t('tabsV3Changelog') || [])
+      .map(
+        (item) =>
+          `<li style="margin-bottom:6px;">${escapeHtml(item)}</li>`
+      )
+      .join('');
+
+    overlay.innerHTML = `
+      <div style="background:var(--md-sys-color-surface-container-low); color:var(--md-sys-color-on-surface); width:400px; max-width:90vw; max-height:85vh; display:flex; flex-direction:column; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); font-family:sans-serif; overflow:hidden;">
+        <div style="position:relative; background:#3b2266; padding:28px 24px; flex-shrink:0; overflow:hidden;">
+          <div style="position:absolute; right:-30px; top:-20px; width:180px; height:180px; border-radius:50%; border:1.5px solid rgba(201,163,255,0.14);"></div>
+          <div style="position:absolute; right:20px; top:30px; width:110px; height:110px; border-radius:50%; border:1.5px solid rgba(201,163,255,0.10);"></div>
+          <div style="position:relative; display:flex; flex-direction:column; gap:14px;">
+            <div style="display:flex; flex-direction:column; gap:4px;">
+              <div style="font-size:28px; font-weight:700; color:#f4edff; line-height:1;">${escapeHtml(
+                t('tabsV3Titulo')
+              )}</div>
+              <div style="font-size:13px; color:#c9a3ff;">${t(
+                'versaoInstalada'
+              )} 3.5.0</div>
+            </div>
+            <div style="display:inline-flex; align-self:flex-start; align-items:center; gap:6px; background:#c9a3ff; border-radius:999px; padding:6px 14px;">
+              <span style="width:6px; height:6px; border-radius:50%; background:#3b2266; flex-shrink:0;"></span>
+              <span style="font-size:12.5px; font-weight:700; color:#3b2266;">Keven_Cris</span>
+            </div>
+            <div style="font-size:12.5px; color:#cbb8ea;">${escapeHtml(
+              t('tabsV3Subtitulo')
+            )}</div>
+          </div>
+        </div>
+        <div style="padding:16px 20px 4px; overflow-y:auto;">
+          <ul style="margin:0; padding-left:18px; font-size:12.5px; color:var(--md-sys-color-on-surface-variant); line-height:1.5;">${changelogItens}</ul>
+        </div>
+        <div style="padding:18px 20px; flex-shrink:0;">
+          <button id="mxm-tabsv3-fechar" style="width:100%; padding:9px; border-radius:var(--md-shape-sm); border:none; background:var(--md-sys-color-primary); color:var(--md-sys-color-on-primary); font-size:13px; font-weight:600; cursor:pointer;">${escapeHtml(
+            t('fechar')
+          )}</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    const cartao = overlay.firstElementChild;
+    animarEntradaCartao(cartao, { distancia: 8, duracao: 180 });
+    trazerParaFrente(overlay);
+
+    function fechar() {
+      document.removeEventListener('keydown', aoTeclarTabsV3);
+      fecharOverlayAnimado(overlay, cartao, { distancia: 8, duracao: 180 });
+    }
+    function aoTeclarTabsV3(e) {
+      if (e.key === 'Escape') fechar();
+    }
+    document.addEventListener('keydown', aoTeclarTabsV3);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) fechar();
+    });
+    document.getElementById('mxm-tabsv3-fechar').addEventListener('click', fechar);
   }
 
   // Popup informativo (aberto pela notificação fixa do sino e também pelo
@@ -14169,6 +17004,40 @@ browser.storage.onChanged.addListener((changes, area) => {
   function chaveCicloDaEntrada(entrada) {
     if (!entrada || !Number.isFinite(entrada.timestamp)) return null;
     return chaveMesAno(dataEfetivaParaCiclo(new Date(entrada.timestamp)));
+  }
+
+  // ---------- nomes customizados por ciclo (tela "Ciclos", ver abrirPainelCiclos) ----------
+  // Guardados por chave de ciclo (mesmo formato "MM/AAAA" de chaveMesAno),
+  // então sobrevivem à troca de ano/mês sem precisar reindexar nada.
+
+  function getNomesCiclos() {
+    try {
+      const raw = localStorage.getItem(STORAGE_NOMES_CICLOS_KEY);
+      const obj = raw ? JSON.parse(raw) : {};
+      return obj && typeof obj === 'object' ? obj : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function getNomeCiclo(mesAnoChave, numeroCiclo) {
+    const nomes = getNomesCiclos();
+    const custom = nomes[mesAnoChave];
+    if (custom && custom.trim()) return custom.trim();
+    return `${t('cicloNumeroPadraoPrefixo')} ${numeroCiclo}`;
+  }
+
+  function setNomeCiclo(mesAnoChave, nome) {
+    const nomes = getNomesCiclos();
+    const limpo = (nome || '').trim();
+    if (limpo) nomes[mesAnoChave] = limpo;
+    else delete nomes[mesAnoChave]; // string vazia = volta ao nome padrão
+    try {
+      localStorage.setItem(STORAGE_NOMES_CICLOS_KEY, JSON.stringify(nomes));
+    } catch (e) {
+      // localStorage indisponível/cheio — falha silenciosa, mesmo padrão
+      // de outras funções de storage neste arquivo.
+    }
   }
 
   function entradasDoMes(entradas, mesAnoChave) {
@@ -14671,6 +17540,189 @@ browser.storage.onChanged.addListener((changes, area) => {
   // um descritor simples (tipo + dados), sem HTML ainda; renderSlideConteudo
   // é quem transforma isso em marcação. Slides cujo dado não existe (ex:
   // sem letra capturada no mês) simplesmente não entram na lista.
+  // PoC — preview de 30s (Apple Music via iTunes Search API, com fallback
+  // pra Deezer Search API quando a iTunes não acha) nos slides do resumo
+  // mensal que falam de uma música específica. A busca na iTunes é feita
+  // direto aqui no content script; o fallback na Deezer é feito no
+  // background.js (ver mxm-log-preview-deezer) porque a Deezer não libera
+  // CORS pra chamadas de outra origem — só o background escapa disso.
+  // Cacheamos por "titulo — artista" pra não rebuscar toda vez que o
+  // carrossel reabre — e reaproveitado também pelo clique na capa da lista
+  // principal do log (ver alternarPreviewAppleMusicNaCapa).
+  const cachePreviewAppleMusic = new Map();
+
+  function buscarPreviewDeezerViaBackground(termo) {
+    return browser.runtime
+      .sendMessage({ type: 'mxm-log-preview-deezer', termo })
+      .then((resposta) => {
+        if (!resposta || !resposta.ok) {
+          debugWarn('[preview-deezer] background respondeu erro:', resposta && resposta.erro);
+          return null;
+        }
+        return resposta.resultado || null;
+      })
+      .catch((erro) => {
+        debugWarn('[preview-deezer] sendMessage falhou:', erro);
+        return null;
+      });
+  }
+
+  function buscarPreviewAppleMusicCache(titulo, artista) {
+    const chave = `${titulo || ''}—${artista || ''}`.toLowerCase();
+    if (cachePreviewAppleMusic.has(chave)) return cachePreviewAppleMusic.get(chave);
+    // Busca feita direto aqui no content script (fetch simples pro
+    // endpoint público da iTunes Search API, que manda CORS liberado) —
+    // ida-e-volta via mensagem pro background.js caía em NetworkError
+    // nessa instalação MV3 do Firefox mesmo com o host em
+    // host_permissions; fazer o fetch aqui evita depender disso.
+    const termo = [titulo, artista].filter(Boolean).join(' ').trim();
+    const promessa = !termo
+      ? Promise.resolve(null)
+      : fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(termo)}&media=music&entity=song&limit=1`)
+          .then((resposta) => {
+            if (!resposta.ok) throw new Error(`iTunes Search API respondeu ${resposta.status}`);
+            return resposta.json();
+          })
+          .then((dados) => {
+            const faixa = dados && Array.isArray(dados.results) ? dados.results[0] : null;
+            debugLog('[preview-apple-music]', { titulo, artista, faixa });
+            if (!faixa || !faixa.previewUrl) return null;
+            return { previewUrl: faixa.previewUrl, trackName: faixa.trackName, artistName: faixa.artistName };
+          })
+          .catch((erro) => {
+            debugWarn('[preview-apple-music] fetch falhou:', erro);
+            return null;
+          })
+          .then((resultadoItunes) => {
+            // iTunes não achou (ou faixa achada não tem previewUrl) —
+            // tenta a Deezer antes de desistir, cobre mais faixas "sem
+            // nada de base" do que a iTunes sozinha.
+            if (resultadoItunes) return resultadoItunes;
+            return buscarPreviewDeezerViaBackground(termo).then((resultadoDeezer) => {
+              debugLog('[preview-deezer]', { titulo, artista, resultadoDeezer });
+              return resultadoDeezer;
+            });
+          });
+    cachePreviewAppleMusic.set(chave, promessa);
+    return promessa;
+  }
+
+  // ---------- PoC preview Apple Music — capa clicável na lista principal do log ----------
+
+  // Moldura de progresso contornando o perímetro quadrado (arredondado)
+  // da própria capa (38px), em vez de um anel circular que estourava pra
+  // fora dela. stroke-dasharray/offset usam o perímetro aproximado de um
+  // "rounded rect" (2*(largura+altura) - 8*raio + 2*PI*raio, que equivale
+  // ao perímetro de um quadrado com os cantos arredondados substituídos
+  // por 1/4 de círculo cada). Começa no meio do topo e fecha no sentido
+  // horário conforme os 30s avançam (stroke-dashoffset decrescendo).
+  const LADO_MOLDURA_CAPA_PREVIEW = 38;
+  const RAIO_CANTO_MOLDURA_CAPA_PREVIEW = 6;
+  const PERIMETRO_MOLDURA_CAPA_PREVIEW =
+    4 * LADO_MOLDURA_CAPA_PREVIEW -
+    8 * RAIO_CANTO_MOLDURA_CAPA_PREVIEW +
+    2 * Math.PI * RAIO_CANTO_MOLDURA_CAPA_PREVIEW;
+
+  function svgAnelProgressoCapa() {
+    const l = LADO_MOLDURA_CAPA_PREVIEW;
+    const r = RAIO_CANTO_MOLDURA_CAPA_PREVIEW;
+    const inset = 1.25; // metade da stroke-width, pra moldura não ficar cortada nas bordas
+    return `
+      <svg class="mxm-log-capa-preview-anel" width="${l}" height="${l}" viewBox="0 0 ${l} ${l}" style="position:absolute; top:0; left:0; z-index:2; pointer-events:none; opacity:0;">
+        <rect x="${inset}" y="${inset}" width="${l - inset * 2}" height="${l - inset * 2}" rx="${r}" fill="none" stroke="var(--md-sys-color-primary)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="${PERIMETRO_MOLDURA_CAPA_PREVIEW}" stroke-dashoffset="${PERIMETRO_MOLDURA_CAPA_PREVIEW}"/>
+      </svg>
+    `;
+  }
+
+  // Um único <audio> global pra toda a lista: clicar numa segunda capa
+  // enquanto outra está tocando para a primeira antes de iniciar a nova —
+  // nunca duas prévias ao mesmo tempo. `elementoCapaAtual` guarda a capa
+  // (o próprio elemento do DOM) que está associada ao áudio tocando agora,
+  // pra saber qual marcação visual (anel/ícone) desligar quando ele parar.
+  const audioPreviewCapaLog = new Audio();
+  let elementoCapaAtual = null;
+
+  function limparEstadoVisualCapaAtual() {
+    if (elementoCapaAtual) {
+      elementoCapaAtual.removeAttribute('data-preview-tocando');
+      const iconeEl = elementoCapaAtual.querySelector('.mxm-log-capa-preview-hover');
+      if (iconeEl) iconeEl.innerHTML = icone('play', 14, '#fff');
+      const anelEl = elementoCapaAtual.querySelector('.mxm-log-capa-preview-anel rect');
+      if (anelEl) anelEl.setAttribute('stroke-dashoffset', String(PERIMETRO_MOLDURA_CAPA_PREVIEW));
+    }
+    elementoCapaAtual = null;
+  }
+
+  audioPreviewCapaLog.addEventListener('ended', limparEstadoVisualCapaAtual);
+  audioPreviewCapaLog.addEventListener('pause', () => {
+    // 'pause' também dispara quando trocamos o .src pra tocar uma faixa
+    // nova (ver abaixo) — só limpa o estado visual se realmente não há
+    // nada carregado pra tocar em seguida (currentTime zerado + sem src
+    // não é garantia suficiente sozinho, então usamos uma flag explícita).
+    if (audioPreviewCapaLog.dataset.trocandoFaixa === '1') return;
+    limparEstadoVisualCapaAtual();
+  });
+  // anel de progresso dos 30s (ver svgAnelProgressoCapa) —
+  // 'timeupdate' dispara com frequência suficiente (a cada ~250ms no
+  // Firefox) pra uma barra curta como essa, sem precisar de rAF.
+  audioPreviewCapaLog.addEventListener('timeupdate', () => {
+    if (!elementoCapaAtual || !audioPreviewCapaLog.duration) return;
+    const anelEl = elementoCapaAtual.querySelector('.mxm-log-capa-preview-anel rect');
+    if (!anelEl) return;
+    const fracao = Math.min(1, audioPreviewCapaLog.currentTime / audioPreviewCapaLog.duration);
+    anelEl.setAttribute('stroke-dashoffset', String(PERIMETRO_MOLDURA_CAPA_PREVIEW * (1 - fracao)));
+  });
+
+  function alternarPreviewAppleMusicNaCapa(elementoCapa, titulo, artista) {
+    const hoverEl = elementoCapa.querySelector('.mxm-log-capa-preview-hover');
+    const anelSvgEl = elementoCapa.querySelector('.mxm-log-capa-preview-anel');
+
+    // clicou de novo na MESMA capa que já está tocando → pausa/retoma
+    // esse áudio, sem rebuscar nada.
+    if (elementoCapaAtual === elementoCapa && audioPreviewCapaLog.src) {
+      if (audioPreviewCapaLog.paused) {
+        audioPreviewCapaLog.play().catch(() => {});
+        elementoCapa.setAttribute('data-preview-tocando', '1');
+        if (hoverEl) hoverEl.innerHTML = icone('pause', 14, '#fff');
+      } else {
+        audioPreviewCapaLog.pause();
+        elementoCapa.removeAttribute('data-preview-tocando');
+        if (hoverEl) hoverEl.innerHTML = icone('play', 14, '#fff');
+      }
+      return;
+    }
+
+    // trocando de faixa (de outra capa, ou primeira vez) — feedback
+    // imediato de "carregando" antes da busca resolver, já que a rede
+    // pode levar um instante.
+    audioPreviewCapaLog.dataset.trocandoFaixa = '1';
+    audioPreviewCapaLog.pause();
+    limparEstadoVisualCapaAtual();
+    elementoCapaAtual = elementoCapa;
+    elementoCapa.setAttribute('data-preview-tocando', '1');
+    if (hoverEl) hoverEl.innerHTML = icone('loader', 14, '#fff');
+    const anelInicialEl = anelSvgEl ? anelSvgEl.querySelector('circle') : null;
+    if (anelInicialEl) anelInicialEl.setAttribute('stroke-dashoffset', String(PERIMETRO_MOLDURA_CAPA_PREVIEW));
+
+    buscarPreviewAppleMusicCache(titulo, artista).then((resultado) => {
+      delete audioPreviewCapaLog.dataset.trocandoFaixa;
+      // o usuário pode ter clicado em outra capa (ou fechado o painel)
+      // enquanto a busca corria — só segue se essa capa ainda é a "atual".
+      if (elementoCapaAtual !== elementoCapa) return;
+
+      if (!resultado || !resultado.previewUrl) {
+        limparEstadoVisualCapaAtual();
+        mostrarToastSimples(t('logCapaPreviaIndisponivel'), 'erro');
+        return;
+      }
+
+      audioPreviewCapaLog.src = resultado.previewUrl;
+      audioPreviewCapaLog.volume = 0.9;
+      audioPreviewCapaLog.play().catch(() => {});
+      if (hoverEl) hoverEl.innerHTML = icone('pause', 14, '#fff');
+    });
+  }
+
   function montarSlidesResumoMes(mesAnoChave, resumo) {
     garantirCotacaoAtualizada();
     const moedaAtual = getSecondaryCurrencyCode();
@@ -14721,6 +17773,9 @@ browser.storage.onChanged.addListener((changes, area) => {
         titulo: nomeMusicaResumo(resumo.musicaMaisLonga),
         valor: segundosParaDuracao(resumo.musicaMaisLonga.duracaoSegundos) || '',
         imagemUrl: resumo.musicaMaisLonga.imagemUrl,
+        // PoC preview Apple Music — ver buscarPreviewAppleMusicCache.
+        previewTitulo: resumo.musicaMaisLonga.titulo,
+        previewArtista: resumo.musicaMaisLonga.artista,
       });
     }
     if (resumo.musicaMaisCurta && Number.isFinite(resumo.musicaMaisCurta.duracaoSegundos)) {
@@ -14732,6 +17787,8 @@ browser.storage.onChanged.addListener((changes, area) => {
         titulo: nomeMusicaResumo(resumo.musicaMaisCurta),
         valor: segundosParaDuracao(resumo.musicaMaisCurta.duracaoSegundos) || '',
         imagemUrl: resumo.musicaMaisCurta.imagemUrl,
+        previewTitulo: resumo.musicaMaisCurta.titulo,
+        previewArtista: resumo.musicaMaisCurta.artista,
       });
     }
     if (resumo.letraMaisLonga) {
@@ -14994,6 +18051,79 @@ browser.storage.onChanged.addListener((changes, area) => {
     `;
   }
 
+  // PoC — botão de play do preview de 30s (Apple Music). Some sozinho se a
+  // busca não achar a faixa (ver ligarBotaoPreviewAppleMusic), então
+  // começa sempre no estado "carregando" pra não piscar layout.
+  function montarBotaoPreviewAppleMusic(cor) {
+    return `
+      <button type="button" id="mxm-slide-preview-play" data-estado="carregando" style="margin-top:14px; display:inline-flex; align-items:center; gap:7px; border:none; cursor:pointer; padding:7px 16px; border-radius:var(--md-shape-full); background:color-mix(in srgb, ${cor} 14%, transparent); color:${cor}; font-family:inherit; font-size:12px; font-weight:700;">
+        <span id="mxm-slide-preview-icone" style="display:flex;">${icone('loader', 13, cor)}</span>
+        <span id="mxm-slide-preview-label">${escapeHtml(t('resumoPreviewCarregando'))}</span>
+      </button>
+    `;
+  }
+
+  // Busca o preview (cache) e liga o clique do botão renderizado por
+  // montarBotaoPreviewAppleMusic. `getAudioAtivo`/`setAudioAtivo` deixam o
+  // chamador (abrirResumoSlides) garantir que só um preview toca por vez e
+  // que ele para ao trocar de slide/fechar o carrossel.
+  function ligarBotaoPreviewAppleMusic(slide, getAudioAtivo, setAudioAtivo) {
+    const botao = document.getElementById('mxm-slide-preview-play');
+    if (!botao) return;
+
+    buscarPreviewAppleMusicCache(slide.previewTitulo, slide.previewArtista).then((resultado) => {
+      // o slide pode já ter trocado enquanto a busca corria — o botão
+      // dessa instância pode nem existir mais no DOM, então checa de novo.
+      const botaoAtual = document.getElementById('mxm-slide-preview-play');
+      if (!botaoAtual) return;
+
+      if (!resultado || !resultado.previewUrl) {
+        botaoAtual.remove();
+        return;
+      }
+
+      botaoAtual.dataset.estado = 'pausado';
+      botaoAtual.querySelector('#mxm-slide-preview-icone').innerHTML = icone('play', 13, botaoAtual.style.color);
+      botaoAtual.querySelector('#mxm-slide-preview-label').textContent = t('resumoPreviewOuvir');
+
+      botaoAtual.addEventListener('click', () => {
+        const audioAtivo = getAudioAtivo();
+        if (audioAtivo && audioAtivo.dataset && audioAtivo.dataset.url === resultado.previewUrl && !audioAtivo.paused) {
+          audioAtivo.pause();
+          botaoAtual.dataset.estado = 'pausado';
+          botaoAtual.querySelector('#mxm-slide-preview-icone').innerHTML = icone('play', 13, botaoAtual.style.color);
+          botaoAtual.querySelector('#mxm-slide-preview-label').textContent = t('resumoPreviewOuvir');
+          return;
+        }
+
+        // só um preview por vez — para o que estava tocando antes
+        // (de outro slide ou reaberto) e sobe o volume da musiquinha
+        // de fundo de volta, já que o preview real assume o protagonismo.
+        if (audioAtivo) {
+          audioAtivo.pause();
+        }
+
+        const audio = new Audio(resultado.previewUrl);
+        audio.dataset.url = resultado.previewUrl;
+        audio.volume = 0.9;
+        audio.play().catch(() => {});
+        setAudioAtivo(audio);
+
+        botaoAtual.dataset.estado = 'tocando';
+        botaoAtual.querySelector('#mxm-slide-preview-icone').innerHTML = icone('pause', 13, botaoAtual.style.color);
+        botaoAtual.querySelector('#mxm-slide-preview-label').textContent = t('resumoPreviewTocando');
+
+        audio.addEventListener('ended', () => {
+          botaoAtual.dataset.estado = 'pausado';
+          const iconeEl = document.getElementById('mxm-slide-preview-icone');
+          const labelEl = document.getElementById('mxm-slide-preview-label');
+          if (iconeEl) iconeEl.innerHTML = icone('play', 13, botaoAtual.style.color);
+          if (labelEl) labelEl.textContent = t('resumoPreviewOuvir');
+        });
+      });
+    });
+  }
+
   function renderSlideConteudo(slide) {
     const iconeGrande = (tamanho) => `
       <div style="position:relative; width:${tamanho + 36}px; height:${tamanho + 36}px; margin:0 auto 18px;">
@@ -15027,10 +18157,10 @@ browser.storage.onChanged.addListener((changes, area) => {
 
       return `${fundoSlide}<div style="position:relative; z-index:1;">
         ${iconeGrande(34)}
-        <div style="font-size:12px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; color:var(--md-sys-color-on-surface-variant); margin-bottom:8px;">${t(
+        <div class="mxm-slide-texto-entra-cima" style="animation-delay:80ms; font-size:12px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; color:var(--md-sys-color-on-surface-variant); margin-bottom:8px;">${t(
           'resumoAtualTitulo'
         )}</div>
-        <div style="font-size:24px; font-weight:800; line-height:1.3; color:var(--md-sys-color-on-surface);">${escapeHtml(
+        <div class="mxm-slide-texto-entra-cima" style="animation-delay:170ms; font-size:24px; font-weight:800; line-height:1.3; color:var(--md-sys-color-on-surface);">${escapeHtml(
           preencherTemplate(t('resumoSlidesCapaTitulo'), { mes: slide.mes })
         )}</div>
       </div>`;
@@ -15097,6 +18227,7 @@ browser.storage.onChanged.addListener((changes, area) => {
         <div style="display:inline-flex; margin-top:12px; padding:5px 14px; border-radius:var(--md-shape-full); background:color-mix(in srgb, ${
           slide.cor
         } 18%, transparent); color:${slide.cor}; font-size:13px; font-weight:700;">${escapeHtml(slide.valor)}</div>
+        ${slide.previewTitulo ? montarBotaoPreviewAppleMusic(slide.cor) : ''}
       `);
     }
 
@@ -15287,7 +18418,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       'var(--md-sys-color-on-primary)'
     )}</div>
         </div>
-        <div id="mxm-log-resumo-slides-comecar-wrap" style="display:none; padding:0 18px 20px;">
+        <div id="mxm-log-resumo-slides-comecar-wrap" class="mxm-slide-texto-entra-cima" style="display:none; animation-delay:260ms; padding:0 18px 20px;">
           <button id="mxm-log-resumo-slides-comecar" type="button" style="width:100%; border:none; cursor:pointer; padding:13px; border-radius:var(--md-shape-full); background:var(--md-sys-color-primary); color:var(--md-sys-color-on-primary); font-family:inherit; font-size:13.5px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:8px;">${escapeHtml(
       t('resumoSlidesComecar')
     )}${icone('chevronRight', 15, 'var(--md-sys-color-on-primary)')}</button>
@@ -15298,6 +18429,16 @@ browser.storage.onChanged.addListener((changes, area) => {
     document.body.appendChild(overlay);
     const cartao = document.getElementById('mxm-log-resumo-slides-cartao');
     animarEntradaCartao(cartao, { distancia: 8, duracao: 180 });
+
+    // PoC preview Apple Music — só um preview real tocando por vez,
+    // compartilhado entre os slides via get/set (ver ligarBotaoPreviewAppleMusic).
+    let audioPreviewAtivo = null;
+    function pararPreviewAppleMusic() {
+      if (audioPreviewAtivo) {
+        audioPreviewAtivo.pause();
+        audioPreviewAtivo = null;
+      }
+    }
 
     const RESUMO_MUSICA_VOLUME = 0.16;
     const musicaResumo = new Audio(browser.runtime.getURL('sounds/resumo-musica.mp3'));
@@ -15379,15 +18520,36 @@ browser.storage.onChanged.addListener((changes, area) => {
       });
     }
 
-    function renderizar() {
+    function renderizar(direcao) {
+      // troca de slide encerra qualquer preview de música tocando —
+      // senão a faixa antiga continuaria tocando por cima do slide novo.
+      pararPreviewAppleMusic();
       conteudoEl.innerHTML = renderSlideConteudo(slides[indice]);
       progressoEl.textContent = `${indice + 1} / ${slides.length}`;
       atualizarBarrinhas();
       iniciarAutoplay();
 
-      conteudoEl.classList.remove('mxm-slide-conteudo-entra');
+      if (slides[indice].previewTitulo) {
+        ligarBotaoPreviewAppleMusic(
+          slides[indice],
+          () => audioPreviewAtivo,
+          (audio) => {
+            audioPreviewAtivo = audio;
+          }
+        );
+      }
+
+      // V3.5.10.1: direção da transição (definida por quem chamou
+      // renderizar — ver irPara) escolhe se o slide novo entra deslizando
+      // da direita (avançando) ou da esquerda (voltando), em vez de
+      // sempre subir de baixo — mesma sensação de "folhear" um story de
+      // verdade. Sem direção (ex: primeiro render da capa, que não tem
+      // "de onde vir"), cai na entrada antiga (fade + leve subida).
+      conteudoEl.classList.remove('mxm-slide-conteudo-entra', 'mxm-slide-entra-direita', 'mxm-slide-entra-esquerda');
       void conteudoEl.offsetWidth;
-      conteudoEl.classList.add('mxm-slide-conteudo-entra');
+      if (direcao === 'frente') conteudoEl.classList.add('mxm-slide-entra-direita');
+      else if (direcao === 'tras') conteudoEl.classList.add('mxm-slide-entra-esquerda');
+      else conteudoEl.classList.add('mxm-slide-conteudo-entra');
 
       // chegou no slide final ("Isso foi {mes}!") — chuva de
       // confete comemorando o fechamento da retrospectiva.
@@ -15429,8 +18591,10 @@ browser.storage.onChanged.addListener((changes, area) => {
       // por qualquer via (bolinha, seta, swipe) enquanto "Começar" não foi
       // apertado — só o botão comecar() abaixo consegue destravar.
       if (indice === 0 && !comecouSlides && novoIndice !== 0) return;
+      const indiceAnterior = indice;
       indice = Math.max(0, Math.min(slides.length - 1, novoIndice));
-      renderizar();
+      if (indice === indiceAnterior) return;
+      renderizar(indice > indiceAnterior ? 'frente' : 'tras');
     }
 
     function comecar() {
@@ -15441,6 +18605,7 @@ browser.storage.onChanged.addListener((changes, area) => {
 
     const fechar = () => {
       pararAutoplay();
+      pararPreviewAppleMusic();
       musicaResumo.pause();
       musicaResumo.currentTime = 0;
       document.removeEventListener('keydown', aoTeclado);
@@ -15551,6 +18716,13 @@ browser.storage.onChanged.addListener((changes, area) => {
     });
 
     const detalhesHtml = renderDetalhesResumoMes(resumo);
+    // V3.5.58: o botão muda de texto quando já existe um resumo salvo
+    // pra este mês — deixa claro que a ação é atualizar um corte já
+    // existente, não "salvar pela primeira vez" (ver comentário no
+    // handler de clique logo abaixo, que já tratava esse caso ao
+    // pedir confirmação de sobrescrita).
+    const jaTemResumoSalvo = !!getResumosMensais()[mesAnoChave];
+    const textoBotaoSalvar = jaTemResumoSalvo ? t('resumoAtualBotaoAtualizar') : t('resumoAtualBotaoSalvar');
 
     overlay.innerHTML = `
       <div style="background:var(--md-sys-color-surface-container-low); color:var(--md-sys-color-on-surface); width:360px; max-width:90vw; max-height:88vh; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); font-family:sans-serif; overflow:hidden; display:flex; flex-direction:column;">
@@ -15601,9 +18773,7 @@ browser.storage.onChanged.addListener((changes, area) => {
           <button id="mxm-log-resumo-atual-fechar" style="flex:1; padding:10px; border-radius:var(--md-shape-full); border:none; background:var(--md-sys-color-surface-container-high); color:var(--md-sys-color-on-surface-variant); font-size:13px; font-weight:600; cursor:pointer;">${t(
             'resumoAtualFechar'
           )}</button>
-          <button id="mxm-log-resumo-atual-salvar" style="flex:1; padding:10px; border-radius:var(--md-shape-full); border:none; background:var(--md-sys-color-primary); color:var(--md-sys-color-on-primary); font-size:13px; font-weight:700; cursor:pointer;">${t(
-            'resumoAtualBotaoSalvar'
-          )}</button>
+          <button id="mxm-log-resumo-atual-salvar" style="flex:1; padding:10px; border-radius:var(--md-shape-full); border:none; background:var(--md-sys-color-primary); color:var(--md-sys-color-on-primary); font-size:13px; font-weight:700; cursor:pointer;">${textoBotaoSalvar}</button>
 
         </div>
       </div>
@@ -15636,9 +18806,9 @@ browser.storage.onChanged.addListener((changes, area) => {
 
       if (getResumosMensais()[mesAnoChave]) {
         abrirConfirmacao({
-          titulo: t('resumoAtualBotaoSalvar'),
+          titulo: t('resumoAtualBotaoAtualizar'),
           mensagem: t('resumoAtualConfirmarSobrescrever'),
-          textoConfirmar: t('resumoAtualBotaoSalvar'),
+          textoConfirmar: t('resumoAtualBotaoAtualizar'),
           aoConfirmar: salvarAgora,
         });
       } else {
@@ -15722,34 +18892,48 @@ browser.storage.onChanged.addListener((changes, area) => {
       return `<div style="color:var(--md-sys-color-outline); font-size:12px; padding:6px 0;">${t('resumosMensaisVazio')}</div>`;
     }
 
+    // valor máximo entre os resumos exibidos — só pra desenhar a barra
+    // proporcional abaixo de cada card (maior mês = barra cheia), o
+    // mesmo tratamento visual usado nos cartões da tela "Ciclos"
+    // (cartaoCiclo/renderPainelCiclos), reaproveitado aqui pra dar a
+    // mesma leitura rápida de "qual mês rendeu mais" à primeira vista.
+    const maiorValorUSD = Math.max(1, ...chaves.map((c) => Number(resumos[c].valorUSD || 0)));
+
     return chaves
       .map((chave) => {
         const r = resumos[chave];
         const rotulo = formatarRotuloMes(chave);
         const [mesAbrev, anoAbrev] = rotulo.split('/');
+        const valorUSD = Number(r.valorUSD || 0);
+        const barraPct = Math.round((valorUSD / maiorValorUSD) * 100);
         return `
-        <div class="mxm-resumo-mensal-linha" data-chave="${chave}" style="display:flex; align-items:center; gap:12px; padding:11px 14px; margin-bottom:8px; border-radius:var(--md-shape-lg); background:var(--md-sys-color-surface-container); font-size:13px;">
-          <div style="width:38px; height:38px; border-radius:var(--md-shape-md); flex-shrink:0; background:var(--md-sys-color-surface-container-high); display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--md-sys-color-primary); line-height:1;">
-            <span style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.3px;">${escapeHtml(mesAbrev || '')}</span>
-            <span style="font-size:11px; font-weight:700; color:var(--md-sys-color-on-surface); margin-top:2px;">${escapeHtml(anoAbrev || '')}</span>
+        <div class="mxm-resumo-mensal-linha" data-chave="${chave}" style="padding:12px 14px; margin-bottom:8px; border-radius:var(--md-shape-lg); background:var(--md-sys-color-surface-container); font-size:13px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:38px; height:38px; border-radius:var(--md-shape-md); flex-shrink:0; background:var(--md-sys-color-surface-container-high); display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--md-sys-color-primary); line-height:1;">
+              <span style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.3px;">${escapeHtml(mesAbrev || '')}</span>
+              <span style="font-size:11px; font-weight:700; color:var(--md-sys-color-on-surface); margin-top:2px;">${escapeHtml(anoAbrev || '')}</span>
+            </div>
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;">
+              <span style="color:var(--md-sys-color-on-surface); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(rotulo)}</span>
+              <span style="font-size:11px; color:var(--md-sys-color-on-surface-variant);">${r.quantidade} ${t('tarefasAbrev')}</span>
+            </div>
+            <div style="text-align:right; flex-shrink:0;">
+              <div style="font-size:18px; font-weight:800; color:var(--md-sys-color-on-surface); line-height:1.1; font-variant-numeric:tabular-nums; white-space:nowrap;">${simboloAtual}${formatarNumeroMoeda(valorUSD * usdToSecondary, moedaAtual)}</div>
+              <div style="font-size:10px; color:var(--md-sys-color-outline); font-variant-numeric:tabular-nums;">$${formatarNumeroMoeda(valorUSD, 'USD')}</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:2px; flex-shrink:0;">
+              <span class="mxm-resumo-mensal-rever" title="${t('resumosMensaisRever')}" style="cursor:pointer; display:flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:var(--md-shape-full); background:transparent; color:var(--md-sys-color-outline); flex-shrink:0; transition:background-color .15s ease, color .15s ease;">${icone(
+                'eye',
+                13
+              )}</span>
+              <span class="mxm-resumo-mensal-apagar" title="${t('resumosMensaisApagar')}" style="cursor:pointer; display:flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:var(--md-shape-full); background:transparent; color:var(--md-sys-color-outline); flex-shrink:0; transition:background-color .15s ease, color .15s ease;">${icone(
+                'trash',
+                13
+              )}</span>
+            </div>
           </div>
-          <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;">
-            <span style="color:var(--md-sys-color-on-surface); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(rotulo)}</span>
-            <span style="font-size:11px; color:var(--md-sys-color-on-surface-variant);">${r.quantidade} ${t('tarefasAbrev')}</span>
-          </div>
-          <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px; flex-shrink:0;">
-            <span style="color:#1DB954; font-weight:700; font-size:13px; white-space:nowrap;">$${formatarNumeroMoeda(Number(r.valorUSD || 0), 'USD')}</span>
-            <span style="color:#f2b705; font-weight:600; font-size:11px; white-space:nowrap;">${simboloAtual}${formatarNumeroMoeda(Number(r.valorUSD || 0) * usdToSecondary, moedaAtual)}</span>
-          </div>
-          <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
-            <span class="mxm-resumo-mensal-rever" title="${t('resumosMensaisRever')}" style="cursor:pointer; display:flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:var(--md-shape-full); background:var(--md-sys-color-surface-container-high); color:var(--md-sys-color-on-surface-variant); flex-shrink:0; transition:background-color .15s ease, color .15s ease;">${icone(
-              'eye',
-              14
-            )}</span>
-            <span class="mxm-resumo-mensal-apagar" title="${t('resumosMensaisApagar')}" style="cursor:pointer; display:flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:var(--md-shape-full); background:var(--md-sys-color-surface-container-high); color:var(--md-sys-color-on-surface-variant); flex-shrink:0; transition:background-color .15s ease, color .15s ease;">${icone(
-              'trash',
-              14
-            )}</span>
+          <div style="height:4px; border-radius:4px; background:var(--md-sys-color-surface-container-highest); overflow:hidden; margin-top:10px;">
+            <div style="height:100%; width:${barraPct}%; border-radius:4px; background:var(--md-sys-color-primary);"></div>
           </div>
         </div>
       `;
@@ -15856,10 +19040,10 @@ browser.storage.onChanged.addListener((changes, area) => {
   // graça). No lugar, uma única barrinha fina embaixo mostra o quanto o
   // dia de hoje já avançou em direção ao recorde — métrica mais útil e
   // sempre visível (largura mínima garantida mesmo em 0%).
-  function renderBarraHojeVsRecorde(porData) {
+  function renderBarraHojeVsRecorde(porData, porDataRecorde) {
     const hojeStr = formatDateHora(mxmAgora()).data;
     const hojeQtd = porData[hojeStr] || 0;
-    const { recordeData, recordeQtd } = calcularRecordeDiario(porData);
+    const { recordeData, recordeQtd } = calcularRecordeDiario(porDataRecorde || porData);
     const ehRecordeHoje = recordeData === hojeStr && recordeQtd > 0;
     const pctParaRecorde = recordeQtd > 0 ? Math.min(100, Math.round((hojeQtd / recordeQtd) * 100)) : 0;
 
@@ -16034,7 +19218,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     const porData = calcularContagemPorData(entradas);
     const porDataRecorde = calcularContagemPorData(entradas, { ignorarManuais: true });
     const hojeStr = formatDateHora(mxmAgora()).data;
-    const hojeQtd = porDataRecorde[hojeStr] || 0;
+    const hojeQtd = porData[hojeStr] || 0;
     const { recordeData, recordeQtd } = calcularRecordeDiario(porDataRecorde);
     const ehRecordeHoje = recordeData === hojeStr && recordeQtd > 0;
     const palavraTarefa = t('tarefa');
@@ -16087,26 +19271,68 @@ browser.storage.onChanged.addListener((changes, area) => {
       const compMes = calcularComparativoMensal(entradas);
       const compDia = calcularComparativoDiaEquivalente(porData);
 
+      // comparação hoje vs ontem (mesma base do hojeQtd/recordeQtd —
+      // ignora manuais) usada só pela linha de delta do blob orgânico
+      // abaixo, no padrão "prototipo-topo-m3-expressive": texto solto,
+      // sem caixa/pill em volta, com seta pra cima/baixo.
+      const ontemDeltaDate = mxmAgora();
+      ontemDeltaDate.setDate(ontemDeltaDate.getDate() - 1);
+      const ontemStr = formatDateHora(ontemDeltaDate).data;
+      const ontemQtd = porDataRecorde[ontemStr] || 0;
+      let deltaHojeOntemHtml = '';
+      if (ontemQtd > 0) {
+        const deltaPctHojeOntem = Math.round(((hojeQtd - ontemQtd) / ontemQtd) * 100);
+        const corDeltaHojeOntem =
+          deltaPctHojeOntem > 0 ? '#1DB954' : deltaPctHojeOntem < 0 ? '#ff6b6b' : 'var(--md-sys-color-outline)';
+        deltaHojeOntemHtml =
+          deltaPctHojeOntem === 0
+            ? `<div style="font-size:11px; color:var(--md-sys-color-outline); margin-top:6px;">${t('semMudancaOntem')}</div>`
+            : `<div style="display:inline-flex; align-items:center; gap:3px; font-size:11px; font-weight:700; color:${corDeltaHojeOntem}; margin-top:6px;">${icone(
+                deltaPctHojeOntem > 0 ? 'trendingUp' : 'trendingDown',
+                11,
+                corDeltaHojeOntem,
+                2.5
+              )}${Math.abs(deltaPctHojeOntem)}% ${t('emRelacaoAoDiaAnterior')}</div>`;
+      }
+
+      // "blob" orgânico pro número de hoje — a única forma não-retangular
+      // do painel, pra puxar o olho sem precisar de mais cor/contraste;
+      // o selo de chama de recorde migra pra cima do blob em vez de
+      // ficar espremido ao lado do número. Layout replicado 100% do
+      // protótipo "topo M3 Expressive": info do lado direito vira texto
+      // solto (linha1/linha2/delta), sem o cartão tonal usado nos outros
+      // slides do carrossel.
       const slideHojeRecorde = `
-        <div data-mxm-resumo-abrir="1" style="display:flex; gap:8px; cursor:pointer;">
-          ${montarCartaoResumo({
-            nomeIcone: 'calendar',
-            corToken: 'primary',
-            rotulo: t('hoje'),
-            valor: hojeQtd,
-            extra: ehRecordeHoje ? icone('flame', 12, 'var(--md-sys-color-tertiary)') : '',
-          })}
-          ${montarCartaoResumo({
-            nomeIcone: 'star',
-            corToken: 'tertiary',
-            rotulo: t('recorde'),
-            valor: recordeQtd > 0 ? recordeQtd : '—',
-            sublinha: recordeQtd > 0 ? formatarRotuloData(recordeData) : t('nenhumAinda'),
-          })}
+        <div data-mxm-resumo-abrir="1" class="mxm-resumo-card-clicavel" style="display:flex; align-items:center; gap:16px;">
+          <div style="position:relative; flex-shrink:0; width:76px; height:76px; border-radius:42% 58% 63% 37% / 41% 44% 56% 59%; background:linear-gradient(135deg, var(--md-sys-color-primary), color-mix(in srgb, var(--md-sys-color-tertiary) 70%, var(--md-sys-color-primary))); display:flex; flex-direction:column; align-items:center; justify-content:center; box-shadow:0 4px 14px color-mix(in srgb, var(--md-sys-color-primary) 35%, transparent); transition:border-radius 6s ease-in-out;">
+            ${
+              ehRecordeHoje
+                ? `<div style="position:absolute; top:-4px; right:-4px; display:flex; color:var(--md-sys-color-tertiary); background:var(--md-sys-color-surface-container); border-radius:50%; padding:3px; box-shadow:var(--md-elevation-1);">${icone(
+                    'flame',
+                    11
+                  )}</div>`
+                : ''
+            }
+            <span style="font-size:26px; font-weight:800; color:var(--md-sys-color-on-primary); line-height:1;">${hojeQtd}</span>
+            <span style="font-size:9px; font-weight:700; text-transform:lowercase; color:var(--md-sys-color-on-primary); opacity:.85; margin-top:2px;">${t(
+              'hoje'
+            )}</span>
+          </div>
+          <div style="min-width:0;">
+            <div style="font-size:12.5px; color:var(--md-sys-color-on-surface-variant); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${t(
+              'tarefasEnviadasHoje'
+            )}</div>
+            <div style="display:flex; align-items:center; gap:5px; font-size:11px; color:var(--md-sys-color-outline); margin-top:4px; min-width:0;">
+              ${icone('star', 11)}<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${t(
+                'recorde'
+              )}: ${recordeQtd > 0 ? recordeTextoLongo : t('nenhumAinda')}</span>
+            </div>
+            ${deltaHojeOntemHtml}
+          </div>
         </div>
       `;
       const slideMes = `
-        <div data-mxm-resumo-abrir="1" style="display:flex; gap:8px; cursor:pointer;">
+        <div data-mxm-resumo-abrir="1" class="mxm-resumo-card-clicavel" style="display:flex; gap:6px;">
           ${montarCartaoResumo({
             nomeIcone: 'calendar',
             corToken: 'primary',
@@ -16125,7 +19351,7 @@ browser.storage.onChanged.addListener((changes, area) => {
         ${montarLinhaDeltaResumo(compMes.mesAtualQtd, compMes.mesAnteriorQtd, t('semDadosMesAnterior'), t('emRelacaoAoMesAnterior'))}
       `;
       const slideDia = `
-        <div data-mxm-resumo-abrir="1" style="display:flex; gap:8px; cursor:pointer;">
+        <div data-mxm-resumo-abrir="1" class="mxm-resumo-card-clicavel" style="display:flex; gap:6px;">
           ${montarCartaoResumo({
             nomeIcone: 'calendar',
             corToken: 'primary',
@@ -16144,7 +19370,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       `;
 
       const slideCronometro = `
-        <div data-mxm-abrir-cronometro="1" title="${t('proximoCicloDescricao')}" style="display:flex; align-items:center; gap:12px; background:color-mix(in srgb, var(--md-sys-color-primary) 13%, var(--md-sys-color-surface-container-low)); border-radius:var(--md-shape-lg); padding:12px 14px; cursor:pointer;">
+        <div data-mxm-abrir-cronometro="1" title="${t('proximoCicloDescricao')}" class="mxm-resumo-card-clicavel" style="display:flex; align-items:center; gap:12px; background:color-mix(in srgb, var(--md-sys-color-primary) 13%, var(--md-sys-color-surface-container-low)); border-radius:var(--md-shape-lg); padding:12px 14px;">
           <div style="flex-shrink:0; width:34px; height:34px; border-radius:50%; background:color-mix(in srgb, var(--md-sys-color-primary) 24%, transparent); display:flex; align-items:center; justify-content:center; color:var(--md-sys-color-primary);">${icone(
             'clock',
             16
@@ -16156,7 +19382,7 @@ browser.storage.onChanged.addListener((changes, area) => {
             <div style="font-size:19px; font-weight:800; color:var(--md-sys-color-primary); line-height:1.25; font-variant-numeric:tabular-nums; margin-top:2px;"><span id="mxm-log-cronometro-ciclo-valor">${formatarContagemRegressiva(
               proximoInicioCiclo() - mxmAgora()
             )}</span></div>
-            <div title="${t('cronometroEstiloSiteTooltip')}" style="font-size:10.5px; font-weight:600; color:var(--md-sys-color-on-surface-variant); margin-top:1px; font-variant-numeric:tabular-nums;">🌐 <span id="mxm-log-cronometro-ciclo-valor-site">${formatarDiasEstiloSite(
+            <div title="${t('cronometroEstiloSiteTooltip')}" style="font-size:10.5px; font-weight:600; color:var(--md-sys-color-on-surface-variant); margin-top:1px; font-variant-numeric:tabular-nums;">⏰ <span id="mxm-log-cronometro-ciclo-valor-site">${formatarDiasEstiloSite(
               proximoInicioCiclo()
             )}</span> (${t('cronometroEstiloSiteLabel')})</div>
             <div style="font-size:10px; color:var(--md-sys-color-on-surface-variant); margin-top:3px; line-height:1.35; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">${t(
@@ -16194,19 +19420,19 @@ browser.storage.onChanged.addListener((changes, area) => {
   // equivalente) pra manter a aparência idêntica entre eles.
   function montarCartaoResumo({ nomeIcone, corToken, rotulo, valor, sublinha, extra }) {
     return `
-      <div style="flex:1; min-width:0; display:flex; align-items:center; gap:10px; background:color-mix(in srgb, var(--md-sys-color-${corToken}) 13%, var(--md-sys-color-surface-container-low)); border-radius:var(--md-shape-lg); padding:9px 12px;">
-        <div style="flex-shrink:0; width:30px; height:30px; border-radius:50%; background:color-mix(in srgb, var(--md-sys-color-${corToken}) 24%, transparent); display:flex; align-items:center; justify-content:center; color:var(--md-sys-color-${corToken});">${icone(
+      <div style="flex:1; min-width:0; display:flex; align-items:center; gap:8px; background:color-mix(in srgb, var(--md-sys-color-${corToken}) 13%, var(--md-sys-color-surface-container-low)); border-radius:var(--md-shape-lg); padding:8px 9px;">
+        <div style="flex-shrink:0; width:26px; height:26px; border-radius:50%; background:color-mix(in srgb, var(--md-sys-color-${corToken}) 24%, transparent); display:flex; align-items:center; justify-content:center; color:var(--md-sys-color-${corToken});">${icone(
           nomeIcone,
-          14
+          13
         )}</div>
         <div style="min-width:0;">
-          <div style="font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.3px; color:var(--md-sys-color-on-surface-variant); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${rotulo}</div>
-          <div style="display:flex; align-items:baseline; gap:5px; min-width:0;">
-            <span style="font-size:20px; font-weight:800; color:var(--md-sys-color-${corToken}); line-height:1.3; flex-shrink:0;">${valor}</span>
+          <div style="font-size:9.5px; font-weight:600; text-transform:uppercase; letter-spacing:.2px; color:var(--md-sys-color-on-surface-variant); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${rotulo}</div>
+          <div style="display:flex; align-items:baseline; gap:4px; min-width:0;">
+            <span style="font-size:18px; font-weight:800; color:var(--md-sys-color-${corToken}); line-height:1.3; flex-shrink:0;">${valor}</span>
             ${extra || ''}
             ${
               sublinha
-                ? `<span style="font-size:10px; color:var(--md-sys-color-on-surface-variant); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${sublinha}</span>`
+                ? `<span style="font-size:9.5px; color:var(--md-sys-color-on-surface-variant); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${sublinha}</span>`
                 : ''
             }
           </div>
@@ -16266,18 +19492,48 @@ browser.storage.onChanged.addListener((changes, area) => {
       // depois de ter passado por chip/tipografia, que sobrescrevem o
       // innerHTML sem esse wrapper) — monta a estrutura fixa uma vez só;
       // as trocas seguintes de slide só mexem no slide "ativo" lá dentro.
+      // overflow:visible nos dois eixos (não "overflow-x:hidden;
+      // overflow-y:visible") de propósito: pela própria spec do CSS,
+      // combinar um eixo 'hidden' com o outro 'visible' faz o navegador
+      // converter o 'visible' pra 'auto' por baixo dos panos — que
+      // também recorta. Era exatamente isso que cortava o brilho do
+      // blob "hoje" (V3.4.69/70), mesmo com overflow-y:visible escrito
+      // no style. O recorte horizontal do vaivém de ±20px na troca de
+      // slide agora é contido só pelo overflow:hidden do wrap externo
+      // (#mxm-log-resumo-dia-wrap), que já tem respiro suficiente.
       resumoEl.innerHTML = `
-        <div data-mxm-resumo-miolo style="position:relative; overflow:hidden; border-radius:var(--md-shape-lg); transition:height ${DURACAO_TRANSICAO_SLIDE_RESUMO_MS}ms cubic-bezier(.2,0,0,1);">
+        <div data-mxm-resumo-miolo style="position:relative; overflow:visible; border-radius:var(--md-shape-lg); transition:height ${DURACAO_TRANSICAO_SLIDE_RESUMO_MS}ms cubic-bezier(.2,0,0,1);">
           <div data-mxm-resumo-slide data-mxm-atual="1"></div>
-          ${
-            slides.length > 1
-              ? `<button type="button" data-mxm-resumo-fixar class="mxm-resumo-fixar-btn" style="position:absolute; top:6px; right:6px; z-index:4; width:22px; height:22px; border:none; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;"></button>`
-              : ''
-          }
         </div>
         ${
+          // V3.4.66: setas de navegação, pino de fixar e pontinhos agora
+          // moram todos numa única barrinha de controle ABAIXO do slide,
+          // em vez de flutuarem por cima do conteúdo (o que espremia/
+          // cobria o texto dos cartões nos slides mais estreitos, tipo
+          // "mês" e "dia equivalente"). Só existe com mais de 1 slide,
+          // igual antes.
+          // V3.4.68: virou grid de 3 colunas (1fr/auto/1fr) em vez de
+          // flex — como o grupo da direita tem 2 botões (seta + pino)
+          // contra só 1 da esquerda (seta), um flex simples deixava os
+          // pontinhos puxados pro lado esquerdo em vez de centralizados
+          // de verdade na barra.
           slides.length > 1
-            ? `<div data-mxm-resumo-dots class="mxm-resumo-dots" style="position:relative; display:flex; justify-content:center; align-items:center; gap:9px; margin-top:8px; height:6px;"></div>`
+            ? `
+              <div data-mxm-resumo-dots class="mxm-resumo-controles" style="display:grid; grid-template-columns:1fr auto 1fr; align-items:center; margin-top:8px;">
+                <button type="button" data-mxm-resumo-seta="anterior" title="${t('resumoSetaAnterior')}" class="mxm-resumo-seta-btn" style="justify-self:start; flex-shrink:0; width:22px; height:22px; border:none; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;">${icone(
+                  'chevronLeft',
+                  13
+                )}</button>
+                <div data-mxm-dots-central class="mxm-resumo-dots-central" style="justify-self:center; display:flex; align-items:center; gap:7px;"></div>
+                <div style="justify-self:end; display:flex; align-items:center; gap:2px;">
+                  <button type="button" data-mxm-resumo-seta="proxima" title="${t('resumoSetaProxima')}" class="mxm-resumo-seta-btn" style="flex-shrink:0; width:22px; height:22px; border:none; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;">${icone(
+                    'chevronRight',
+                    13
+                  )}</button>
+                  <button type="button" data-mxm-resumo-fixar class="mxm-resumo-fixar-btn" style="flex-shrink:0; width:20px; height:20px; border:none; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;"></button>
+                </div>
+              </div>
+            `
             : ''
         }
       `;
@@ -16300,9 +19556,43 @@ browser.storage.onChanged.addListener((changes, area) => {
           requestAnimationFrame(() => requestAnimationFrame(() => mostrarPopupPinoCronometro(botaoFixar)));
         }
       }
+
+      // V3.4.64: clique nas setas anterior/próxima — anda um slide na
+      // direção escolhida, dando a volta do último pro primeiro (e
+      // vice-versa) igual ao giro automático. stopPropagation pra não
+      // disparar o clique geral do slide (data-mxm-resumo-abrir/
+      // data-mxm-abrir-cronometro), que abriria o painel por baixo.
+      const botaoSetaAnterior = resumoEl.querySelector('[data-mxm-resumo-seta="anterior"]');
+      const botaoSetaProxima = resumoEl.querySelector('[data-mxm-resumo-seta="proxima"]');
+      const irParaSlideRelativo = (passo) => {
+        const totalAtual = (resumoEl._mxmSlidesResumo || slides).length;
+        if (totalAtual < 2) return;
+        const atual = Number(resumoEl.dataset.mxmSlideIdx);
+        const proximo = (atual + passo + totalAtual) % totalAtual;
+        tocarSom('clique');
+        irParaSlideResumo(resumoEl, proximo);
+      };
+      if (botaoSetaAnterior) {
+        botaoSetaAnterior.addEventListener('click', (e) => {
+          e.stopPropagation();
+          irParaSlideRelativo(-1);
+        });
+      }
+      if (botaoSetaProxima) {
+        botaoSetaProxima.addEventListener('click', (e) => {
+          e.stopPropagation();
+          irParaSlideRelativo(1);
+        });
+      }
     }
     resumoEl._mxmAlturasSlides = medirAlturasSlides(resumoEl, slides);
     const alturaAtualPx = resumoEl._mxmAlturasSlides[indiceAtual];
+    // V3.4.81: mesmo motivo do comentário em irParaSlideResumo — esta
+    // atribuição de miolo.style.height roda toda vez que o resumo é
+    // atualizado (nova entrada de log, troca de layout), não só na troca
+    // de slide do carrossel, e pode mudar a altura do wrap sem que o
+    // usuário tenha rolado nada.
+    if (typeof ancorarScrollListaAntesDeResize === 'function') ancorarScrollListaAntesDeResize();
     if (alturaAtualPx) miolo.style.height = `${alturaAtualPx}px`;
     // atualiza o conteúdo do slide "ativo" (settled, sem animação) — usado
     // tanto na primeira montagem quanto nas atualizações de dados (novo
@@ -16492,25 +19782,32 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   function atualizarDotsResumo(dotsWrap, total, indiceAtual) {
     if (!dotsWrap) return;
+    // V3.4.66: dotsWrap agora é a barrinha de controle inteira (setas +
+    // pontinhos + pino) — os pontinhos em si vivem num filho dedicado
+    // (data-mxm-dots-central) pra não apagar as setas/pino ao lado toda
+    // vez que a lista de pontinhos é reconstruída. Fallback pro próprio
+    // dotsWrap cobre qualquer estrutura antiga que ainda não tenha esse
+    // filho.
+    const central = dotsWrap.querySelector('[data-mxm-dots-central]') || dotsWrap;
     if (total <= 1) {
       dotsWrap.style.display = 'none';
-      dotsWrap.innerHTML = '';
+      central.innerHTML = '';
       return;
     }
-    dotsWrap.style.display = 'flex';
-    const dotsAtuais = dotsWrap.querySelectorAll('[data-mxm-dot]');
+    dotsWrap.style.display = 'grid';
+    const dotsAtuais = central.querySelectorAll('[data-mxm-dot]');
     if (dotsAtuais.length !== total) {
-      dotsWrap.innerHTML = Array.from({ length: total })
+      central.innerHTML = Array.from({ length: total })
         .map((_, i) => `<span data-mxm-dot="${i}" class="mxm-resumo-dot" style="cursor:pointer;"></span>`)
         .join('');
-      dotsWrap.querySelectorAll('[data-mxm-dot]').forEach((dot) => {
+      central.querySelectorAll('[data-mxm-dot]').forEach((dot) => {
         dot.addEventListener('click', () => {
           const resumoEl = dot.closest('#mxm-log-resumo-dia');
           if (resumoEl) irParaSlideResumo(resumoEl, Number(dot.dataset.mxmDot));
         });
       });
     }
-    dotsWrap.querySelectorAll('[data-mxm-dot]').forEach((dot) => {
+    central.querySelectorAll('[data-mxm-dot]').forEach((dot) => {
       dot.classList.toggle('mxm-resumo-dot-ativa', Number(dot.dataset.mxmDot) === indiceAtual);
     });
   }
@@ -16535,6 +19832,23 @@ browser.storage.onChanged.addListener((changes, area) => {
     if (!slides || !slides[indice] || !miolo || !slideAtualEl || resumoEl._mxmEmTransicao) return;
     const atual = Number(resumoEl.dataset.mxmSlideIdx);
     if (atual === indice) return;
+
+    // V3.4.81: CORREÇÃO DE BUG GRAVE — causa raiz de verdade do "scroll
+    // trava no topo" em listas pequenas (confirmada com backup real do
+    // usuário: 4 itens no log, carrossel do resumo ativo). O giro
+    // automático do carrossel (a cada 6s, sem gesto nenhum do usuário)
+    // troca de slide e muda miolo.style.height JÁ no requestAnimationFrame
+    // logo abaixo — e como #mxm-log-resumo-dia-wrap e #mxm-log-lista-wrap
+    // são irmãos num flex column com a lista em flex:1, isso empurra a
+    // lista e corrompe seu scrollTop pelo mesmo mecanismo de sempre
+    // (ver V3.4.80). sincronizarAlturaResumoWrap (chamada só no fim desta
+    // função, no setTimeout ~380ms depois) ancora TARDE DEMAIS — a
+    // transição de altura do miolo já aconteceu inteira antes disso.
+    // Numa lista grande isso passa despercebido (a fração do espaço
+    // "roubado" é ínfima); numa lista pequena, é grande o bastante pra
+    // zerar o scroll no meio do gesto do usuário. Corrigido ancorando a
+    // posição aqui, no início, antes de qualquer mudança de altura.
+    if (typeof ancorarScrollListaAntesDeResize === 'function') ancorarScrollListaAntesDeResize(380); // 340ms (DURACAO_TRANSICAO_SLIDE_RESUMO_MS) + 40ms, igual ao setTimeout logo abaixo
 
     const direcao = calcularDirecaoResumo(atual, indice, slides.length);
     resumoEl.dataset.mxmSlideIdx = String(indice);
@@ -16966,7 +20280,7 @@ browser.storage.onChanged.addListener((changes, area) => {
           'flame',
           13
         )}${t('hojeVsRecorde')}</div>
-        ${renderBarraHojeVsRecorde(stats.porDataRecorde)}
+        ${renderBarraHojeVsRecorde(stats.porData, stats.porDataRecorde)}
       </div>
       `,
       proximoCiclo: `
@@ -16991,7 +20305,7 @@ browser.storage.onChanged.addListener((changes, area) => {
             </div>
           </div>
           <div title="${t('cronometroEstiloSiteTooltip')}" style="flex:1; min-width:0; background:color-mix(in srgb, #5eead4 16%, var(--md-sys-color-surface)); border-radius:var(--md-shape-lg); padding:14px; display:flex; align-items:center; gap:12px;">
-            <div style="flex-shrink:0; width:40px; height:40px; border-radius:50%; background:color-mix(in srgb, #5eead4 28%, transparent); display:flex; align-items:center; justify-content:center; font-size:17px;">🌐</div>
+            <div style="flex-shrink:0; width:40px; height:40px; border-radius:50%; background:color-mix(in srgb, #5eead4 28%, transparent); display:flex; align-items:center; justify-content:center; font-size:17px;">⏰</div>
             <div style="min-width:0;">
               <div style="font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.3px; color:var(--md-sys-color-on-surface-variant); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${t(
                 'cronometroEstiloSiteLabel'
@@ -18044,33 +21358,170 @@ browser.storage.onChanged.addListener((changes, area) => {
     return pesos[0].n; // fallback (não deveria chegar aqui)
   }
 
-  // Sorteia de 2 a 4 linhas de músicas diferentes (quando há opção) e cola
-  // um pedaço de cada uma em sequência — frequentemente sai algo sem nexo e
-  // engraçado, que é a graça do recurso. Com mais músicas envolvidas, o
-  // resultado tende a ficar ainda mais bagunçado (e mais engraçado).
-  function sortearMashupMagico() {
-    const pool = linhasCitaveisDoLog();
-    if (pool.length < 2) return null;
-
-    const quantidade = sortearQuantidadeMashup(pool.length);
-
-    // sorteia `quantidade` índices distintos do pool, sem repetir linha
-    const indicesDisponiveis = pool.map((_, i) => i);
+  // Sorteia `quantidade` índices distintos do pool de linhas citáveis, sem
+  // repetir — extraído do antigo sortearMashupMagico pra ser reaproveitado
+  // por todos os modos do Mashup Mágico (cada um decide o que fazer com as
+  // linhas sorteadas, mas todos partem do mesmo sorteio de índices).
+  function sortearIndicesMashup(poolTamanho, quantidade) {
+    const indicesDisponiveis = Array.from({ length: poolTamanho }, (_, i) => i);
     const indicesSorteados = [];
-    for (let i = 0; i < quantidade; i++) {
+    for (let i = 0; i < quantidade && indicesDisponiveis.length; i++) {
       const escolha = Math.floor(Math.random() * indicesDisponiveis.length);
       indicesSorteados.push(indicesDisponiveis[escolha]);
       indicesDisponiveis.splice(escolha, 1);
     }
+    return indicesSorteados;
+  }
 
-    const linhasSorteadas = indicesSorteados.map((idx) => pool[idx]);
+  // ---------- modo "Clássico": cola um pedaço de cada linha em sequência ----------
+  // (o modo original do Mashup Mágico) — frequentemente sai algo sem nexo e
+  // engraçado, que é a graça do recurso. Com mais músicas envolvidas, o
+  // resultado tende a ficar ainda mais bagunçado (e mais engraçado).
+  function mashupModoClassico(pool) {
+    const quantidade = sortearQuantidadeMashup(pool.length);
+    const indices = sortearIndicesMashup(pool.length, quantidade);
+    const linhasSorteadas = indices.map((idx) => pool[idx]);
     const frase = linhasSorteadas
       .map((linha, i) => cortarFraseEmPartes(linha.trecho, quantidade)[i])
       .filter(Boolean)
       .join(' ');
-    const titulos = linhasSorteadas.map((linha) => linha.titulo);
+    return { frase, titulos: linhasSorteadas.map((l) => l.titulo), rotulo: 'mashupModoClassico' };
+  }
 
-    return { frase, titulos };
+  // ---------- modo "Frankenstein": embaralha palavras individuais de 2-3 linhas ----------
+  // Diferente do clássico (que preserva blocos maiores de cada linha), aqui
+  // a mistura é palavra a palavra — o resultado costuma ficar bem mais
+  // absurdo e menos "frase com começo/meio/fim reconhecível".
+  function mashupModoFrankenstein(pool) {
+    const quantidade = Math.min(3, Math.max(2, sortearQuantidadeMashup(pool.length)));
+    const indices = sortearIndicesMashup(pool.length, quantidade);
+    const linhasSorteadas = indices.map((idx) => pool[idx]);
+
+    // junta { palavra, tituloDaOrigem } de todas as linhas sorteadas, depois
+    // embaralha o array inteiro (Fisher-Yates) — assim cada palavra final
+    // pode vir de qualquer uma das linhas, em qualquer posição.
+    const palavras = [];
+    linhasSorteadas.forEach((linha) => {
+      String(linha.trecho)
+        .split(/\s+/)
+        .filter(Boolean)
+        .forEach((palavra) => palavras.push({ palavra, titulo: linha.titulo }));
+    });
+    for (let i = palavras.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [palavras[i], palavras[j]] = [palavras[j], palavras[i]];
+    }
+
+    // limita o tamanho final pra não virar um parágrafo gigante quando as
+    // linhas sorteadas forem longas — uma frase embaralhada já fica
+    // suficientemente estranha com 6-10 palavras.
+    const limite = Math.min(palavras.length, 6 + Math.floor(Math.random() * 5));
+    const escolhidas = palavras.slice(0, limite);
+    const frase = escolhidas.map((p) => p.palavra).join(' ');
+    const titulosUsados = [...new Set(escolhidas.map((p) => p.titulo))];
+
+    return { frase, titulos: titulosUsados, rotulo: 'mashupModoFrankenstein' };
+  }
+
+  // ---------- modo "Eco": uma linha-âncora inteira, repetida como refrão entre pedaços de outra ----------
+  // Sorteia 2 linhas: uma vira o "refrão" (repetida como está) e a outra é
+  // cortada em pedaços que entram entre as repetições — tipo um refrão de
+  // música interrompido por fragmentos de outra letra.
+  function mashupModoEco(pool) {
+    const indices = sortearIndicesMashup(pool.length, 2);
+    if (indices.length < 2) return mashupModoClassico(pool);
+
+    const [linhaEco, linhaFragmento] = indices.map((idx) => pool[idx]);
+    const partesFragmento = cortarFraseEmPartes(linhaFragmento.trecho, 2);
+
+    const frase = `${linhaEco.trecho} — ${partesFragmento[0] || ''} ${linhaEco.trecho} ${partesFragmento[1] || ''}`
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return { frase, titulos: [linhaEco.titulo, linhaFragmento.titulo], rotulo: 'mashupModoEco' };
+  }
+
+  // ---------- modo "Colagem": 2 linhas inteiras, lado a lado, sem cortar nada ----------
+  // O modo mais "cru" — nenhuma linha é editada, só justapostas. Às vezes o
+  // choque de tom entre duas letras completamente diferentes já rende o
+  // efeito cômico sozinho, sem precisar remixar palavra por palavra.
+  function mashupModoColagem(pool) {
+    const indices = sortearIndicesMashup(pool.length, 2);
+    if (indices.length < 2) return mashupModoClassico(pool);
+
+    const [linhaA, linhaB] = indices.map((idx) => pool[idx]);
+    const frase = `${linhaA.trecho} / ${linhaB.trecho}`;
+
+    return { frase, titulos: [linhaA.titulo, linhaB.titulo], rotulo: 'mashupModoColagem' };
+  }
+
+  // ---------- modo "Rima forçada": tenta casar 2 linhas com finais parecidos ----------
+  // Compara as últimas letras (ignorando pontuação/acento) de várias
+  // combinações de pares no pool e fica com o par de maior semelhança final
+  // encontrado — nem sempre é uma rima "de verdade", mas tende a soar mais
+  // musical que um par aleatório qualquer. Sem pool suficiente pra valer a
+  // pena comparar, cai pro modo clássico.
+  function finalDaLinhaParaRima(trecho) {
+    return String(trecho)
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // remove acentos
+      .replace(/[^a-z]/g, ''); // só letras, sem espaço/pontuação
+  }
+
+  function pontuarRima(finalA, finalB) {
+    let pontos = 0;
+    for (let i = 1; i <= Math.min(finalA.length, finalB.length, 4); i++) {
+      if (finalA[finalA.length - i] === finalB[finalB.length - i]) pontos++;
+      else break;
+    }
+    return pontos;
+  }
+
+  function mashupModoRima(pool) {
+    // amostra até 25 pares aleatórios em vez de comparar o pool inteiro
+    // (poderia ter centenas de linhas) — suficiente pra achar uma rima
+    // decente na maioria das vezes sem custo perceptível.
+    const TENTATIVAS = 25;
+    let melhorPar = null;
+    let melhorPontuacao = -1;
+
+    for (let t = 0; t < TENTATIVAS && pool.length >= 2; t++) {
+      const [ia, ib] = sortearIndicesMashup(pool.length, 2);
+      if (ia === undefined || ib === undefined) break;
+      const a = pool[ia];
+      const b = pool[ib];
+      const pontuacao = pontuarRima(finalDaLinhaParaRima(a.trecho), finalDaLinhaParaRima(b.trecho));
+      if (pontuacao > melhorPontuacao) {
+        melhorPontuacao = pontuacao;
+        melhorPar = [a, b];
+      }
+      if (melhorPontuacao >= 3) break; // rima boa o bastante, não precisa continuar
+    }
+
+    if (!melhorPar) return mashupModoClassico(pool);
+
+    const [linhaA, linhaB] = melhorPar;
+    const frase = `${linhaA.trecho}\n${linhaB.trecho}`;
+
+    return { frase, titulos: [linhaA.titulo, linhaB.titulo], rotulo: 'mashupModoRima' };
+  }
+
+  // ---------- dispatcher: sorteia um dos modos acima a cada clique ----------
+  const MASHUP_MODOS = [
+    mashupModoClassico,
+    mashupModoFrankenstein,
+    mashupModoEco,
+    mashupModoColagem,
+    mashupModoRima,
+  ];
+
+  function sortearMashupMagico() {
+    const pool = linhasCitaveisDoLog();
+    if (pool.length < 2) return null;
+
+    const modo = MASHUP_MODOS[Math.floor(Math.random() * MASHUP_MODOS.length)];
+    return modo(pool);
   }
 
   // Paleta de cores pro destaque dos nomes de música no Mashup Mágico —
@@ -18165,7 +21616,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     const mashupHtml = `
       <div id="mxm-log-detalhado-mashup" style="display:none; position:relative; overflow:hidden; box-sizing:border-box; background:var(--md-sys-color-surface-container-high); border:1px solid var(--md-sys-color-outline-variant); border-radius:var(--md-shape-lg); padding:10px 16px;">
         ${dadosFundoHtml}
-        <div id="mxm-log-detalhado-mashup-frase" style="position:relative; z-index:1; font-size:12.5px; font-style:italic; line-height:1.5; color:var(--md-sys-color-on-surface-variant);"></div>
+        <div id="mxm-log-detalhado-mashup-frase" style="position:relative; z-index:1; font-size:12.5px; font-style:italic; line-height:1.5; color:var(--md-sys-color-on-surface-variant); white-space:pre-line;"></div>
         <div id="mxm-log-detalhado-mashup-fontes" style="position:relative; z-index:1; font-size:10.5px; font-weight:600; margin-top:3px; color:var(--md-sys-color-outline);"></div>
       </div>
     `;
@@ -18228,11 +21679,11 @@ browser.storage.onChanged.addListener((changes, area) => {
 
     overlay.innerHTML = `
       <div id="mxm-log-detalhado-painel" style="background:var(--md-sys-color-surface-container-low); color:var(--md-sys-color-on-surface); width:${larguraPainelDetalhado}px; height:${alturaPainelDetalhado}px; max-width:92vw; max-height:85vh; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); display:flex; flex-direction:column; font-family:sans-serif; overflow:hidden; pointer-events:auto; position:relative;">
-        <div id="mxm-log-detalhado-header" style="display:flex; align-items:center; justify-content:space-between; padding:14px 16px;">
+        <div id="mxm-log-detalhado-header" style="position:absolute; top:0; left:0; right:0; z-index:2; display:flex; align-items:center; justify-content:space-between; padding:14px 16px; background:color-mix(in srgb, var(--md-sys-color-surface-container-low) 65%, transparent); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);">
           <div style="display:flex; align-items:center; gap:8px; font-size:15px; font-weight:600;"><span class="mxm-icone-pop" style="display:flex;">${icone(
             'barChart',
             16
-          )}</span>${t('logDetalhado')}<span style="font-size:9px; font-weight:700; letter-spacing:.4px; color:var(--md-sys-color-primary); background:color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent); border:1px solid color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent); border-radius:var(--md-shape-xs); padding:1px 5px; line-height:1.4;">BETA</span></div>
+          )}</span>${t('logDetalhado')}</div>
           <div style="display:flex; align-items:center; gap:10px;">
             <div id="mxm-log-detalhado-avatar-mini" title="${nomeCurator}" style="display:flex; align-items:center; opacity:0; transform:scale(.6); transition:opacity .18s ease, transform .18s ease; pointer-events:none;">
               ${fotoMiniHtml}
@@ -18252,7 +21703,7 @@ browser.storage.onChanged.addListener((changes, area) => {
             )}</div>
           </div>
         </div>
-        <div id="mxm-log-detalhado-scroll" style="overflow-y:auto; flex:1;">
+        <div id="mxm-log-detalhado-scroll" style="overflow-y:auto; flex:1; padding-top:52px;">
           ${capaHtml}
           <div id="mxm-log-detalhado-perfil" style="display:flex; flex-direction:column; align-items:center; gap:6px; padding:0 16px 4px; margin-top:-38px;">
             <div id="mxm-log-detalhado-avatar-editor" title="${
@@ -18482,6 +21933,17 @@ browser.storage.onChanged.addListener((changes, area) => {
     );
     trazerParaFrente(overlay);
 
+    // o cabeçalho é absoluto/flutuante (efeito de vidro) por cima do
+    // scroll, então o padding-top do scroll precisa bater exatamente com
+    // a altura real dele — um valor fixo chutado deixava um pedaço da
+    // capa por trás visível debaixo do cabeçalho (cortada, não coberta
+    // de propósito).
+    const headerFlutuanteEl = document.getElementById('mxm-log-detalhado-header');
+    const scrollParaHeaderEl = document.getElementById('mxm-log-detalhado-scroll');
+    if (headerFlutuanteEl && scrollParaHeaderEl) {
+      scrollParaHeaderEl.style.paddingTop = `${headerFlutuanteEl.offsetHeight}px`;
+    }
+
     const scrollWrapper = document.getElementById('mxm-log-detalhado-scroll');
     const avatarMini = document.getElementById('mxm-log-detalhado-avatar-mini');
     const perfilBloco = document.getElementById('mxm-log-detalhado-perfil');
@@ -18526,11 +21988,47 @@ browser.storage.onChanged.addListener((changes, area) => {
   // Mesmo padrão do widget "Total USD + BRL" pra bandeira da moeda
   // (flagcdn) — dá o mesmo toque visual entre as duas extensões.
   function getCurrencyFlagUrl(codigo) {
-    return `https://flagcdn.com/${(CURRENCY_META[codigo] || CURRENCY_META.USD).flag}.svg`;
+    // circle-flags já vem recortada em círculo de verdade (não é um
+    // retângulo 4:3 forçado a 50% de border-radius, que cortava o desenho
+    // da bandeira nas pontas) — ver relato do usuário: bandeira "cortada,
+    // não redonda".
+    return `https://hatscripts.github.io/circle-flags/flags/${(CURRENCY_META[codigo] || CURRENCY_META.USD).flag}.svg`;
+  }
+
+  // Mantém o badge do Payflow no tile "Reward" (grade de Ferramentas
+  // úteis) sincronizado com a origem real dos dados, mesmo sem o
+  // usuário fechar/reabrir o menu — chamado sempre que algo que pode
+  // mudar `origem` (detecção do Payflow, novo envio, etc.) já dispara
+  // renderPainelReward() de qualquer forma.
+  function atualizarBadgeTileReward() {
+    const tile = document.getElementById('mxm-log-abrir-reward');
+    if (!tile) return;
+    const usaWidget = obterDadosReward(Object.values(getLogs())).origem === 'widget';
+    let badge = tile.querySelector('.mxm-tile-badge-payflow');
+    if (usaWidget && !badge) {
+      badge = document.createElement('div');
+      badge.className = 'mxm-tile-badge-payflow';
+      badge.title = t('poweredByPayflow');
+      Object.assign(badge.style, {
+        position: 'absolute',
+        top: '4px',
+        right: '4px',
+        width: '14px',
+        height: '14px',
+        borderRadius: '4px',
+        overflow: 'hidden',
+        boxShadow: '0 0 0 1.5px var(--md-sys-color-surface-container-low)',
+      });
+      badge.innerHTML = `<img src="data:image/png;base64,${PAYFLOW_ICONE_B64}" alt="Payflow" style="width:100%; height:100%; display:block;">`;
+      tile.appendChild(badge);
+    } else if (!usaWidget && badge) {
+      badge.remove();
+    }
   }
 
   function renderPainelReward() {
     const painel = document.getElementById('mxm-log-reward-conteudo');
+    atualizarBadgeTileReward();
     if (!painel) return;
 
     const entradas = Object.values(getLogs());
@@ -18559,58 +22057,67 @@ browser.storage.onChanged.addListener((changes, area) => {
     const fonteIcone = origem === 'widget' ? 'check' : 'alertTriangle';
     const fonteCor = origem === 'widget' ? 'var(--md-sys-color-primary)' : '#f2b705';
 
+    // ---- variação % simples (mesmo cálculo usado dentro de
+    // montarBlocoHistoricoFxHtml) só pra exibir o chip de tendência da
+    // coluna USD sem precisar reconstruir o mini-gráfico ali dentro.
+    let variacaoFxTexto = null;
+    let variacaoFxCor = null;
+    if (fxHistorico && fxHistorico.moeda === moeda && fxHistorico.pontos.length >= 2) {
+      const pontosFx = fxHistorico.pontos;
+      const variacaoPct = ((pontosFx[pontosFx.length - 1].rate - pontosFx[0].rate) / pontosFx[0].rate) * 100;
+      variacaoFxTexto = `${variacaoPct >= 0 ? '+' : ''}${variacaoPct.toFixed(2)}%`;
+      variacaoFxCor = variacaoPct >= 0 ? '#1DB954' : '#f2555a';
+    }
+
     const totalHtml = `
-      <div style="position:relative; overflow:hidden; border-radius:var(--md-shape-xl); padding:22px 20px 18px; box-shadow:var(--md-elevation-1); background:
-        radial-gradient(140% 100% at 100% 0%, color-mix(in srgb, var(--md-sys-color-primary-container) 55%, transparent) 0%, transparent 55%),
-        ${corDeFundoCartaoDestaque()};">
-        <div style="position:relative; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:20px;">
-          <div style="display:flex; align-items:center; gap:9px; min-width:0;">
-            <div style="width:28px; height:28px; border-radius:10px; background:var(--md-sys-color-primary-container); display:flex; align-items:center; justify-content:center; flex-shrink:0;">${icone(
-              'dollar',
-              15,
-              'var(--md-sys-color-on-primary-container)'
-            )}</div>
-            <span style="font-size:11px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--md-sys-color-on-surface-variant); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${t(
-              'totalGanho'
-            )}</span>
-          </div>
-          <span title="${escapeHtml(fonteTexto)}" style="display:inline-flex; align-items:center; gap:5px; padding:5px 11px 5px 8px; border-radius:var(--md-shape-full); background:color-mix(in srgb, ${fonteCor} 18%, transparent); font-size:10.5px; font-weight:700; color:${fonteCor}; white-space:nowrap; flex-shrink:0; cursor:help;">${icone(
+      <div style="position:relative; overflow:hidden; border-radius:var(--md-shape-xl); padding:18px; background:
+        radial-gradient(140% 140% at 8% 0%, color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent), transparent 65%),
+        radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--md-sys-color-tertiary) 16%, transparent), transparent 60%),
+        var(--md-sys-color-surface-container-low);
+        border:1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 50%, transparent); box-shadow:var(--md-elevation-2);">
+        <div style="position:relative; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;">
+          <span style="font-size:10.5px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--md-sys-color-outline);">${t(
+            'totalGanho'
+          )}</span>
+          <span title="${escapeHtml(fonteTexto)}" style="display:inline-flex; align-items:center; gap:5px; padding:5px 11px 5px 8px; border-radius:var(--md-shape-full); background:color-mix(in srgb, ${fonteCor} 16%, transparent); font-size:10.5px; font-weight:700; color:${fonteCor}; white-space:nowrap; flex-shrink:0; cursor:help;">${icone(
             fonteIcone,
             11,
             fonteCor
           )}${fonteTextoCurta}</span>
         </div>
-        <div style="position:relative; z-index:1; display:flex; align-items:flex-end; justify-content:space-between; gap:14px; flex-wrap:wrap;">
-          <div style="display:flex; align-items:center; gap:13px; min-width:0;">
-            <img src="${getCurrencyFlagUrl(moeda)}" alt="${moeda}" style="width:34px; height:34px; border-radius:50%; object-fit:cover; box-shadow:0 0 0 3px var(--md-sys-color-surface-container), 0 0 0 4px color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent); flex-shrink:0;" />
-            <div style="min-width:0;">
-              <div style="font-size:40px; font-weight:700; color:var(--md-sys-color-on-surface); line-height:1; letter-spacing:-.5px; font-variant-numeric:tabular-nums; white-space:nowrap;">${valorOuNA(simbolo + formatarNumeroMoeda(totalBRL, moeda))}</div>
-              <div style="display:inline-flex; margin-top:7px; font-size:10px; font-weight:700; letter-spacing:.4px; color:#f2b705; background:rgba(242,183,5,0.14); border-radius:var(--md-shape-full); padding:2px 8px;">${moeda}</div>
-            </div>
-          </div>
+
+        <div style="position:relative; z-index:1; display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; margin-bottom:4px;">
+          <img src="${getCurrencyFlagUrl(moeda)}" alt="${moeda}" style="width:22px; height:22px; border-radius:50%; object-fit:cover; flex-shrink:0; margin-bottom:3px;" />
+          <span style="font-size:30px; font-weight:800; letter-spacing:-.6px; line-height:1; font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${valorOuNA(
+            simbolo + formatarNumeroMoeda(totalBRL, moeda)
+          )}</span>
           ${
-            historicoHtml
-              ? `<div title="${escapeHtml(
+            variacaoFxTexto
+              ? `<span title="${escapeHtml(
                   `USD/${moeda} — ${t('historicoDias').replace('{dias}', FX_HISTORY_DIAS)}`
-                )}" style="display:flex; flex-direction:column; align-items:stretch; gap:6px; padding:9px 13px; border-radius:var(--md-shape-lg); background:color-mix(in srgb, var(--md-sys-color-primary-container) 32%, transparent); border:1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 60%, transparent); flex-shrink:0;">
-                  ${historicoHtml}
-                  <div style="height:1px; background:color-mix(in srgb, var(--md-sys-color-outline-variant) 70%, transparent);"></div>
-                  <div style="display:flex; align-items:center; justify-content:center; gap:6px;">
-                    <span style="font-size:17px; font-weight:700; color:var(--md-sys-color-on-surface); font-variant-numeric:tabular-nums; white-space:nowrap;">${valorOuNA('$' + formatarNumeroMoeda(totalUSD, 'USD'))}</span>
-                    <span style="font-size:10px; font-weight:700; letter-spacing:.4px; color:var(--md-sys-color-outline); text-transform:uppercase;">USD</span>
-                  </div>
-                </div>`
-              : `<div style="display:flex; align-items:center; gap:6px; background:var(--md-sys-color-surface-container-high); border-radius:var(--md-shape-full); padding:10px 16px 10px 14px; flex-shrink:0;">
-                  <span style="font-size:17px; font-weight:700; color:#1DB954; font-variant-numeric:tabular-nums; white-space:nowrap;">${valorOuNA('$' + formatarNumeroMoeda(totalUSD, 'USD'))}</span>
-                  <span style="font-size:10px; font-weight:700; letter-spacing:.4px; color:var(--md-sys-color-outline); text-transform:uppercase;">USD</span>
-                </div>`
+                )}" style="display:flex; align-items:center; gap:3px; font-size:11px; font-weight:700; color:${variacaoFxCor}; margin-left:auto; margin-bottom:5px; flex-shrink:0;">${icone(
+                  variacaoFxCor === '#1DB954' ? 'trendingUp' : 'trendingDown',
+                  11,
+                  variacaoFxCor
+                )}${variacaoFxTexto}</span>`
+              : ''
           }
         </div>
-        <div style="position:relative; z-index:1; display:flex; align-items:center; gap:6px; font-size:11px; color:var(--md-sys-color-on-surface-variant); margin-top:18px; padding-top:13px; border-top:1px solid var(--md-sys-color-outline-variant);">${icone(
-          'refresh',
-          11,
-          'currentColor'
-        )}<span>${cotacaoTexto}</span></div>
+        <div style="position:relative; z-index:1; font-size:15px; font-weight:700; color:var(--md-sys-color-tertiary); font-variant-numeric:tabular-nums; margin-bottom:14px;">${valorOuNA(
+          '$' + formatarNumeroMoeda(totalUSD, 'USD')
+        )}</div>
+
+        <div style="position:relative; z-index:1; display:flex; align-items:center; justify-content:space-between; padding-top:12px; border-top:1px solid var(--md-sys-color-outline-variant); font-size:10.5px; color:var(--md-sys-color-on-surface-variant); gap:8px; flex-wrap:wrap;">
+          <span style="display:flex; align-items:center; gap:6px; min-width:0;">${icone('refresh', 11, 'currentColor')}<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${cotacaoTexto}</span></span>
+          ${
+            origem === 'widget'
+              ? `<span style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                  <img src="data:image/png;base64,${PAYFLOW_ICONE_B64}" alt="Payflow" style="width:14px; height:14px; border-radius:4px;">
+                  <span style="font-weight:600;">${t('poweredByPayflow')}</span>
+                </span>`
+              : ''
+          }
+        </div>
       </div>
     `;
 
@@ -18634,12 +22141,14 @@ browser.storage.onChanged.addListener((changes, area) => {
     const breakdownHtml = breakdownVisivel.length
       ? breakdownVisivel
           .map(
-            (item) => `
-        <div style="display:flex; align-items:center; gap:12px; padding:12px 14px; margin-bottom:8px; border-radius:var(--md-shape-lg); background:var(--md-sys-color-surface-container);">
-          <div style="width:34px; height:34px; border-radius:var(--md-shape-md); flex-shrink:0; background:linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-tertiary-container) 85%, white 0%), var(--md-sys-color-tertiary-container)); display:flex; align-items:center; justify-content:center;">${icone(
+            (item, idx) => `
+        <div style="display:flex; align-items:center; gap:12px; padding:12px 14px; margin-bottom:${
+          idx === breakdownVisivel.length - 1 ? '0' : '8px'
+        }; border-radius:var(--md-shape-lg); background:var(--md-sys-color-surface-container);">
+          <div style="width:32px; height:32px; border-radius:var(--md-shape-md); flex-shrink:0; background:color-mix(in srgb, var(--md-sys-color-tertiary-container) 55%, transparent); display:flex; align-items:center; justify-content:center;">${icone(
             'music',
-            15,
-            'var(--md-sys-color-on-tertiary-container)'
+            14,
+            'var(--md-sys-color-tertiary)'
           )}</div>
           <div style="flex:1; min-width:0;">
             <div style="display:flex; align-items:center; gap:6px; overflow:hidden;">
@@ -18669,7 +22178,7 @@ browser.storage.onChanged.addListener((changes, area) => {
             }</span>
             </div>
           </div>
-          <span style="color:#1DB954; font-weight:700; font-size:14.5px; white-space:nowrap; flex-shrink:0;">${valorOuNA('$' + formatarNumeroMoeda(item.usd, 'USD'))}</span>
+          <span style="color:var(--md-sys-color-tertiary); font-weight:700; font-size:14.5px; white-space:nowrap; flex-shrink:0;">${valorOuNA('$' + formatarNumeroMoeda(item.usd, 'USD'))}</span>
         </div>
       `
           )
@@ -18678,30 +22187,21 @@ browser.storage.onChanged.addListener((changes, area) => {
 
     painel.innerHTML = `
       ${avisoExtensaoHtml}
-      <div style="margin-bottom:20px;">
+      <div style="margin-bottom:18px;">
         ${totalHtml}
       </div>
-      <div style="margin-bottom:22px;">
-        <div style="display:flex; align-items:center; gap:9px; margin-bottom:11px;">
-          <div style="width:24px; height:24px; border-radius:8px; background:color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent); display:flex; align-items:center; justify-content:center; flex-shrink:0;">${icone(
-            'target',
-            12,
-            'var(--md-sys-color-primary)'
-          )}</div>
-          <span style="font-size:11.5px; font-weight:700; color:var(--md-sys-color-on-surface-variant); text-transform:uppercase; letter-spacing:.4px;">${t(
-            'rewardPorMissao'
-          )}</span>
-        </div>
+      <div style="margin-bottom:20px;">
+        <div style="font-size:11px; font-weight:700; color:var(--md-sys-color-on-surface-variant); text-transform:uppercase; letter-spacing:.4px; margin-bottom:10px;">${t(
+          'rewardPorMissao'
+        )}</div>
         ${breakdownHtml}
-      </div>
-      <div style="margin-bottom:22px;">
         <button id="mxm-log-resumo-atual-abrir" ${
           resumoAoVivoDisponivel() ? '' : 'disabled'
-        } style="display:flex; align-items:center; gap:6px; padding:9px 16px; border-radius:var(--md-shape-full); border:none; background:${
-          resumoAoVivoDisponivel() ? 'var(--md-sys-color-primary-container)' : 'var(--md-sys-color-surface-container-high)'
-        }; color:${
-          resumoAoVivoDisponivel() ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-outline)'
-        }; font-size:12px; font-weight:700; cursor:${
+        } style="display:flex; align-items:center; justify-content:center; gap:6px; width:100%; margin-top:10px; padding:9px; border-radius:var(--md-shape-full); border:1px dashed ${
+          resumoAoVivoDisponivel() ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline-variant)'
+        }; background:transparent; color:${
+          resumoAoVivoDisponivel() ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline)'
+        }; font-size:11.5px; font-weight:700; cursor:${
           resumoAoVivoDisponivel() ? 'pointer' : 'not-allowed'
         }; opacity:${resumoAoVivoDisponivel() ? '1' : '.55'};">${icone(
           resumoAoVivoDisponivel() ? 'eye' : 'lock',
@@ -18710,16 +22210,9 @@ browser.storage.onChanged.addListener((changes, area) => {
         )}${resumoAoVivoDisponivel() ? t('resumosMensaisVerAgora') : t('resumosMensaisIndisponivel')}</button>
       </div>
       <div>
-        <div style="display:flex; align-items:center; gap:9px; margin-bottom:11px;">
-          <div style="width:24px; height:24px; border-radius:8px; background:color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent); display:flex; align-items:center; justify-content:center; flex-shrink:0;">${icone(
-            'calendar',
-            12,
-            'var(--md-sys-color-primary)'
-          )}</div>
-          <span style="font-size:11.5px; font-weight:700; color:var(--md-sys-color-on-surface-variant); text-transform:uppercase; letter-spacing:.4px;">${t(
-            'resumosMensaisTitulo'
-          )}</span>
-        </div>
+        <div style="font-size:11px; font-weight:700; color:var(--md-sys-color-on-surface-variant); text-transform:uppercase; letter-spacing:.4px; margin-bottom:10px;">${t(
+          'resumosMensaisTitulo'
+        )}</div>
         <div id="mxm-log-resumos-mensais-lista">${renderResumosMensais()}</div>
       </div>
     `;
@@ -18805,7 +22298,7 @@ browser.storage.onChanged.addListener((changes, area) => {
           <div style="display:flex; align-items:center; gap:8px; font-size:15px; font-weight:600;"><span class="mxm-icone-pop" style="display:flex;">${icone(
             'dollar',
             16
-          )}</span>${t('logReward')}<span style="font-size:9px; font-weight:700; letter-spacing:.4px; color:var(--md-sys-color-primary); background:color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent); border:1px solid color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent); border-radius:var(--md-shape-xs); padding:1px 5px; line-height:1.4;">BETA</span></div>
+          )}</span>${t('logReward')}</div>
           <div id="mxm-log-reward-fechar" class="mxm-log-close-btn" style="cursor:pointer; color:var(--md-sys-color-outline); font-size:18px; display:flex; padding:9px; border-radius:50%; transition:background-color .15s ease, color .15s ease;">${icone(
             'x',
             16
@@ -18869,6 +22362,369 @@ browser.storage.onChanged.addListener((changes, area) => {
     document.getElementById('mxm-log-reward-fechar').addEventListener('click', () => {
       tocarSom('fechar');
       fechar();
+    });
+  }
+
+  // ---------- painel "Ciclos" — lista todos os ciclos de missão do ano atual (ver [[musixmatch-ciclo-missoes]]), cada um com nome (renomeável), datas, resumo de músicas enviadas e valores USD/BRL calculados a partir do PRÓPRIO log (nunca do widget/localStorage ao vivo, que só reflete o mês corrente) — ver listarCiclosDoAnoAtual/getNomeCiclo/setNomeCiclo, mais acima neste arquivo. ----------
+
+  // Abre (ou traz pra frente) o painel de log principal já rolado até a
+  // primeira música daquele ciclo — chamado ao clicar num cartão da tela
+  // "Ciclos" (ver cartaoCiclo, abaixo). "Início do ciclo" aqui é a entrada
+  // mais ANTIGA daquele ciclo (a virada em si, não a música mais recente),
+  // que é o que faz sentido como ponto de partida pra revisar o ciclo
+  // inteiro rolando pra baixo a partir dali.
+  function irParaInicioDoCicloNoLog(chaveCiclo) {
+    // Object.entries preserva a CHAVE de storage de cada registro (o
+    // índice dentro do objeto retornado por getLogs()) — é ela que vira
+    // data-row-key na lista (ver formatarEntradasOrdenadas, que monta
+    // {key, ...val} do mesmo jeito). Usar Object.values() aqui (como na
+    // v3.5.25/26) pegava só o valor, sem essa chave; e.key só existiria
+    // por coincidência caso o próprio registro guardasse esse campo
+    // internamente — o que explica o clique não fazer nada em ciclos
+    // onde os registros não têm esse campo interno.
+    const todasEntradasComKey = Object.entries(getLogs()).map(([key, val]) => ({ key, ...val }));
+    const entradasDoCiclo = entradasDoMes(todasEntradasComKey, chaveCiclo);
+    if (!entradasDoCiclo.length) return;
+
+    // a mais antiga = menor timestamp; entradas sem timestamp confiável
+    // (fallback de entradasDoMes) não competem por essa posição.
+    const comTimestamp = entradasDoCiclo.filter((e) => Number.isFinite(e.timestamp));
+    const alvo = (comTimestamp.length ? comTimestamp : entradasDoCiclo).reduce((maisAntiga, atual) =>
+      Number.isFinite(atual.timestamp) && (!maisAntiga || atual.timestamp < maisAntiga.timestamp) ? atual : maisAntiga
+    , null);
+    if (!alvo || !alvo.key) return;
+
+    // Antes fechava automaticamente a tela de Ciclos ao navegar — removido
+    // pra permitir clicar em vários ciclos em sequência
+    // sem precisar reabrir a tela de Ciclos toda vez. O painel de log só é
+    // trazido pra frente (ou aberto, se ainda não existir) por cima dela.
+
+    // abrirPainel() tem um early-return (só traz pra frente + sai) quando
+    // o painel principal já está aberto — o que é justamente o caso mais
+    // comum aqui, já que a tela de Ciclos costuma ficar aberta ao lado
+    // dele. Por isso o "trazer pra frente" é feito à parte, sempre, e
+    // abrirPainel() só é chamado quando o painel ainda não existe no DOM.
+    const overlayLogExistente = document.getElementById('mxm-log-overlay');
+    if (overlayLogExistente) {
+      trazerParaFrente(overlayLogExistente);
+    } else {
+      abrirPainel();
+    }
+
+    // mesmo atraso usado em destacarItemConfiguracao — dá tempo do
+    // painel (recém-criado ou recém-trazido pra frente) assentar layout
+    // e scroll antes de medir a posição da linha-alvo.
+    setTimeout(() => {
+      const busca = document.getElementById('mxm-log-busca');
+      if (busca && busca.value.trim()) {
+        // um termo de busca ativo poderia esconder a linha-alvo da
+        // lista — limpa e re-renderiza pra garantir que ela exista no DOM.
+        busca.value = '';
+        renderPainelLista();
+      }
+
+      const linha = document.querySelector(`.mxm-log-row[data-row-key="${cssEscapeCompat(alvo.key)}"]`);
+      if (!linha) return;
+
+      // se o grupo (dia/ciclo) dessa linha estiver recolhido, expande
+      // antes de rolar até ela — senão scrollIntoView mediria um elemento
+      // com display:none dentro do corpo recolhido.
+      const corpoGrupo = linha.closest('.mxm-log-grupo-corpo');
+      if (corpoGrupo && corpoGrupo.classList.contains('mxm-grupo-recolhido')) {
+        const chaveGrupo = corpoGrupo.getAttribute('data-grupo-key');
+        if (chaveGrupo) gruposRecolhidos.delete(decodeURIComponent(chaveGrupo));
+        renderPainelLista();
+      }
+
+      setTimeout(() => {
+        const linhaFinal = document.querySelector(`.mxm-log-row[data-row-key="${cssEscapeCompat(alvo.key)}"]`);
+        if (!linhaFinal) return;
+        // scrollIntoView aqui costumava rolar só um pouco (não até o
+        // centro de verdade): #mxm-log-lista-wrap usa contain:paint +
+        // transform:translateZ(0) (ver criação do painel), e esse tipo
+        // de containment/layer no ancestral atrapalha o Chrome a
+        // calcular corretamente até onde rolar com scrollIntoView. Rolar
+        // manualmente o container certo (#mxm-log-lista, o único com
+        // overflow-y:auto) não depende desse cálculo.
+        const containerLista = linhaFinal.closest('#mxm-log-lista') || document.getElementById('mxm-log-lista');
+        if (containerLista) {
+          // getBoundingClientRect (não offsetTop) porque a linha fica
+          // aninhada dentro de wrappers de grupo (.mxm-log-grupo-corpo
+          // > div) que não são necessariamente o offsetParent direto —
+          // comparar retângulos absolutos evita depender dessa cadeia.
+          const retLinha = linhaFinal.getBoundingClientRect();
+          const retContainer = containerLista.getBoundingClientRect();
+          const deltaParaCentro =
+            retLinha.top - retContainer.top - containerLista.clientHeight / 2 + retLinha.height / 2;
+          const alvoTopo = containerLista.scrollTop + deltaParaCentro;
+          containerLista.scrollTo({
+            top: Math.max(0, Math.min(alvoTopo, containerLista.scrollHeight - containerLista.clientHeight)),
+            behavior: 'smooth',
+          });
+        } else {
+          linhaFinal.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        linhaFinal.classList.remove('mxm-config-destaque');
+        void linhaFinal.offsetWidth;
+        linhaFinal.classList.add('mxm-config-destaque');
+        setTimeout(() => linhaFinal.classList.remove('mxm-config-destaque'), 2400);
+      }, corpoGrupo && corpoGrupo.classList.contains('mxm-grupo-recolhido') ? 60 : 0);
+    }, 260);
+  }
+
+  // CSS.escape com fallback simples — data-row-key vem de e.key (gerada
+  // internamente, ver normalizeKey), então na prática nunca tem caractere
+  // especial de seletor, mas evita quebrar a query em algum caso extremo.
+  function cssEscapeCompat(valor) {
+    if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(valor);
+    return String(valor).replace(/["\\]/g, '\\$&');
+  }
+
+  function abrirPainelCiclos() {
+    const overlayExistente = document.getElementById('mxm-log-ciclos-overlay');
+    if (overlayExistente) {
+      trazerParaFrente(overlayExistente);
+      return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'mxm-log-ciclos-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      background: 'transparent',
+      pointerEvents: 'none',
+      zIndex: 1000001,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    });
+
+    const tamanhoSalvoCiclos = getTamanhoPainelSalvo(STORAGE_TAMANHO_PAINEL_CICLOS_KEY);
+    const larguraPainelCiclos = (tamanhoSalvoCiclos && tamanhoSalvoCiclos.largura) || 480;
+    const alturaPainelCiclos = (tamanhoSalvoCiclos && tamanhoSalvoCiclos.altura) || 640;
+
+    overlay.innerHTML = `
+      <div id="mxm-log-ciclos-painel" style="background:var(--md-sys-color-surface-container-low); color:var(--md-sys-color-on-surface); width:${larguraPainelCiclos}px; height:${alturaPainelCiclos}px; max-width:92vw; max-height:85vh; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); display:flex; flex-direction:column; font-family:sans-serif; overflow:hidden; pointer-events:auto; position:relative;">
+        <div id="mxm-log-ciclos-header" style="display:flex; align-items:center; justify-content:space-between; padding:14px 16px;">
+          <div style="display:flex; align-items:center; gap:8px; font-size:15px; font-weight:600;"><span class="mxm-icone-pop" style="display:flex;">${icone(
+            'calendar',
+            16
+          )}</span>${t('ciclosTitulo')}</div>
+          <div id="mxm-log-ciclos-fechar" class="mxm-log-close-btn" style="cursor:pointer; color:var(--md-sys-color-outline); font-size:18px; display:flex; padding:9px; border-radius:50%; transition:background-color .15s ease, color .15s ease;">${icone(
+            'x',
+            16
+          )}</div>
+        </div>
+        <div id="mxm-log-ciclos-conteudo" style="overflow-y:auto; padding:16px; flex:1;"></div>
+        ${htmlResizeHandle('mxm-log-ciclos-resize-handle')}
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    animarEntradaCartao(document.getElementById('mxm-log-ciclos-painel'));
+    renderPainelCiclos();
+    tornarArrastavel(
+      document.getElementById('mxm-log-ciclos-painel'),
+      document.getElementById('mxm-log-ciclos-header'),
+      overlay
+    );
+    tornarRedimensionavel(
+      document.getElementById('mxm-log-ciclos-painel'),
+      document.getElementById('mxm-log-ciclos-resize-handle'),
+      STORAGE_TAMANHO_PAINEL_CICLOS_KEY
+    );
+    ativarHoverResizeHandle('mxm-log-ciclos-resize-handle');
+    trazerParaFrente(overlay);
+
+    const fechar = () => {
+      if (ciclosCronometroIntervalId) {
+        clearInterval(ciclosCronometroIntervalId);
+        ciclosCronometroIntervalId = null;
+      }
+      fecharOverlayAnimado(overlay);
+    };
+    document.getElementById('mxm-log-ciclos-fechar').addEventListener('click', () => {
+      tocarSom('fechar');
+      fechar();
+    });
+  }
+
+  function renderPainelCiclos() {
+    const painel = document.getElementById('mxm-log-ciclos-conteudo');
+    if (!painel) return;
+
+    const todasEntradas = Object.values(getLogs());
+    const ciclos = listarCiclosDoAnoAtual();
+    const anoAtual = ciclos.length ? ciclos[ciclos.length - 1].inicio.getFullYear() : dataEfetivaParaCiclo(mxmAgora()).getFullYear();
+    const moeda = getSecondaryCurrencyCode();
+    const simbolo = simboloMoeda(moeda);
+
+    const formatarData = (date) =>
+      date.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+    // Faixa de cronômetro compacta no topo da tela (menos peso visual que
+    // o cartão redondo anterior, já que aqui ele é só contexto — o
+    // protagonista da tela são os ciclos). O clique continua abrindo a
+    // mesma janela modal com o anel (abrirJanelaCronometroCiclo) usada em
+    // todo o resto da extensão.
+    const cronometroHtml = `
+      <div id="mxm-log-ciclos-cronometro" title="${t('proximoCicloDescricao')}" style="cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:10px; background:color-mix(in srgb, var(--md-sys-color-primary) 10%, var(--md-sys-color-surface-container-low)); border:1px solid color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent); border-radius:var(--md-shape-lg); padding:9px 12px; margin-bottom:16px;">
+        <span style="font-size:10.5px; font-weight:600; color:var(--md-sys-color-on-surface-variant); white-space:nowrap;">${t(
+          'proximoCicloTitulo'
+        )}</span>
+        <span style="font-size:13.5px; font-weight:800; color:var(--md-sys-color-primary); font-variant-numeric:tabular-nums; white-space:nowrap;" id="mxm-log-ciclos-cronometro-valor">${formatarContagemRegressiva(
+          proximoInicioCiclo() - mxmAgora()
+        )}</span>
+      </div>
+    `;
+
+    function cartaoCiclo(ciclo) {
+      const nome = getNomeCiclo(ciclo.chave, ciclo.numero);
+      const entradasDoCiclo = entradasDoMes(todasEntradas, ciclo.chave);
+      const { totalUSD, totalBRL } = calcularRecompensas(entradasDoCiclo);
+      const totalMusicas = entradasDoCiclo.length;
+      const cicloVazio = totalMusicas === 0;
+
+      // Progresso do ciclo (0–100%) com base no tempo já decorrido entre
+      // início e fim reais — ciclos passados sempre fecham em 100%,
+      // ciclos futuros/vazios não chegam a ser exibidos aqui (a lista só
+      // vai até o ciclo atual, ver listarCiclosDoAnoAtual).
+      const agora = mxmAgora();
+      const duracaoTotalMs = ciclo.fim - ciclo.inicio;
+      const decorridoMs = Math.min(Math.max(agora - ciclo.inicio, 0), duracaoTotalMs);
+      const progressoPct = duracaoTotalMs > 0 ? Math.round((decorridoMs / duracaoTotalMs) * 100) : 100;
+
+      return `
+        <div class="mxm-ciclo-cartao${cicloVazio ? ' mxm-ciclo-cartao-vazio' : ''}" title="${
+        cicloVazio ? '' : escapeHtml(t('cicloVerNoLogTooltip'))
+      }" data-chave="${escapeHtml(ciclo.chave)}" data-numero="${
+        ciclo.numero
+      }" style="cursor:${cicloVazio ? 'default' : 'pointer'}; opacity:${
+        cicloVazio ? '0.5' : '1'
+      }; border-radius:var(--md-shape-lg); padding:14px; margin-bottom:10px; background:${
+        ciclo.atual
+          ? 'color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface-container-low))'
+          : 'var(--md-sys-color-surface-container)'
+      }; border:1px solid ${
+        ciclo.atual
+          ? 'color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent)'
+          : 'var(--md-sys-color-outline-variant)'
+      };">
+          <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:2px;">
+            <div style="min-width:0;">
+              <div style="display:flex; align-items:center; gap:6px; min-width:0;">
+                <span style="font-size:14px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(
+                  nome
+                )}</span>
+                ${
+                  ciclo.atual
+                    ? `<span style="flex-shrink:0; font-size:9px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:var(--md-sys-color-primary); background:color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent); border-radius:var(--md-shape-xs); padding:1.5px 6px;">${t(
+                        'cicloAtualBadge'
+                      )}</span>`
+                    : ''
+                }
+              </div>
+              <div style="font-size:10.5px; color:var(--md-sys-color-outline); margin-top:2px;">${escapeHtml(
+                formatarData(ciclo.inicio)
+              )} – ${escapeHtml(formatarData(ciclo.fim))}</div>
+            </div>
+            <div class="mxm-ciclo-renomear-btn" title="${escapeHtml(
+              t('cicloRenomearTooltip')
+            )}" style="cursor:pointer; flex-shrink:0; color:var(--md-sys-color-outline); display:flex; padding:6px; border-radius:50%; transition:background-color .15s ease, color .15s ease;">${icone(
+        'edit',
+        13
+      )}</div>
+          </div>
+
+          <div style="height:5px; border-radius:4px; background:var(--md-sys-color-surface-container-highest); overflow:hidden; margin:8px 0 10px;">
+            <div style="height:100%; width:${progressoPct}%; border-radius:4px; background:${
+        ciclo.atual ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline)'
+      };"></div>
+          </div>
+
+          <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:8px;">
+            <div style="display:flex; align-items:center; gap:5px; font-size:12px; color:var(--md-sys-color-on-surface-variant); min-width:0;">
+              ${icone('music', 13, 'var(--md-sys-color-tertiary)')}
+              <span style="font-weight:600; font-variant-numeric:tabular-nums;">${totalMusicas}</span>
+              <span style="color:var(--md-sys-color-outline); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(
+                totalMusicas === 1 ? t('cicloMusicaSingular') : t('cicloMusicaPlural')
+              )}</span>
+            </div>
+            <div style="text-align:right; flex-shrink:0;">
+              <div style="font-size:18px; font-weight:800; color:var(--md-sys-color-on-surface); line-height:1.1; font-variant-numeric:tabular-nums; white-space:nowrap;">${escapeHtml(
+                simbolo + formatarNumeroMoeda(totalBRL, moeda)
+              )}</div>
+              <div style="font-size:10px; color:var(--md-sys-color-outline); font-variant-numeric:tabular-nums;">$${escapeHtml(
+                formatarNumeroMoeda(totalUSD, 'USD')
+              )}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    painel.innerHTML = `
+      ${cronometroHtml}
+      <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--md-sys-color-outline); margin-bottom:10px;">${anoAtual}</div>
+      ${ciclos.map(cartaoCiclo).join('')}
+    `;
+
+    const cronometroEl = document.getElementById('mxm-log-ciclos-cronometro');
+    if (cronometroEl) {
+      cronometroEl.addEventListener('click', () => abrirJanelaCronometroCiclo());
+    }
+    // intervalo próprio (independente do usado pelo carrossel do painel
+    // principal) — atualiza só enquanto a tela de Ciclos e este cartão
+    // específico continuarem no DOM, se autolimpando sozinho quando o
+    // painel é fechado ou re-renderizado (ex.: ao renomear um ciclo).
+    if (ciclosCronometroIntervalId) clearInterval(ciclosCronometroIntervalId);
+    ciclosCronometroIntervalId = setInterval(() => {
+      const valorEl = document.getElementById('mxm-log-ciclos-cronometro-valor');
+      if (!valorEl) {
+        clearInterval(ciclosCronometroIntervalId);
+        ciclosCronometroIntervalId = null;
+        return;
+      }
+      valorEl.textContent = formatarContagemRegressiva(proximoInicioCiclo() - mxmAgora());
+    }, 1000);
+
+    painel.querySelectorAll('.mxm-ciclo-cartao').forEach((cartao) => {
+      const chave = cartao.getAttribute('data-chave');
+      const numero = parseInt(cartao.getAttribute('data-numero'), 10);
+      cartao.addEventListener('click', () => {
+        if (cartao.classList.contains('mxm-ciclo-cartao-vazio')) return;
+        irParaInicioDoCicloNoLog(chave);
+      });
+
+      const botaoRenomear = cartao.querySelector('.mxm-ciclo-renomear-btn');
+      botaoRenomear.addEventListener('mouseenter', () => {
+        botaoRenomear.style.background = 'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)';
+        botaoRenomear.style.color = 'var(--md-sys-color-on-surface)';
+      });
+      botaoRenomear.addEventListener('mouseleave', () => {
+        botaoRenomear.style.background = 'transparent';
+        botaoRenomear.style.color = 'var(--md-sys-color-outline)';
+      });
+      botaoRenomear.addEventListener('click', (ev) => {
+        // sem isso, clicar em "renomear" também dispararia o clique do
+        // cartão inteiro (irParaInicioDoCicloNoLog) por causa do bubbling.
+        ev.stopPropagation();
+        const nomeAtual = getNomeCiclo(chave, numero);
+        abrirPromptTexto({
+          titulo: t('cicloRenomearPrompt'),
+          valorInicial: nomeAtual,
+          aoConfirmar: (nome) => {
+            setNomeCiclo(chave, nome);
+            renderPainelCiclos();
+            // reflete o nome novo nos marcadores "iniciado/encerrado" do
+            // painel principal (rotuloCicloParaMarcador), se ele estiver
+            // aberto ao mesmo tempo — sem isso só atualizaria ao
+            // fechar/reabrir o painel principal.
+            if (document.getElementById('mxm-log-lista')) renderPainelLista();
+          },
+        });
+      });
     });
   }
 
@@ -19273,9 +23129,9 @@ browser.storage.onChanged.addListener((changes, area) => {
     function corpoRecusaTermos() {
       return `
         <div style="padding:22px 20px 4px; display:flex; gap:12px; align-items:flex-start;">
-          <div style="flex-shrink:0; width:32px; height:32px; border-radius:50%; background:color-mix(in srgb, var(--md-sys-color-error) 16%, transparent); display:flex; align-items:center; justify-content:center; color:var(--md-sys-color-error);" class="mxm-icone-pop">${icone(
+          <div style="flex-shrink:0; width:32px; height:32px; border-radius:50%; background:color-mix(in srgb, var(--md-sys-color-error) 16%, transparent); display:flex; align-items:center; justify-content:center; color:var(--md-sys-color-error);" class="mxm-icone-pop-reto">${icone(
             'alertTriangle',
-            16
+            18
           )}</div>
           <div>
             <div style="font-size:15px; font-weight:700; margin-bottom:4px;">${escapeHtml(t('termosRecusaTitulo'))}</div>
@@ -19552,21 +23408,21 @@ browser.storage.onChanged.addListener((changes, area) => {
     const opcoesDestaque = Object.keys(MXM_ESQUEMAS_DESTAQUE).map((chave) => ({
       valor: chave,
       rotulo: t('esquemaCor' + chave.charAt(0).toUpperCase() + chave.slice(1)),
-      cor: MXM_ESQUEMAS_DESTAQUE[chave].swatch,
+      cor: (isTemaClaroAtivo() ? MXM_ESQUEMAS_DESTAQUE_CLARO : MXM_ESQUEMAS_DESTAQUE)[chave].swatch,
     }));
     const opcoesFundo = Object.keys(MXM_ESQUEMAS_FUNDO).map((chave) => ({
       valor: chave,
       rotulo: t('esquemaFundo' + chave.charAt(0).toUpperCase() + chave.slice(1)),
-      cor: MXM_ESQUEMAS_FUNDO[chave].swatch,
+      cor: (isTemaClaroAtivo() ? MXM_ESQUEMAS_FUNDO_CLARO : MXM_ESQUEMAS_FUNDO)[chave].swatch,
     }));
 
     function bolinhaHtml(op, valorAtual, grupoId) {
       const selecionado = op.valor === valorAtual;
       return `
         <button type="button" class="mxm-tema-inicial-bolinha" data-grupo="${grupoId}" data-valor="${op.valor}" title="${op.rotulo}" style="
-          width:28px; height:28px; border-radius:50%; cursor:pointer; padding:0; flex-shrink:0;
+          box-sizing:border-box; width:28px; height:28px; border-radius:50%; cursor:pointer; padding:0; flex-shrink:0; overflow:hidden;
           background:${op.cor};
-          border:${selecionado ? '2px solid var(--md-sys-color-on-surface)' : '1px solid var(--md-sys-color-outline-variant)'};
+          border:2px solid ${selecionado ? 'var(--md-sys-color-on-surface)' : 'var(--md-sys-color-outline-variant)'};
           box-shadow:${selecionado ? '0 0 0 2px var(--md-sys-color-surface-container-low)' : 'none'};
         "></button>
       `;
@@ -19627,9 +23483,9 @@ browser.storage.onChanged.addListener((changes, area) => {
     function repintarGrade(grupoId, valorAtual) {
       overlay.querySelectorAll(`.mxm-tema-inicial-bolinha[data-grupo="${grupoId}"]`).forEach((btn) => {
         const selecionado = btn.dataset.valor === valorAtual;
-        btn.style.border = selecionado
-          ? '2px solid var(--md-sys-color-on-surface)'
-          : '1px solid var(--md-sys-color-outline-variant)';
+        btn.style.border = `2px solid ${
+          selecionado ? 'var(--md-sys-color-on-surface)' : 'var(--md-sys-color-outline-variant)'
+        }`;
         btn.style.boxShadow = selecionado ? '0 0 0 2px var(--md-sys-color-surface-container-low)' : 'none';
       });
     }
@@ -19665,6 +23521,218 @@ browser.storage.onChanged.addListener((changes, area) => {
     document.getElementById('mxm-tema-inicial-confirmar').addEventListener('click', () => fechar(true));
   }
 
+  // Monta o mesmo svg do logo "eco" animado usado no cabeçalho das
+  // Configurações (ver identidade.innerHTML), pra ser reaproveitado em
+  // outras telas (ex.: mostrarSplashPrimeiraMontagem) sem duplicar a
+  // marcação do svg. `tamanho` controla width/height do <svg> (viewBox
+  // continua fixo em 0 0 100 100, então a proporção nunca distorce —
+  // ver comentário original da v3.5.1 sobre o motivo do svg existir).
+  function htmlLogoEchoAnimada(tamanho) {
+    if (!isAnimacoesAtiva()) {
+      return icone('list', tamanho, 'var(--md-sys-color-on-primary-container)');
+    }
+    return (
+      `<svg viewBox="0 0 100 100" width="${tamanho}" height="${tamanho}" shape-rendering="geometricPrecision" style="display:block; overflow:visible;" class="mxm-echo-logo-svg">` +
+      '<circle class="mxm-echo-anel-base" cx="50" cy="50" r="46"></circle>' +
+      '<circle class="mxm-echo-anel" cx="50" cy="50" r="30"></circle>' +
+      '<circle class="mxm-echo-anel" cx="50" cy="50" r="30"></circle>' +
+      '<circle class="mxm-echo-anel" cx="50" cy="50" r="30"></circle>' +
+      '<circle class="mxm-echo-nucleo" cx="50" cy="50" r="12"></circle>' +
+      '</svg>'
+    );
+  }
+
+  // ---------- splash de primeira montagem (logo + "boas-vindas" antes do
+  // painel real se montar por cima, só na primeiríssima vez) ----------
+
+  // Mostrado só uma vez, depois que o usuário termina os 4 passos de
+  // boas-vindas (idioma/termos/nome/foto) e a escolha de tema — ou seja,
+  // exatamente antes do tour de balões começar. É uma tela vazia dentro do
+  // próprio painel (mesmo tamanho/posição de #mxm-log-painel): mostra só o
+  // logo animado e a frase de boas-vindas, sem nenhum cabeçalho/lista/
+  // ferramentas, dando a impressão de "quadro em branco". Depois de um
+  // instante, ela se abre em cortina (dividida em faixas que deslizam
+  // pra cima/baixo, não um fade simples) revelando o painel real (que já
+  // está por baixo, pronto e escondido) por trás, dando a sensação de que
+  // a interface "se montou" ali na hora. Só roda na primeira vez de todas
+  // (controlado pelo próprio fluxo de chamada — não usa uma chave de
+  // localStorage própria, já que quem decide se isso é "a primeira vez" é
+  // o chamador, que só dispara isso uma vez logo após
+  // abrirEscolhaTemaInicial).
+  function mostrarSplashPrimeiraMontagem(aoTerminar) {
+    const painel = document.getElementById('mxm-log-painel');
+    if (!painel || !isAnimacoesAtiva()) {
+      // sem painel pra ancorar (nunca deveria acontecer aqui) ou com
+      // animações desligadas — pula direto pro tour, sem o efeito.
+      if (typeof aoTerminar === 'function') aoTerminar();
+      return;
+    }
+
+    const splash = document.createElement('div');
+    splash.id = 'mxm-log-splash-inicial';
+    Object.assign(splash.style, {
+      position: 'absolute',
+      inset: '0',
+      zIndex: '5',
+      display: 'flex',
+      overflow: 'hidden',
+      borderRadius: 'var(--md-shape-xl)',
+    });
+    // duas faixas (metade de cima / metade de baixo do painel) em vez de
+    // um bloco só — na saída elas deslizam em direções opostas (cortina
+    // se abrindo), o que segura o olho bem mais que um crossfade e deixa
+    // claro que tinha "algo" cobrindo a interface até então. Cada faixa
+    // ganha o mesmo wash tonal radial (primary/tertiary) usado em
+    // #mxm-log-topo-cartao no painel real, pra essa tela não parecer um
+    // retângulo escuro vazio — sente-se já a identidade visual do script
+    // antes mesmo do tour começar. O conteúdo (logo + frase + legenda +
+    // botões) fica centralizado por cima das duas faixas, como se fosse a
+    // "capa" comum às duas metades, e sai com seu próprio fade+leve
+    // encolhida antes das faixas começarem a se abrir.
+    // V3.5.10: em vez de um timer automático decidindo quando a cortina
+    // abre, dois botões dão a escolha ao usuário — "Aprender" segue pro
+    // tour de balões de sempre, "Pular" abre a cortina e já marca o tour
+    // como visto, sem nenhum balão.
+    // V3.5.10.1: fundo do splash trocado pelo layout "combo" aprovado
+    // (gradiente diagonal escuro + dois blobs de acento, primary no canto
+    // superior direito e tertiary no canto inferior esquerdo) no lugar do
+    // wash tonal radial anterior. O fundo (gradiente + blobs) precisa
+    // continuar vivendo DENTRO de cada faixa (não num div único por trás
+    // delas) porque a cortina anima via transform:translateY nas próprias
+    // faixas — um fundo separado ficaria parado enquanto as faixas (vazias)
+    // deslizassem, e o efeito de cortina sumiria sem revelar nada.
+    // Pra simular um único gradiente/blobs contínuos "atravessando" as
+    // duas metades (em vez de cada metade ter seu próprio gradiente
+    // reiniciando do zero), cada faixa usa background-size:100% 200% +
+    // background-position ajustado (top/bottom), igual a técnica antiga do
+    // washTonalCss. Os blobs também viram background-image posicionado do
+    // mesmo jeito, com folga maior da quina arredondada do painel (antes
+    // em top/right:-40px encostava bem na curva do border-radius do
+    // painel, cortando em ângulo reto por dentro em vez de acompanhar a
+    // curva do próprio blob — ver captura de tela reportada; agora nasce
+    // mais pra dentro, então só a "barriga" arredondada do círculo cruza a
+    // borda visível, sem tocar a curva do canto).
+    const fundoBaseCss =
+      'background-image:' +
+      'linear-gradient(160deg, color-mix(in srgb, var(--md-sys-color-primary) 10%, var(--md-sys-color-surface-container-low)) 0%, var(--md-sys-color-surface-container-low) 55%, var(--md-sys-color-surface-container-lowest) 100%);' +
+      'background-size:100% 200%;';
+    splash.innerHTML = `
+      <div class="mxm-splash-faixa" data-metade="cima" style="position:absolute; left:0; right:0; top:0; height:50%; overflow:hidden; ${fundoBaseCss} background-position:top;">
+        <div style="position:absolute; top:-10px; right:20px; width:150px; height:150px; border-radius:50%; background:color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent); filter:blur(2px);"></div>
+      </div>
+      <div class="mxm-splash-faixa" data-metade="baixo" style="position:absolute; left:0; right:0; bottom:0; height:50%; overflow:hidden; ${fundoBaseCss} background-position:bottom;">
+        <div style="position:absolute; bottom:-10px; left:15px; width:170px; height:170px; border-radius:50%; background:color-mix(in srgb, var(--md-sys-color-tertiary) 10%, transparent);"></div>
+      </div>
+      <div id="mxm-log-splash-conteudo" style="position:relative; margin:auto; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; padding:0 28px; opacity:0; transform:scale(0.94);">
+        <div style="display:flex; flex-direction:column; align-items:center; gap:16px;">
+          <div id="mxm-log-splash-logo-halo" style="display:flex; align-items:center; justify-content:center; width:96px; height:96px; border-radius:50%; background:radial-gradient(circle, color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent), transparent 70%);">
+            <span style="display:flex; width:72px; height:72px; line-height:1;">${htmlLogoEchoAnimada(72)}</span>
+          </div>
+          <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+            <span style="font-size:16.5px; font-weight:700; color:var(--md-sys-color-on-surface); font-family:sans-serif; letter-spacing:.1px;">${escapeHtml(
+              t('splashBoasVindasFrase')
+            )}</span>
+            <span style="font-size:12px; font-weight:500; color:var(--md-sys-color-on-surface-variant); font-family:sans-serif; line-height:1.5; max-width:220px;">${escapeHtml(
+              t('splashBoasVindasLegenda')
+            )}</span>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <button id="mxm-log-splash-pular" style="padding:10px 16px; border-radius:999px; border:1px solid var(--md-sys-color-outline-variant); background:transparent; color:var(--md-sys-color-on-surface-variant); font-size:13px; font-weight:600; cursor:pointer; font-family:sans-serif; transition:background-color .15s ease;">${escapeHtml(
+            t('tourPular')
+          )}</button>
+          <button id="mxm-log-splash-aprender" style="padding:10px 22px; border-radius:999px; border:none; background:var(--md-sys-color-primary); color:var(--md-sys-color-on-primary); font-size:13px; font-weight:700; cursor:pointer; font-family:sans-serif; box-shadow:var(--md-elevation-1); transition:filter .15s ease;">${escapeHtml(
+            t('splashBoasVindasAprender')
+          )}</button>
+        </div>
+      </div>
+    `;
+    // position:relative no painel já existe (ver estilo inline de
+    // #mxm-log-painel), então o splash absolute cobre exatamente a área
+    // do painel real, escondendo tudo que já está montado por baixo.
+    painel.appendChild(splash);
+
+    // entrada do conteúdo (logo+texto+botões nascem com opacity:0 +
+    // scale(0.94) no innerHTML acima) — um "pop" suave com leve
+    // overshoot, no mesmo espírito de animarEntradaCartao usado no resto
+    // do script, pra essa tela também parecer viva e não só aparecer
+    // estática do nada.
+    const conteudoEntrada = document.getElementById('mxm-log-splash-conteudo');
+    if (conteudoEntrada) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          conteudoEntrada.style.transition = 'opacity 340ms ease-out, transform 420ms cubic-bezier(.2,.8,.3,1.05)';
+          conteudoEntrada.style.opacity = '1';
+          conteudoEntrada.style.transform = 'scale(1)';
+        });
+      });
+    }
+    // halo por trás da logo pulsa bem devagar, só pra dar uma vida
+    // ambiente à tela enquanto o usuário lê a frase/legenda (sem
+    // competir com o próprio pulso dos anéis "eco" da logo).
+    const halo = document.getElementById('mxm-log-splash-logo-halo');
+    if (halo) {
+      halo.style.animation = 'mxmSplashHaloPulso 3.2s ease-in-out infinite';
+    }
+
+    const DURACAO_CONTEUDO_MS = 240;
+    const DURACAO_CORTINA_MS = 520;
+
+    // abrirCortina(pularTour): dispara a mesma saída em cortina nos dois
+    // casos (Aprender/Pular) — só muda o que roda depois que ela termina.
+    function abrirCortina(pularTour) {
+      // evita clique duplo (ex.: cliques rápidos nos dois botões) disparar
+      // a transição duas vezes.
+      const btnAprender = document.getElementById('mxm-log-splash-aprender');
+      const btnPular = document.getElementById('mxm-log-splash-pular');
+      if (btnAprender) btnAprender.disabled = true;
+      if (btnPular) btnPular.disabled = true;
+
+      const conteudo = document.getElementById('mxm-log-splash-conteudo');
+      const faixaCima = splash.querySelector('.mxm-splash-faixa[data-metade="cima"]');
+      const faixaBaixo = splash.querySelector('.mxm-splash-faixa[data-metade="baixo"]');
+
+      // 1) logo/frase/botões somem primeiro (rapidinho), pra não ficarem
+      // "grudados"/esticando junto da faixa enquanto ela desliza.
+      if (conteudo) {
+        conteudo.style.transition = `opacity ${DURACAO_CONTEUDO_MS}ms ease-in, transform ${DURACAO_CONTEUDO_MS}ms ease-in`;
+        conteudo.style.opacity = '0';
+        conteudo.style.transform = 'scale(0.92)';
+      }
+
+      setTimeout(() => {
+        // 2) cortina abre: faixa de cima sobe, faixa de baixo desce —
+        // saem em direções opostas, revelando o painel real (já montado
+        // por baixo) de dentro pra fora.
+        const easing = 'cubic-bezier(0.2, 0, 0, 1)';
+        if (faixaCima) {
+          faixaCima.style.transition = `transform ${DURACAO_CORTINA_MS}ms ${easing}`;
+          faixaCima.style.transform = 'translateY(-100%)';
+        }
+        if (faixaBaixo) {
+          faixaBaixo.style.transition = `transform ${DURACAO_CORTINA_MS}ms ${easing}`;
+          faixaBaixo.style.transform = 'translateY(100%)';
+        }
+        setTimeout(() => {
+          splash.remove();
+          if (pularTour) {
+            // "Pular" não é só fechar o splash — marca o tour de balões
+            // como visto, senão a próxima abertura do painel dispararia
+            // o tour normalmente (o splash só roda uma vez, mas o tour
+            // tem sua própria chave/condição independente).
+            marcarTourVisto();
+            if (typeof aoTerminar === 'function') aoTerminar();
+          } else if (typeof aoTerminar === 'function') {
+            aoTerminar();
+          }
+        }, DURACAO_CORTINA_MS);
+      }, DURACAO_CONTEUDO_MS);
+    }
+
+    document.getElementById('mxm-log-splash-aprender').addEventListener('click', () => abrirCortina(false));
+    document.getElementById('mxm-log-splash-pular').addEventListener('click', () => abrirCortina(true));
+  }
+
   // ---------- tour inicial (balões de tutorial, uma vez só) ----------
 
   function isTourVisto() {
@@ -19679,16 +23747,16 @@ browser.storage.onChanged.addListener((changes, area) => {
     if (isTourVisto()) return;
 
     // A grade "Ferramentas úteis" só é aberta quando o tour realmente
-    // chega no primeiro passo que mora dentro dela (tourDetalhado) — não
+    // chega no primeiro passo que mora dentro dela (tourFerramentas) — não
     // mais logo no início, pra não aparecer aberta ainda durante o passo
     // anterior (tourMissao, sobre clicar com o botão direito na música).
     // Fechada de novo assim que o tour sai dos passos que apontam pra
-    // dentro dela (tourDetalhado/tourReward), pra não ficar aberta
-    // ocupando espaço pelo resto do tour.
+    // dentro dela (tourFerramentas/tourDetalhado/tourReward), pra não
+    // ficar aberta ocupando espaço pelo resto do tour.
     let gradeFerramentasAbertaPeloTour = false;
-    const CHAVES_PASSOS_COM_GRADE_ABERTA = ['tourDetalhado', 'tourReward'];
+    const CHAVES_PASSOS_COM_GRADE_ABERTA = ['tourFerramentas', 'tourDetalhado', 'tourReward'];
     function abrirGradeFerramentasSeNecessario(chavePassoAtual) {
-      if (gradeFerramentasAbertaPeloTour || chavePassoAtual !== 'tourDetalhado') return;
+      if (gradeFerramentasAbertaPeloTour || !CHAVES_PASSOS_COM_GRADE_ABERTA.includes(chavePassoAtual)) return;
       gradeFerramentasAbertaPeloTour = true;
       if (typeof window.__mxmAbrirFerramentasUteis === 'function') {
         window.__mxmAbrirFerramentasUteis();
@@ -19708,6 +23776,15 @@ browser.storage.onChanged.addListener((changes, area) => {
     // do texto do balão.
     const passos = [
       { seletor: '#mxm-log-lista [data-row-key]', chave: 'tourMissao' },
+      // Passo novo (v3.5.52): a grade "Ferramentas úteis" cresceu bastante
+      // desde que os passos de Detalhado/Reward foram escritos (Diff
+      // manual, Diffs salvos, trocar idioma, Comparar, Ciclos, Bloco de
+      // notas, Backup e Restauração) e nenhum passo apresentava a grade
+      // como um todo — só apontava direto pros dois primeiros itens que
+      // ela teve. Este passo aponta pro botão que abre/fecha a grade
+      // inteira, dando um resumo do que existe ali antes dos dois passos
+      // seguintes entrarem no detalhe de Detalhado/Reward.
+      { seletor: '#mxm-log-ferramentas-toggle', chave: 'tourFerramentas' },
       { seletor: '#mxm-log-abrir-detalhado', chave: 'tourDetalhado' },
       { seletor: '#mxm-log-abrir-reward', chave: 'tourReward' },
       { seletor: '#mxm-log-config-btn', chave: 'tourConfiguracoes' },
@@ -20164,11 +24241,12 @@ browser.storage.onChanged.addListener((changes, area) => {
     // ATIVO no momento — antes mostrava o "próximo" idioma do toggle.
     const rotuloIdioma = (IDIOMAS_DISPONIVEIS.find((i) => i.codigo === idiomaAtual) || IDIOMAS_DISPONIVEIS[0]).rotulo;
 
-    function criarTileFerramenta(id, iconeNome, label, titulo, corToken, escondido) {
+    function criarTileFerramenta(id, iconeNome, label, titulo, corToken, escondido, badgeHtml) {
       const cor = `var(--md-sys-color-${corToken})`;
       return `<div id="${id}" title="${escapeHtml(titulo)}" data-mxm-tile-cor="${corToken}" style="cursor:pointer; ${
         escondido ? 'display:none;' : 'display:flex;'
-      } flex-direction:column; align-items:center; justify-content:center; gap:6px; padding:12px 6px; border-radius:var(--md-shape-lg); background:color-mix(in srgb, ${cor} 13%, var(--md-sys-color-surface-container-low)); transition:background .15s ease;">
+      } position:relative; flex-direction:column; align-items:center; justify-content:center; gap:6px; padding:12px 6px; border-radius:var(--md-shape-lg); background:color-mix(in srgb, ${cor} 13%, var(--md-sys-color-surface-container-low)); transition:background .15s ease;">
+        ${badgeHtml || ''}
         <div style="width:28px; height:28px; border-radius:50%; background:color-mix(in srgb, ${cor} 24%, transparent); display:flex; align-items:center; justify-content:center; color:${cor}; flex-shrink:0;">${icone(
         iconeNome,
         15,
@@ -20182,15 +24260,18 @@ browser.storage.onChanged.addListener((changes, area) => {
 
     // usa o tamanho salvo pelo usuário ao redimensionar, se houver
     // — senão, nasce com a largura/altura padrão (mesma altura do painel
-    // de Configurações).
-    const tamanhoSalvo = getTamanhoPainelSalvo(STORAGE_TAMANHO_PAINEL_KEY);
+    // de Configurações). Com 10+ músicas no log, o teto de altura sobe
+    // (ver getAlturaMaximaPainelLog) — abaixo disso, mantém o limite
+    // original que evita o bug de cálculo da barra de rolagem custom.
+    const alturaMaximaPainelLog = getAlturaMaximaPainelLog();
+    const tamanhoSalvo = getTamanhoPainelSalvo(STORAGE_TAMANHO_PAINEL_KEY, alturaMaximaPainelLog);
     const larguraPainel = (tamanhoSalvo && tamanhoSalvo.largura) || PAINEL_LARGURA_PADRAO;
     const alturaPainel = (tamanhoSalvo && tamanhoSalvo.altura) || ALTURA_PAINEL_PADRAO;
     const estiloTamanhoPainel = `width:${larguraPainel}px; height:${alturaPainel}px;`;
 
     overlay.innerHTML = `
-      <div id="mxm-log-painel" style="background:var(--md-sys-color-surface); color:var(--md-sys-color-on-surface); ${estiloTamanhoPainel} max-width:92vw; max-height:92vh; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); display:flex; flex-direction:column; font-family:sans-serif; overflow:hidden; pointer-events:auto; position:relative; isolation:isolate;">
-        <div id="mxm-log-topo-cartao" style="background:var(--md-sys-color-surface-container); border-radius:0 0 var(--md-shape-xl) var(--md-shape-xl); flex-shrink:0;">
+      <div id="mxm-log-painel" style="background:var(--md-sys-color-surface-container-low); color:var(--md-sys-color-on-surface); ${estiloTamanhoPainel} max-width:92vw; max-height:92vh; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); display:flex; flex-direction:column; font-family:sans-serif; overflow:hidden; pointer-events:auto; position:relative; isolation:isolate;">
+        <div id="mxm-log-topo-cartao" style="background:radial-gradient(140% 140% at 8% 0%, color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent), transparent 65%), radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--md-sys-color-tertiary) 10%, transparent), transparent 60%); border-radius:var(--md-shape-xl) var(--md-shape-xl) 0 0; margin:0; flex-shrink:0;">
         <div id="mxm-log-painel-header" style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px;">
           <div style="display:flex; align-items:center; gap:8px; font-size:15px; font-weight:600;">
             <div id="mxm-log-config-btn" title="${t(
@@ -20214,14 +24295,16 @@ browser.storage.onChanged.addListener((changes, area) => {
               <span class="mxm-icone-pop" style="display:flex;">${icone('bell', 16)}</span>
               <div class="mxm-notif-badge-el" style="display:none; position:absolute; top:4px; right:4px; min-width:14px; height:14px; border-radius:var(--md-shape-full); background:var(--md-sys-color-error); color:var(--md-sys-color-on-error); font-size:9px; font-weight:700; align-items:center; justify-content:center; padding:0 3px; font-family:sans-serif; line-height:1; box-shadow:0 0 0 2px var(--md-sys-color-surface-container-low);"></div>
             </div>
-            <div id="mxm-log-tema-claro-btn" style="cursor:pointer; color:var(--md-sys-color-outline); display:flex; align-items:center; padding:9px; border-radius:50%; transition:background-color .15s ease, color .15s ease;"></div>
+            <div id="mxm-log-tema-claro-btn" style="cursor:pointer; color:var(--md-sys-color-outline); display:flex; align-items:center; padding:9px; border-radius:50%; transition:background-color .15s ease, color .15s ease; ${
+              BOTAO_TEMA_CLARO_HABILITADO ? '' : 'display:none;'
+            }"></div>
             <div id="mxm-log-fechar" class="mxm-log-close-btn" style="cursor:pointer; color:var(--md-sys-color-outline); font-size:18px; display:flex; padding:9px; border-radius:50%; transition:background-color .15s ease, color .15s ease;">${icone(
               'x',
               18
             )}</div>
           </div>
         </div>
-        <div id="mxm-log-aviso-fim-mes-wrap" style="display:none; padding:8px 14px 0;">
+        <div id="mxm-log-aviso-fim-mes-wrap" style="display:none; padding:8px 16px 0;">
           <div id="mxm-log-aviso-fim-mes" style="display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border-radius:var(--md-shape-lg); background:color-mix(in srgb, var(--md-sys-color-tertiary) 14%, var(--md-sys-color-surface-container-low)); border:1px solid color-mix(in srgb, var(--md-sys-color-tertiary) 28%, transparent);">
             <div style="flex-shrink:0; color:var(--md-sys-color-tertiary); display:flex; padding-top:1px;">${icone('clock', 16)}</div>
             <div style="flex:1; min-width:0;">
@@ -20243,7 +24326,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     )}</div>
           </div>
         </div>
-        <div id="mxm-log-aviso-troca-ciclo-wrap" style="display:none; padding:8px 14px 0;">
+        <div id="mxm-log-aviso-troca-ciclo-wrap" style="display:none; padding:8px 16px 0;">
           <div id="mxm-log-aviso-troca-ciclo" style="display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border-radius:var(--md-shape-lg); background:color-mix(in srgb, var(--md-sys-color-primary) 14%, var(--md-sys-color-surface-container-low)); border:1px solid color-mix(in srgb, var(--md-sys-color-primary) 32%, transparent);">
             <div style="flex-shrink:0; color:var(--md-sys-color-primary); display:flex; padding-top:1px;">${icone('gitCompare', 16)}</div>
             <div style="flex:1; min-width:0;">
@@ -20258,8 +24341,23 @@ browser.storage.onChanged.addListener((changes, area) => {
             </div>
           </div>
         </div>
-        <div style="padding:8px 14px 10px; position:relative;">
-          <div id="mxm-log-busca-wrap" style="position:relative; z-index:2; display:flex; align-items:center; border-radius:var(--md-shape-full); border:1px solid transparent; background:var(--md-sys-color-surface-container-high); box-shadow:none; transition:background-color .18s ease, border-color .18s ease, box-shadow .18s ease;">
+        <div id="mxm-log-aviso-diffmanual-minimizado-wrap" style="display:none; padding:8px 16px 0;">
+          <div id="mxm-log-aviso-diffmanual-minimizado" style="cursor:pointer; display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border-radius:var(--md-shape-lg); background:color-mix(in srgb, var(--md-sys-color-error, #e5484d) 14%, var(--md-sys-color-surface-container-low)); border:1px solid color-mix(in srgb, var(--md-sys-color-error, #e5484d) 32%, transparent); transition:background-color .15s ease;">
+            <div style="flex-shrink:0; color:var(--md-sys-color-error, #e5484d); display:flex; padding-top:1px;">${icone('gitCompare', 16)}</div>
+            <div style="flex:1; min-width:0;">
+              <div style="font-size:12px; font-weight:500; line-height:1.4; color:var(--md-sys-color-on-surface);">${escapeHtml(
+                t('avisoDiffManualMinimizadoMensagem')
+              )}</div>
+              <div style="margin-top:6px;">
+                <button id="mxm-log-aviso-diffmanual-minimizado-voltar" type="button" style="border:none; background:transparent; color:var(--md-sys-color-error, #e5484d); font-size:12px; font-weight:700; cursor:pointer; padding:2px 0;">${escapeHtml(
+                  t('avisoDiffManualMinimizadoBotaoVoltar')
+                )}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="padding:8px 16px 10px; position:relative;">
+          <div id="mxm-log-busca-wrap" style="position:relative; z-index:2; display:flex; align-items:center; border-radius:var(--md-shape-lg); border:1px solid color-mix(in srgb, var(--md-sys-color-outline) 32%, transparent); background:color-mix(in srgb, var(--md-sys-color-surface-container-highest) 35%, transparent); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); box-shadow:none; transition:background-color .18s ease, border-color .18s ease, box-shadow .18s ease;">
             <span style="display:flex; align-items:center; justify-content:center; padding-left:16px; color:var(--md-sys-color-on-surface-variant); flex-shrink:0; pointer-events:none; transition:color .18s ease;">${icone(
               'search',
               18
@@ -20277,11 +24375,11 @@ browser.storage.onChanged.addListener((changes, area) => {
             )}</button>
           </div>
         </div>
-        <div id="mxm-log-resumo-dia-wrap" style="opacity:1; overflow:hidden; flex-shrink:0; padding:6px 14px; transition:max-height .22s ease, opacity .18s ease, padding .22s ease;">
+        <div id="mxm-log-resumo-dia-wrap" style="opacity:1; overflow:hidden; flex-shrink:0; padding:18px 16px; transition:max-height .22s ease, opacity .18s ease, padding .22s ease;">
           <div id="mxm-log-resumo-dia"></div>
         </div>
-        <div id="mxm-log-aviso-resumo-mes-wrap" style="display:none; padding:0 14px 8px;"></div>
-        <div id="mxm-log-ferramentas-wrap" style="flex-shrink:0; padding:0 14px 6px; position:relative; z-index:3; background:transparent; overflow:hidden; opacity:1; transition:max-height .22s ease, opacity .18s ease, padding-bottom .22s ease;">
+        <div id="mxm-log-aviso-resumo-mes-wrap" style="display:none; padding:0 16px 8px;"></div>
+        <div id="mxm-log-ferramentas-wrap" style="flex-shrink:0; padding:0 16px 6px; position:relative; z-index:3; background:transparent; overflow:hidden; opacity:1; transition:max-height .22s ease, opacity .18s ease, padding-bottom .22s ease;">
           <button id="mxm-log-ferramentas-toggle" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:9px 12px; border-radius:var(--md-shape-lg); border:none; background:var(--md-sys-color-surface-container-high); color:var(--md-sys-color-on-surface-variant); font-size:12.5px; font-weight:500; cursor:pointer; transition:background .15s ease, color .15s ease;">
             <span style="display:flex; align-items:center; gap:7px;">${icone(
             'menu',
@@ -20314,7 +24412,12 @@ browser.storage.onChanged.addListener((changes, area) => {
               t('reward'),
               t('reward'),
               'primary',
-              !isMostrarReward()
+              !isMostrarReward(),
+              obterDadosReward(Object.values(getLogs())).origem === 'widget'
+                ? `<div title="${escapeHtml(
+                    t('poweredByPayflow')
+                  )}" style="position:absolute; top:4px; right:4px; width:14px; height:14px; border-radius:4px; overflow:hidden; box-shadow:0 0 0 1.5px var(--md-sys-color-surface-container-low);"><img src="data:image/png;base64,${PAYFLOW_ICONE_B64}" alt="Payflow" style="width:100%; height:100%; display:block;"></div>`
+                : ''
             )}
             ${criarTileFerramenta(
               'mxm-log-abrir-comparar',
@@ -20324,11 +24427,14 @@ browser.storage.onChanged.addListener((changes, area) => {
               'tertiary',
               !isMostrarComparar()
             )}
+            ${criarTileFerramenta('mxm-log-abrir-ciclos', 'calendar', t('ciclosTitulo'), t('ciclosTitulo'), 'secondary')}
+            ${criarTileFerramenta('mxm-log-abrir-notas', 'fileText', t('blocoDeNotasTitulo'), t('blocoDeNotasTitulo'), 'tertiary')}
+            ${criarTileFerramenta('mxm-log-abrir-backup', 'shield', t('backupRestauracaoTitulo'), t('backupRestauracaoTitulo'), 'primary')}
           </div>
         </div>
         </div>
-        <div id="mxm-log-lista-wrap" style="flex:1; min-height:0; overflow:hidden; border-radius:0; position:relative; z-index:1; margin-top:0; background:var(--md-sys-color-surface); contain:paint; transform:translateZ(0);">
-          <div id="mxm-log-lista" style="overflow-y:auto; height:100%; background:var(--md-sys-color-surface);"></div>
+        <div id="mxm-log-lista-wrap" style="flex:1; min-height:0; overflow:hidden; border-radius:0; position:relative; z-index:1; margin-top:0; background:var(--md-sys-color-surface-container-low); contain:paint; transform:translateZ(0);">
+          <div id="mxm-log-lista" style="overflow-y:auto; height:100%; background:var(--md-sys-color-surface-container-low);"></div>
         </div>
         <input id="mxm-log-importar-input" type="file" accept=".txt" style="display:none;">
         <input id="mxm-log-backup-importar-input" type="file" accept=".json,application/json" style="display:none;">
@@ -20397,7 +24503,8 @@ browser.storage.onChanged.addListener((changes, area) => {
     tornarRedimensionavel(
       document.getElementById('mxm-log-painel'),
       document.getElementById('mxm-log-resize-handle'),
-      STORAGE_TAMANHO_PAINEL_KEY
+      STORAGE_TAMANHO_PAINEL_KEY,
+      alturaMaximaPainelLog
     );
     const resizeHandleEl = document.getElementById('mxm-log-resize-handle');
     if (resizeHandleEl) {
@@ -20421,15 +24528,176 @@ browser.storage.onChanged.addListener((changes, area) => {
     if (isCronometroCicloMainAtivo()) iniciarCronometroCicloMain();
 
     const listaEl = document.getElementById('mxm-log-lista');
+    const listaWrapEl = document.getElementById('mxm-log-lista-wrap');
     const resumoWrap = document.getElementById('mxm-log-resumo-dia-wrap');
     const resumoConteudo = document.getElementById('mxm-log-resumo-dia');
     const ferramentasWrap = document.getElementById('mxm-log-ferramentas-wrap');
-    const PADDING_VERTICAL_RESUMO_WRAP = 16; // 8px em cima + 8px embaixo
+    const fabContainerEl = document.getElementById('mxm-log-fab-container');
+    const PADDING_VERTICAL_RESUMO_WRAP = 36; // 18px em cima + 18px embaixo — V3.4.70: aumentado de 20 pra 36 porque 10/10 não cobria o brilho (box-shadow 0 4px 14px precisa de ~10px em cima e ~18px embaixo); a causa raiz de o brilho ainda cortar era outra (ver overflow:visible do miolo acima), mas o respiro do wrap também precisa ser suficiente pros dois lados do blob
     const PADDING_BOTTOM_FERRAMENTAS_WRAP = 6; // bate com o "0 14px 6px" original do HTML
+    // V3.4.79: distância (em px) do fim do scroll a partir da qual o FAB
+    // recua — precisa ser maior que a altura de uma linha (~64px) pra já
+    // sair do caminho antes da última entrada encostar nele.
+    const LIMIAR_FAB_RECUO_PX = 90;
+
+    // V3.4.80: CORREÇÃO DE BUG GRAVE — CAUSA RAIZ DE VERDADE, confirmada
+    // por log de diagnóstico do próprio usuário (console mostrando
+    // scrollTop/scrollHeight/clientHeight quadro a quadro em tempo real).
+    // O sintoma "a extensão me impede de rolar, me mantém no topo" NUNCA
+    // teve nada a ver com o FAB (v3.4.78 e v3.4.79, ambas obsoletas a
+    // partir daqui) — é #mxm-log-lista-wrap CRESCENDO sozinho durante a
+    // transição CSS de max-height do resumo/ferramentas (222ms): como o
+    // wrap é flex:1, todo pixel que o resumo devolve ao encolher é
+    // absorvido por ele quadro a quadro (confirmado no log:
+    // clientHeight subindo 592→594→601→629→698 na mesma janela de
+    // tempo). O navegador recalcula overflow a cada um desses frames de
+    // resize — no meio do caminho, com scrollHeight momentaneamente ≈
+    // clientHeight (confirmado no log: 698≈698, "nada sobra pra rolar"
+    // NAQUELE instante), ele zera scrollTop, mesmo o usuário ainda
+    // rolando ativamente. É um resync silencioso do navegador, não um
+    // bug do nosso listener de 'scroll' nem do FAB.
+    //
+    // Correção: em vez de tentar impedir o container de crescer (mudaria
+    // a estrutura do painel, arriscado), ANCORAMOS a posição de leitura
+    // do usuário pela distância até o FIM da lista (scrollHeight -
+    // scrollTop), não pelo valor absoluto de scrollTop — e reaplicamos
+    // isso a cada frame em que o navegador resetar o scroll por causa do
+    // resize. Um ResizeObserver862 em #mxm-log-lista-wrap detecta cada
+    // uma dessas mudanças de altura (inclusive as intermediárias da
+    // transição) e corrige scrollTop imediatamente depois, então o
+    // usuário nunca "sente" o zeramento — o conteúdo continua na mesma
+    // posição relativa (distância ao fim) o tempo todo, mesmo com o
+    // container mudando de tamanho embaixo dele.
+    let distanciaAoFimAncorada = null;
+    let anguloDeCapturaAtivo = false;
+    // V3.4.80b: corrige reentrância deixada pendente no fim da v3.4.80 —
+    // atribuir listaEl.scrollTop logo abaixo dispara o evento 'scroll'
+    // nativo de volta pra aoRolarLista (que está registrado nesse mesmo
+    // evento, mais abaixo). Sem esta flag, cada correção do ResizeObserver
+    // recaptura a âncora a partir de um scrollTop que já é resultado da
+    // própria correção, em vez do valor original do gesto do usuário — o
+    // que deixaria a âncora "derivar" ao longo da transição se o observer
+    // disparar mais de uma vez dentro do mesmo frame de resize.
+    let corrigindoScrollProgramaticamente = false;
+
+    function capturarAncoraDeScroll() {
+      if (!listaEl) return;
+      distanciaAoFimAncorada = listaEl.scrollHeight - listaEl.scrollTop;
+      anguloDeCapturaAtivo = true;
+    }
+
+    function liberarAncoraDeScroll() {
+      anguloDeCapturaAtivo = false;
+      distanciaAoFimAncorada = null;
+    }
+
+    // V3.4.81: janela de liberação com duração ajustável — o timer padrão
+    // (320ms) foi calibrado pra transição de 220ms do resumo/ferramentas;
+    // quem ancora por outro motivo (ex: carrossel do resumo, transição de
+    // 340ms+40ms) pode pedir uma janela mais longa, senão a âncora é
+    // liberada antes da transição real terminar e os últimos frames de
+    // resize ficam sem proteção. clearTimeout/setTimeout ficam no mesmo
+    // "dono" (_mxmLiberarAncoraTimeout) pra uma chamada nunca cortar a
+    // janela pedida por outra que já estava em andamento com prazo maior
+    // — sempre usamos o maior prazo pendente.
+    let liberarAncoraPrazoAtual = 0;
+    function ancorarScrollListaComJanela(duracaoMs) {
+      capturarAncoraDeScroll();
+      const prazoPedido = Date.now() + duracaoMs;
+      if (prazoPedido < liberarAncoraPrazoAtual) return; // já existe janela maior pendente
+      liberarAncoraPrazoAtual = prazoPedido;
+      clearTimeout(ancorarScrollListaComJanela._timeout);
+      ancorarScrollListaComJanela._timeout = setTimeout(() => {
+        liberarAncoraDeScroll();
+        liberarAncoraPrazoAtual = 0;
+      }, duracaoMs);
+    }
+    ancorarScrollListaAntesDeResize = (duracaoMs) => ancorarScrollListaComJanela(duracaoMs || 380);
+
+    if (listaWrapEl && typeof ResizeObserver === 'function') {
+      const roListaWrap = new ResizeObserver(() => {
+        if (!anguloDeCapturaAtivo || distanciaAoFimAncorada === null || !listaEl) return;
+        const scrollTopDesejado = listaEl.scrollHeight - distanciaAoFimAncorada;
+        // clamp: nunca negativo, nunca além do máximo rolável atual —
+        // sem isso, no frame final (container já na altura definitiva),
+        // um resquício de arredondamento poderia empurrar pra fora dos
+        // limites válidos.
+        const maximo = Math.max(0, listaEl.scrollHeight - listaEl.clientHeight);
+        const scrollTopFinal = Math.min(Math.max(scrollTopDesejado, 0), maximo);
+        if (scrollTopFinal === listaEl.scrollTop) return; // não dispara 'scroll' à toa
+        corrigindoScrollProgramaticamente = true;
+        listaEl.scrollTop = scrollTopFinal;
+        // o evento 'scroll' sintético chega síncrono em alguns navegadores
+        // e só na próxima microtask em outros — soltar a flag depois do
+        // fim da fila atual cobre os dois casos sem precisar de setTimeout.
+        Promise.resolve().then(() => { corrigindoScrollProgramaticamente = false; });
+      });
+      roListaWrap.observe(listaWrapEl);
+    }
+
     const aoRolarLista = () => {
       if (!listaEl || !resumoWrap || !resumoConteudo) return;
-      const recolhido = listaEl.scrollTop > 4;
+      if (corrigindoScrollProgramaticamente) return; // ver comentário acima
+
+      // V3.4.88: REESCRITO com base em documentação, em vez das tentativas
+      // heurísticas das v3.4.86/87 (margem de 24px chutada + disjuntor de
+      // oscilação por cima). A causa raiz documentada (MDN, "Element:
+      // scrollHeight property", seção "Problems and solutions"): scrollHeight
+      // e clientHeight são SEMPRE arredondados pro inteiro mais próximo,
+      // enquanto scrollTop não é — comparar essas medidas entre si (ainda
+      // mais vindas de elementos DIFERENTES, cada um arredondado de forma
+      // independente) pode dar um veredito "cabe"/"não cabe" que muda de um
+      // frame pro outro só por causa desse arredondamento, sem nada mudar de
+      // verdade — o zoom da janela desloca esses valores fracionários pra
+      // pontos diferentes da reta, expondo mais desses empates. A própria
+      // MDN recomenda: use getBoundingClientRect() (retorna o valor
+      // fracionário, sem arredondar) quando der, e aceite uma tolerância
+      // pequena e justificada (documentada como ~1px) só onde não tem jeito
+      // de fugir de um valor arredondado (ex: scrollHeight, que não tem
+      // equivalente fracionário porque mede conteúdo fora da área visível).
+      //
+      // Por elemento:
+      // - resumoConteudo: NUNCA é clipado pelo próprio overflow (quem clipa
+      //   é o wrap ao redor dele), então seu tamanho "de verdade" pode vir
+      //   direto de getBoundingClientRect() — fracionário, sem arredondar.
+      // - ferramentasWrap: é o PRÓPRIO elemento que recolhe (max-height:0 +
+      //   overflow:hidden nele mesmo) — getBoundingClientRect() daria a
+      //   altura JÁ CLIPADA (0 quando recolhido), então continua precisando
+      //   de scrollHeight mesmo (só ele revela a altura cheia ignorando o
+      //   próprio clip). Continua arredondado, sem alternativa.
+      // - listaEl.scrollHeight/clientHeight: mesma limitação de scrollHeight
+      //   acima — sem equivalente fracionário, ficam arredondados.
+      // Sobram só 2 valores arredondados de fato (ferramentasWrap.scrollHeight
+      // e o par scrollHeight/clientHeight de listaEl, este último com erro
+      // que se cancela por vir do MESMO elemento) — erro máximo de
+      // arredondamento por valor é 0,5px, então uma tolerância de 2px já
+      // cobre o pior caso com folga, sem precisar de um número arbitrário
+      // nem de detectar o loop depois que ele já começou.
+      const TOLERANCIA_ARREDONDAMENTO_PX = 2;
+      const alturaFracionariaResumo = resumoConteudo.getBoundingClientRect().height;
+      const alturaLiberadaAoRecolherResumoEFerramentas =
+        (alturaFracionariaResumo + PADDING_VERTICAL_RESUMO_WRAP) +
+        (ferramentasWrap ? ferramentasWrap.scrollHeight + PADDING_BOTTOM_FERRAMENTAS_WRAP : 0);
+      const rangeAtualDeRolagem = listaEl.scrollHeight - listaEl.clientHeight;
+      const listaPequenaDemaisPraRecolher =
+        rangeAtualDeRolagem - alturaLiberadaAoRecolherResumoEFerramentas < TOLERANCIA_ARREDONDAMENTO_PX;
+
+      const recolhido = listaEl.scrollTop > 4 && !listaPequenaDemaisPraRecolher;
       clearTimeout(resumoWrap._mxmLiberarAltura);
+
+      // ancora a posição ANTES de qualquer mudança de max-height que
+      // possa redimensionar o wrap logo em seguida — cobre tanto o
+      // recolher quanto o expandir (os dois animam altura).
+      ancorarScrollListaComJanela(320);
+
+      if (fabContainerEl) {
+        const pertoDoFim =
+          listaEl.scrollHeight - listaEl.scrollTop - listaEl.clientHeight < LIMIAR_FAB_RECUO_PX;
+        fabContainerEl.style.opacity = pertoDoFim ? '0' : '1';
+        fabContainerEl.style.transform = pertoDoFim ? 'translateX(70px)' : 'translateX(0)';
+        fabContainerEl.style.pointerEvents = pertoDoFim ? 'none' : 'auto';
+        fabContainerEl.style.transition = 'opacity .18s ease, transform .18s ease';
+      }
 
       if (recolhido) {
         // Se o max-height ainda está "none" (ou vazio, no primeiro load),
@@ -20455,8 +24723,8 @@ browser.storage.onChanged.addListener((changes, area) => {
       }
 
       resumoWrap.style.opacity = recolhido ? '0' : '1';
-      resumoWrap.style.paddingTop = recolhido ? '0px' : '8px';
-      resumoWrap.style.paddingBottom = recolhido ? '0px' : '8px';
+      resumoWrap.style.paddingTop = recolhido ? '0px' : '18px';
+      resumoWrap.style.paddingBottom = recolhido ? '0px' : '18px';
 
       // mesma lógica de recolhimento do resumo, agora também pro botão/
       // grade de "Ferramentas úteis" logo abaixo — some junto no scroll
@@ -20491,6 +24759,9 @@ browser.storage.onChanged.addListener((changes, area) => {
     // recolhido nesse momento, continua recolhido; se estiver expandido,
     // o "none" já garante que o novo conteúdo também não seja cortado.
     sincronizarAlturaResumoWrap = aoRolarLista;
+    // (V3.4.81: ancorarScrollListaAntesDeResize já foi setada acima, junto
+    // com ancorarScrollListaComJanela — não reatribuir aqui, senão perde a
+    // lógica de janela ajustável.)
     aoRolarLista();
 
     if (resumoConteudo) {
@@ -20518,11 +24789,16 @@ browser.storage.onChanged.addListener((changes, area) => {
         resumoDiaIntervalId = null;
       }
       clearInterval(avisoTrocaCicloIntervalId);
+      clearInterval(avisoDiffManualMinimizadoIntervalId);
       // para o cronômetro opcional do ciclo (ver
       // atualizarVisibilidadeCronometroCicloMain) pelo mesmo motivo do
       // carrossel acima — evita um segundo intervalo órfão na reabertura.
       pararCronometroCicloMain();
       esconderPopupPinoCronometro();
+      // PoC preview Apple Music — fechar o painel não deve deixar um
+      // preview tocando escondido (ver alternarPreviewAppleMusicNaCapa).
+      audioPreviewCapaLog.pause();
+      limparEstadoVisualCapaAtual();
     };
     document.getElementById('mxm-log-fechar').addEventListener('click', () => {
       tocarSom('fechar');
@@ -20632,6 +24908,11 @@ browser.storage.onChanged.addListener((changes, area) => {
     aplicarHoverTile(botaoComparar);
     botaoComparar.addEventListener('click', abrirPainelComparar);
 
+    // botão "Ciclos" — mesmo tratamento visual dos outros tiles.
+    const botaoCiclos = document.getElementById('mxm-log-abrir-ciclos');
+    aplicarHoverTile(botaoCiclos);
+    botaoCiclos.addEventListener('click', abrirPainelCiclos);
+
     // botão "Diff manual" — vive na grade "Ferramentas úteis"
     // desde a .
     const botaoDiffManual = document.getElementById('mxm-log-diffmanual-abrir-btn');
@@ -20643,6 +24924,17 @@ browser.storage.onChanged.addListener((changes, area) => {
     const botaoDiffsSalvos = document.getElementById('mxm-log-diffssalvos-abrir-btn');
     aplicarHoverTile(botaoDiffsSalvos);
     botaoDiffsSalvos.addEventListener('click', abrirDiffsSalvos);
+
+    // botão "Bloco de notas" — mesmo tratamento visual dos outros tiles.
+    const botaoNotas = document.getElementById('mxm-log-abrir-notas');
+    aplicarHoverTile(botaoNotas);
+    botaoNotas.addEventListener('click', abrirBlocoDeNotas);
+
+    // botão "Backup e Restauração" — mesmo tratamento visual dos
+    // outros tiles (ver v3.5.52).
+    const botaoBackup = document.getElementById('mxm-log-abrir-backup');
+    aplicarHoverTile(botaoBackup);
+    botaoBackup.addEventListener('click', abrirPainelBackup);
 
     const botaoIdioma = document.getElementById('mxm-log-idioma-btn');
     aplicarHoverTile(botaoIdioma);
@@ -20715,8 +25007,11 @@ browser.storage.onChanged.addListener((changes, area) => {
       });
     })();
 
-    // botão de alternar tema claro/escuro no cabeçalho.
+    // botão de alternar tema claro/escuro no cabeçalho — só liga o
+    // listener quando o botão está habilitado (ver BOTAO_TEMA_CLARO_HABILITADO
+    // no topo do arquivo); com ele escondido, não há por que ligar hover/clique.
     (() => {
+      if (!BOTAO_TEMA_CLARO_HABILITADO) return;
       const temaBtn = document.getElementById('mxm-log-tema-claro-btn');
       if (!temaBtn) return;
       atualizarIconeTemaClaro();
@@ -20848,6 +25143,39 @@ browser.storage.onChanged.addListener((changes, area) => {
     atualizarAvisoTrocaCiclo();
     const avisoTrocaCicloIntervalId = setInterval(atualizarAvisoTrocaCiclo, 60 * 1000);
 
+    // V3.5.3: banner dentro do próprio painel avisando que existe um Diff
+    // manual minimizado esperando — some/aparece junto com a bolinha no
+    // ícone do Log (ver atualizarIndicadorMinimizadoToolbar), controlados
+    // pela mesma flag diffManualMinimizado (ver minimizarDiffManual/
+    // restaurarDiffManual).
+    function atualizarAvisoDiffManualMinimizado() {
+      const wrap = document.getElementById('mxm-log-aviso-diffmanual-minimizado-wrap');
+      const cartao = document.getElementById('mxm-log-aviso-diffmanual-minimizado');
+      const voltarBtn = document.getElementById('mxm-log-aviso-diffmanual-minimizado-voltar');
+      if (!wrap || !cartao || !voltarBtn) return;
+
+      if (!diffManualMinimizado) {
+        wrap.style.display = 'none';
+        return;
+      }
+      if (wrap.style.display === 'block') return; // já mostrando, evita reanexar o listener
+
+      wrap.style.display = 'block';
+
+      const irParaDiffManual = () => {
+        tocarSom('clique');
+        fecharPorIdAnimado('mxm-log-overlay', { distancia: 8, duracao: 180 });
+        restaurarDiffManual();
+      };
+      cartao.addEventListener('click', irParaDiffManual);
+      voltarBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // o cartão inteiro já é clicável — evita disparar duas vezes
+        irParaDiffManual();
+      });
+    }
+    atualizarAvisoDiffManualMinimizado();
+    const avisoDiffManualMinimizadoIntervalId = setInterval(atualizarAvisoDiffManualMinimizado, 1000);
+
     (() => {
       const wrap = document.getElementById('mxm-log-aviso-resumo-mes-wrap');
       if (!wrap) return;
@@ -20978,7 +25306,12 @@ browser.storage.onChanged.addListener((changes, area) => {
     const painelPrincipalRecemCriado = document.getElementById('mxm-log-painel');
     const continuarComTemaETour = () => {
       if (!isTemaEscolhido()) {
-        abrirEscolhaTemaInicial(() => iniciarTourInicial());
+        // só cai aqui na primeiríssima vez (isTemaEscolhido só passa a
+        // ser true depois que abrirEscolhaTemaInicial fecha) — por isso
+        // o splash (logo + "boas-vindas" cobrindo o painel real, que já
+        // está montado por baixo) entra só nesse caminho, nunca em
+        // reaberturas normais do painel. Ver mostrarSplashPrimeiraMontagem.
+        abrirEscolhaTemaInicial(() => mostrarSplashPrimeiraMontagem(() => iniciarTourInicial()));
       } else {
         iniciarTourInicial();
       }
@@ -21102,9 +25435,53 @@ browser.storage.onChanged.addListener((changes, area) => {
     return textoEhEnviar(label.textContent) || labelPareceBotaoDeEnvioPorEstrutura(label);
   }
 
+  // V3.5.5: o popup "O que há de errado com a música?" (report de
+  // problema, aberto pelo ícone de alerta no card da faixa) TAMBÉM tem
+  // um botão de texto literal "Enviar" — que bate direto em
+  // textoEhEnviar() e era pego por encontrarBotaoEnviar() como se fosse
+  // o botão real de envio da tarefa, fazendo a toolbar (Diff Check/
+  // Copiar letra/Log) ser inserida dentro desse popup por engano
+  // (reportado com 2 prints, e confirmado numa captura de HTML real: o
+  // "Enviar" desse popup fica dentro do MESMO container react-focus-lock
+  // que o restante do conteúdo do popup, sem role="dialog" nenhum — esse
+  // site não usa role="dialog" em nenhum overlay, então a primeira
+  // tentativa baseada nesse role nunca teria funcionado). O jeito
+  // confiável de delimitar esse popup é pelo próprio container de
+  // focus-lock que o site usa pra TODO overlay modal
+  // (div[data-focus-lock-disabled], sempre entre dois marcadores
+  // div[data-focus-guard]) — e, dentro dele, o ícone de alerta (balão de
+  // fala com "!", path/viewBox exatos vistos na captura, pintado com
+  // fill:var(--mxm-systemYellow100)) confirma que é ESSE overlay
+  // específico, não outro popup modal qualquer da página (ex.: as
+  // próprias janelas da extensão, que não usam focus-lock do React).
+  // Preferido a comparar o título por texto porque não depende de
+  // tradução exata do site em cada idioma (só confirmada em português
+  // na captura real) nem quebra se o texto da pergunta mudar.
+  const ICONE_ALERTA_POPUP_REPORTAR_PATH_INICIO = 'M12 1.8C6.375 1.8 1.8 6.376 1.8 12c0 1.753';
+
+  function svgEhIconeAlertaPopupReportar(svg) {
+    if (!svg) return false;
+    const fill = (svg.getAttribute('fill') || '').replace(/\s+/g, '');
+    if (fill.indexOf('--mxm-systemYellow100') === -1) return false;
+    const path = svg.querySelector('path');
+    const d = path ? path.getAttribute('d') || '' : '';
+    return d.indexOf(ICONE_ALERTA_POPUP_REPORTAR_PATH_INICIO) === 0;
+  }
+
+  function elementoEstaDentroDoPopupReportarProblema(el) {
+    if (!el) return false;
+    const focusLock = el.closest('div[data-focus-lock-disabled]');
+    if (!focusLock) return false;
+    return Array.from(focusLock.querySelectorAll('svg')).some(svgEhIconeAlertaPopupReportar);
+  }
+
   function encontrarBotaoEnviar() {
     const candidatos = Array.from(document.querySelectorAll('div[tabindex="0"]'));
-    return candidatos.find((el) => labelPareceBotaoDeEnvio(el.querySelector('div[dir="auto"]')));
+    return candidatos.find(
+      (el) =>
+        labelPareceBotaoDeEnvio(el.querySelector('div[dir="auto"]')) &&
+        !elementoEstaDentroDoPopupReportarProblema(el)
+    );
   }
 
   // V3.4.37: o reforço estrutural (labelPareceBotaoDeEnvioPorEstrutura,
@@ -21123,6 +25500,7 @@ browser.storage.onChanged.addListener((changes, area) => {
   // conhecidos) continua sem essa restrição.
   function elementoEhBotaoEnviarReal(el) {
     if (!el) return false;
+    if (elementoEstaDentroDoPopupReportarProblema(el)) return false;
     const label = el.querySelector('div[dir="auto"]');
     if (!label) return false;
     if (textoEhEnviar(label.textContent)) return true;
@@ -21185,6 +25563,17 @@ browser.storage.onChanged.addListener((changes, area) => {
   }
 
   async function copiarLetraAtualDaTela() {
+    // V3.5.47: restaurado ao comportamento de v3.5.10 — em algum ponto
+    // essa função passou a rodar calcularResultadoDiffParaFaixaAtual
+    // (mesmo cálculo do "Copiar diff" do Diff Check), que exige uma
+    // versão anterior salva pra comparar e copia o DIFF formatado, não
+    // a letra em si. Isso quebrou o botão pra qualquer faixa sem uma
+    // versão salva ainda (ex.: instrumental nunca comparado antes),
+    // mostrando o toast de erro "Ainda não há uma versão salva dessa
+    // letra pra comparar" — que é um erro do fluxo de Diff Check, sem
+    // nenhum sentido pro botão "Copiar letra". Voltou a usar
+    // capturarLetraCompletaComAutoScroll diretamente, copiando a letra
+    // pura da tela atual, sem depender de nada salvo antes.
     const letra = await capturarLetraCompletaComAutoScroll();
     if (!letra) {
       mostrarToastSimples(t('diffSemCapturaAtual'));
@@ -21198,6 +25587,35 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   function criarBotaoCopiarLetraToolbar() {
     return criarBotaoIconeToolbar('mxm-copiar-letra-toolbar-btn', 'copy', t('copiarLetra'), copiarLetraAtualDaTela);
+  }
+
+  // V3.5.20: versão "ao vivo" do botão que já existia dentro do painel
+  // Log de Envios (ver btnAbrirPagina/v3.5.12) — aqui não depende de
+  // nenhuma entrada salva no log, lê o commontrack_id direto da URL da
+  // tela de edição atual (getCommontrackId já faz isso pra tudo mais na
+  // extensão), então funciona em qualquer faixa aberta no Studio, tenha
+  // ela passado pelo log ou não.
+  function abrirPaginaMusicaAtual() {
+    const commontrackId = getCommontrackId();
+    if (!commontrackId) {
+      mostrarToastSimples(t('painelMusicaAbrirPaginaErro'), 'erro');
+      return;
+    }
+    try {
+      window.open(montarUrlPaginaMusica(commontrackId), '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      console.warn('[Log de Envios] Falha ao montar o link da música (toolbar).', e);
+      mostrarToastSimples(t('painelMusicaAbrirPaginaErro'), 'erro');
+    }
+  }
+
+  function criarBotaoAbrirPaginaToolbar() {
+    return criarBotaoIconeToolbar(
+      'mxm-abrir-pagina-toolbar-btn',
+      'externalLink',
+      t('painelMusicaAbrirPaginaTitulo'),
+      abrirPaginaMusicaAtual
+    );
   }
 
   function atualizarEstadoBotoesDependentesDeLetra() {
@@ -21255,6 +25673,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       ${icone('list', 22, 'var(--mxm-contentPrimary, var(--md-sys-color-on-surface))')}
       <div id="mxm-log-badge" style="position:absolute; top:2px; right:2px; min-width:14px; height:14px; border-radius:var(--md-shape-sm); background:var(--md-sys-color-primary); color:var(--md-sys-color-on-primary); font-size:9px; display:none; align-items:center; justify-content:center; padding:0 3px; font-family:sans-serif; line-height:1;"></div>
       <div id="mxm-log-update-dot" title="${t('novaVersaoDisponivel')}" style="position:absolute; top:2px; left:2px; width:8px; height:8px; border-radius:50%; background:var(--md-sys-color-tertiary); box-shadow:0 0 0 2px var(--md-sys-color-surface-container-low); display:none;"></div>
+      <div id="mxm-log-minimizado-dot" title="${t('diffManualMinimizadoAviso')}" style="position:absolute; bottom:1px; right:1px; width:9px; height:9px; border-radius:50%; background:var(--md-sys-color-error, #e5484d); box-shadow:0 0 0 2px var(--md-sys-color-surface-container-low); display:none;"></div>
     `;
 
     btn.addEventListener('mouseenter', () => (btn.style.background = 'rgba(255,255,255,0.08)'));
@@ -21309,6 +25728,24 @@ browser.storage.onChanged.addListener((changes, area) => {
       display: 'none',
     });
     iconeWrap.appendChild(pontoUpdate);
+
+    // V3.5.3: mesmo ponto de aviso do ícone normal, só que indicando que
+    // há um Diff manual minimizado — ver atualizarIndicadorMinimizadoToolbar().
+    const pontoMinimizado = document.createElement('div');
+    pontoMinimizado.className = 'mxm-log-minimizado-dot-el';
+    pontoMinimizado.title = t('diffManualMinimizadoAviso');
+    Object.assign(pontoMinimizado.style, {
+      position: 'absolute',
+      bottom: '-2px',
+      right: '-2px',
+      width: '8px',
+      height: '8px',
+      borderRadius: '50%',
+      background: 'var(--md-sys-color-error, #e5484d)',
+      boxShadow: '0 0 0 2px var(--md-sys-color-surface-container-low)',
+      display: 'none',
+    });
+    iconeWrap.appendChild(pontoMinimizado);
 
     const badge = document.createElement('div');
     badge.className = 'mxm-log-badge-el';
@@ -21446,6 +25883,7 @@ browser.storage.onChanged.addListener((changes, area) => {
             <input id="mxm-log-config-busca" type="text" placeholder="${t('buscarConfiguracao')}" autocomplete="off" style="flex:1; min-width:0; border:none; outline:none; background:transparent; font-size:12.5px; font-family:sans-serif; color:var(--md-sys-color-on-surface);">
           </div>
         </div>
+        <div id="mxm-log-config-aviso-debug-wrap" style="display:none; padding:0 14px 10px;"></div>
         <div id="mxm-log-config-conteudo" style="overflow-y:auto; padding:0 14px 14px; font-size:13px; color:var(--md-sys-color-on-surface);"></div>
         ${htmlResizeHandle('mxm-log-config-resize-handle')}
       </div>
@@ -21493,26 +25931,124 @@ browser.storage.onChanged.addListener((changes, area) => {
     const identidade = document.createElement('div');
     identidade.style.cssText = 'display:flex; flex-direction:column; align-items:center; text-align:center; gap:10px; padding:8px 4px 22px;';
     identidade.innerHTML = `
-      <div id="mxm-log-config-logo" style="width:72px; height:72px; display:flex; align-items:center; justify-content:center; flex-shrink:0; position:relative;"><div id="mxm-log-config-logo-forma" style="position:absolute; inset:0; background:color-mix(in srgb, var(--md-sys-color-primary-container) 55%, transparent); border-radius:var(--md-shape-lg);"></div><span style="position:relative; z-index:1; display:flex;">${icone(
-        'list',
-        34,
-        'var(--md-sys-color-on-primary-container)'
-      )}</span></div>
-      <div style="min-width:0;">
-        <div style="font-size:15px; font-weight:700; color:var(--md-sys-color-on-surface);">${t(
-          'nomeExtensao'
-        )} — ${t('logDeEnvios')}</div>
+      <div id="mxm-log-config-logo" style="width:72px; height:72px; display:flex; align-items:center; justify-content:center; flex-shrink:0; position:relative;"><div id="mxm-log-config-logo-forma" style="position:absolute; inset:0; background:color-mix(in srgb, var(--md-sys-color-primary-container) 55%, transparent); border-radius:var(--md-shape-lg);"></div><span id="mxm-log-config-logo-echo" style="position:relative; z-index:1; display:flex; width:34px; height:34px; line-height:1;">${
+        // V3.5.1: trocado de divs em unidades "em" (border-radius:50% +
+        // transform:translate(-50%,-50%)) para um <svg> com viewBox
+        // fixo. Com divs, width/height calculados em em/porcentagem
+        // podiam arredondar pra pixels de tela diferentes um do outro
+        // conforme o nível de zoom da página (ex.: 34.4px de largura
+        // vira 34 mas 34.6px de altura vira 35), fazendo os anéis
+        // saírem ligeiramente ovais/tortos em certos zooms. Um <svg>
+        // com viewBox quadrado nunca distorce a proporção X/Y interna
+        // (preserveAspectRatio "meet" é o padrão), então os círculos
+        // ficam perfeitamente redondos em qualquer zoom.
+        // v3.5.9: extraído para htmlLogoEchoAnimada(), reaproveitado
+        // também no splash de primeira montagem (ver
+        // mostrarSplashPrimeiraMontagem) pra não duplicar o svg.
+        htmlLogoEchoAnimada(34)
+      }</span></div>
+      <div id="mxm-log-config-identidade-texto" style="min-width:0; cursor:pointer; border-radius:var(--md-shape-sm); padding:4px 8px; margin:-4px -8px; transition:background-color .15s ease;" title="${escapeHtml(
+        t('sobreTitulo')
+      )}">
+        <div style="font-size:15px; font-weight:700; color:var(--md-sys-color-on-surface);">${t('logDeEnvios')}</div>
         <div style="font-size:11.5px; color:var(--md-sys-color-outline); margin-top:4px;">${t('versaoInstalada')} v${
       getVersaoInstalada() || '?'
     }</div>
-        <div style="font-size:11.5px; color:var(--md-sys-color-outline); margin-top:2px;">${t(
+      </div>
+      <div id="mxm-log-config-tabsv3-texto" style="min-width:0; cursor:pointer; border-radius:var(--md-shape-sm); padding:4px 8px; margin:0 -8px -4px; transition:background-color .15s ease;" title="${escapeHtml(
+        t('tabsV3Titulo')
+      )}">
+        <div style="font-size:11.5px; color:var(--md-sys-color-outline);">${t(
           'versaoTabsV3'
-        )}: 3.304.1 (Valkyria)</div>
+        )}: 3.5.0 (Keven_Cris)</div>
       </div>
     `;
     menu.appendChild(identidade);
     setTimeout(() => iniciarLoopFormaLogo(document.getElementById('mxm-log-config-logo-forma')), 160);
     instalarGestoModoDebug(document.getElementById('mxm-log-config-logo'));
+
+    // Banner de aviso, fixo no topo do painel (não rola junto com as
+    // seções), mostrado toda vez que as Configurações são abertas
+    // enquanto o modo debug estiver ativo (ver isModoDebugAtivo/
+    // alternarModoDebug/instalarGestoModoDebug acima) — o modo debug
+    // libera a seção "Debug" (simulador de data, simulador de lista,
+    // forçar telas de teste etc.), então é fácil mexer em algo achando
+    // que é uma configuração normal sem perceber que está nesse modo.
+    // Fechar com o "x" só esconde o banner NESSA sessão (não desativa o
+    // modo debug nem grava nenhuma flag de "não mostrar de novo") — na
+    // próxima vez que Configurações for reaberto com o modo ainda ativo,
+    // o aviso volta a aparecer. O botão "Sair do modo debug" já desativa
+    // de vez (reaproveita alternarModoDebug(), a mesma função do gesto
+    // secreto) e fecha o painel — a seção Debug não desaparece sozinha
+    // até o painel ser reaberto (montada só na abertura, não é
+    // reativa), então fechar aqui evita deixar a seção liberada visível
+    // por engano logo depois de o usuário pedir pra sair do modo.
+    const avisoDebugWrap = document.getElementById('mxm-log-config-aviso-debug-wrap');
+    if (avisoDebugWrap && isModoDebugAtivo()) {
+      avisoDebugWrap.style.display = 'block';
+      avisoDebugWrap.innerHTML = `
+        <div style="display:flex; align-items:flex-start; gap:10px; padding:12px 12px; border-radius:var(--md-shape-lg); background:color-mix(in srgb, var(--md-sys-color-error) 14%, var(--md-sys-color-surface-container-low)); border:1px solid color-mix(in srgb, var(--md-sys-color-error) 40%, transparent);">
+          <div style="flex-shrink:0; display:flex; margin-top:1px; color:var(--md-sys-color-error);">${icone(
+            'alertTriangle',
+            16,
+            'var(--md-sys-color-error)'
+          )}</div>
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:12px; font-weight:600; line-height:1.5; color:var(--md-sys-color-on-surface);">${escapeHtml(
+              t('debugAvisoBannerTexto')
+            )}</div>
+            <button id="mxm-log-config-aviso-debug-sair" type="button" style="margin-top:8px; border:none; cursor:pointer; padding:7px 13px; border-radius:var(--md-shape-full); background:var(--md-sys-color-error); color:var(--md-sys-color-on-error); font-family:inherit; font-size:11.5px; font-weight:700;">${escapeHtml(
+              t('debugAvisoBannerBotaoSair')
+            )}</button>
+          </div>
+          <div id="mxm-log-config-aviso-debug-fechar" title="${escapeHtml(t('fechar'))}" style="cursor:pointer; color:var(--md-sys-color-on-surface-variant); display:flex; padding:5px; border-radius:50%; flex-shrink:0; transition:background-color .15s ease;">${icone(
+            'x',
+            13
+          )}</div>
+        </div>
+      `;
+
+      const botaoSairDebug = document.getElementById('mxm-log-config-aviso-debug-sair');
+      if (botaoSairDebug) {
+        botaoSairDebug.addEventListener('click', () => {
+          alternarModoDebug();
+          tocarSom('fechar');
+          fecharOverlayAnimado(overlay, painelConfig);
+        });
+      }
+      const fecharAvisoDebug = document.getElementById('mxm-log-config-aviso-debug-fechar');
+      if (fecharAvisoDebug) {
+        fecharAvisoDebug.addEventListener('mouseenter', () => {
+          fecharAvisoDebug.style.background = 'color-mix(in srgb, var(--md-sys-color-on-surface) 10%, transparent)';
+        });
+        fecharAvisoDebug.addEventListener('mouseleave', () => {
+          fecharAvisoDebug.style.background = 'transparent';
+        });
+        fecharAvisoDebug.addEventListener('click', () => {
+          avisoDebugWrap.style.display = 'none';
+        });
+      }
+    }
+    const identidadeTexto = document.getElementById('mxm-log-config-identidade-texto');
+    if (identidadeTexto) {
+      identidadeTexto.addEventListener('mouseenter', () => {
+        identidadeTexto.style.backgroundColor = 'var(--md-sys-color-surface-container-highest)';
+      });
+      identidadeTexto.addEventListener('mouseleave', () => {
+        identidadeTexto.style.backgroundColor = 'transparent';
+      });
+      identidadeTexto.addEventListener('click', () => abrirJanelaSobre());
+    }
+    const tabsV3Texto = document.getElementById('mxm-log-config-tabsv3-texto');
+    if (tabsV3Texto) {
+      tabsV3Texto.addEventListener('mouseenter', () => {
+        tabsV3Texto.style.backgroundColor = 'var(--md-sys-color-surface-container-highest)';
+      });
+      tabsV3Texto.addEventListener('mouseleave', () => {
+        tabsV3Texto.style.backgroundColor = 'transparent';
+      });
+      tabsV3Texto.addEventListener('click', () => abrirJanelaTabsV3());
+    }
 
     // aviso + fundo mais escuro enquanto o perfil "Minimalista"
     // está ativo — deixa claro de cara (sem precisar rolar até a seção
@@ -21896,6 +26432,26 @@ browser.storage.onChanged.addListener((changes, area) => {
       return item;
     }
 
+    // seção própria "Atualizações", agora a primeira do painel — é o
+    // tipo de opção que faz sentido ver assim que abre Configurações
+    // (saber se tem versão nova, decidir se quer aviso automático),
+    // antes de entrar em preferências mais específicas do dia a dia.
+    iniciarCartaoSecao(t('opcoesAtualizacoes'));
+
+    // V2.NEW: "Verificar atualizações agora" mora aqui, junto do
+    // interruptor de notificação automática logo abaixo.
+    criarBloco(itemUpdate);
+    criarBloco(itemNotasUpdate);
+
+    // interruptor pra ligar/desligar a notificação automática de
+    // atualização (checagem silenciosa em segundo plano, sem precisar
+    // clicar em "Verificar atualizações"). Ligado por padrão.
+    criarBloco(
+      criarItemSwitch(t('notificarAtualizacaoAuto'), 'bell', isAutoUpdateNotificacaoAtiva, () => {
+        setAutoUpdateNotificacaoAtiva(!isAutoUpdateNotificacaoAtiva());
+      })
+    );
+
     iniciarCartaoSecao(t('opcoesPerfilUso'));
 
     const perfilWrap = document.createElement('div');
@@ -21988,6 +26544,15 @@ browser.storage.onChanged.addListener((changes, area) => {
     );
 
     criarBloco(criarItemSwitch(t('ativarSons'), 'volume2', isSomAtivo, () => setSomAtivo(!isSomAtivo()), false, 'sons'));
+
+    // troca o popup próprio da extensão por uma notificação nativa do
+    // sistema operacional (ver showPopup/enviarNotificacaoWindows). É uma
+    // preferência de dispositivo — não viaja junto no backup completo.
+    criarBloco(
+      criarItemSwitch(t('notificarPeloWindows'), 'bell', isNotificarPeloWindowsAtivo, () =>
+        setNotificarPeloWindowsAtivo(!isNotificarPeloWindowsAtivo())
+      , false, 'notificar-windows')
+    );
 
     // seletor com 3 opções pro layout do resumo "Hoje / Recorde"
     // (as três variações testadas: lado a lado, chip e só tipografia).
@@ -22133,9 +26698,9 @@ browser.storage.onChanged.addListener((changes, area) => {
           const bolinha = document.createElement('button');
           bolinha.title = op.rotulo;
           bolinha.style.cssText = `
-            width: 26px; height: 26px; border-radius: 50%; cursor: pointer; padding: 0;
+            box-sizing: border-box; width: 26px; height: 26px; border-radius: 50%; cursor: pointer; padding: 0; overflow: hidden;
             background: ${op.cor};
-            border: ${selecionado ? '2px solid var(--md-sys-color-on-surface)' : '1px solid var(--md-sys-color-outline-variant)'};
+            border: 2px solid ${selecionado ? 'var(--md-sys-color-on-surface)' : 'var(--md-sys-color-outline-variant)'};
             box-shadow: ${selecionado ? '0 0 0 2px var(--md-sys-color-surface-container-low)' : 'none'};
             flex-shrink: 0;
           `;
@@ -22245,7 +26810,7 @@ browser.storage.onChanged.addListener((changes, area) => {
         Object.keys(MXM_ESQUEMAS_DESTAQUE).map((chave) => ({
           valor: chave,
           rotulo: t('esquemaCor' + chave.charAt(0).toUpperCase() + chave.slice(1)),
-          cor: MXM_ESQUEMAS_DESTAQUE[chave].swatch,
+          cor: (isTemaClaroAtivo() ? MXM_ESQUEMAS_DESTAQUE_CLARO : MXM_ESQUEMAS_DESTAQUE)[chave].swatch,
         })),
         getEsquemaDestaqueAtual,
         setEsquemaDestaqueAtual,
@@ -22260,7 +26825,7 @@ browser.storage.onChanged.addListener((changes, area) => {
         Object.keys(MXM_ESQUEMAS_FUNDO).map((chave) => ({
           valor: chave,
           rotulo: t('esquemaFundo' + chave.charAt(0).toUpperCase() + chave.slice(1)),
-          cor: MXM_ESQUEMAS_FUNDO[chave].swatch,
+          cor: (isTemaClaroAtivo() ? MXM_ESQUEMAS_FUNDO_CLARO : MXM_ESQUEMAS_FUNDO)[chave].swatch,
         })),
         getEsquemaFundoAtual,
         setEsquemaFundoAtual
@@ -22305,26 +26870,9 @@ browser.storage.onChanged.addListener((changes, area) => {
       dicaConquistas
     );
 
-    // seção própria "Atualizações" — antes esse interruptor vivia
-    // solto dentro de "Geral", meio longe do bloco de verificação manual
-    // lá em cima; agora fica claramente agrupado com o tema atualização.
-    iniciarCartaoSecao(t('opcoesAtualizacoes'));
-
-    // V2.NEW: "Verificar atualizações agora" mora aqui, junto do
-    // interruptor de notificação automática logo abaixo — antes ficava
-    // solto no topo do painel, antes até da primeira seção, sem nenhuma
-    // relação visual com o resto do que fala de atualização.
-    criarBloco(itemUpdate);
-    criarBloco(itemNotasUpdate);
-
-    // interruptor pra ligar/desligar a notificação automática de
-    // atualização (checagem silenciosa em segundo plano, sem precisar
-    // clicar em "Verificar atualizações"). Ligado por padrão.
-    criarBloco(
-      criarItemSwitch(t('notificarAtualizacaoAuto'), 'bell', isAutoUpdateNotificacaoAtiva, () => {
-        setAutoUpdateNotificacaoAtiva(!isAutoUpdateNotificacaoAtiva());
-      })
-    );
+    // seção própria "Atualizações" saiu daqui — agora fica no topo do
+    // painel (ver logo antes de opcoesPerfilUso), pra ser a primeira
+    // coisa que a pessoa vê ao abrir Configurações.
 
     iniciarCartaoSecao(t('opcoesNotificacoes'));
     const descricaoNotifDicas = document.createElement('div');
@@ -22338,43 +26886,18 @@ browser.storage.onChanged.addListener((changes, area) => {
     );
 
     iniciarCartaoSecao(t('opcoesBackup'));
-    const descricaoBackupAutomatico = document.createElement('div');
-    descricaoBackupAutomatico.style.cssText =
+    // V3.5.53: a seção de Backup inteira (backup em disco, nuvem
+    // Firestore e Drive) saiu de dentro de Configurações e passou a
+    // morar só no painel dedicado "Backup e Restauração" (ver
+    // abrirPainelBackup, grade "Ferramentas úteis") — eram as mesmas
+    // opções duplicadas em dois lugares diferentes, o que confundia mais
+    // do que ajudava. Aqui fica só um atalho pro painel novo.
+    const descricaoBackupMudou = document.createElement('div');
+    descricaoBackupMudou.style.cssText =
       'font-size:11px; line-height:1.5; color:var(--md-sys-color-outline); padding:0 10px 8px;';
-    descricaoBackupAutomatico.textContent = t('backupAutomaticoDescricao');
-    criarBloco(
-      criarItemSwitch(
-        t('backupAutomaticoAtivar'),
-        'shield',
-        isBackupAutomaticoAtivo,
-        () => {
-          setBackupAutomaticoAtivo(!isBackupAutomaticoAtivo());
-        },
-        false,
-        'backupAutomatico'
-      ),
-      descricaoBackupAutomatico
-    );
-    criarBloco(criarItemAcao(t('backupAutomaticoFazerAgora'), 'download', exportarBackupCompleto));
-    criarBloco(criarItemAcao(t('backupAutomaticoRestaurar'), 'upload', abrirSeletorArquivoBackup));
-
-    const descricaoBackupNuvem = document.createElement('div');
-    // âncora do bloco de backup na nuvem inteiro — ver
-    // destacarItemConfiguracao/notifBackupNuvemAcao.
-    descricaoBackupNuvem.id = 'mxm-config-alvo-backupNuvem';
-    descricaoBackupNuvem.style.cssText =
-      'font-size:11px; line-height:1.5; color:var(--md-sys-color-outline); padding:10px 10px 0;';
-    descricaoBackupNuvem.textContent = t('nuvemDescricao');
-    const seloGoogleNuvem = document.createElement('div');
-    seloGoogleNuvem.style.cssText = 'padding:10px 10px 2px;';
-    seloGoogleNuvem.innerHTML = `
-      <span style="display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; background:var(--md-sys-color-surface-container-high); font-size:11px; color:var(--md-sys-color-on-surface-variant);">${iconeGoogle(
-        13
-      )}<span>${t('nuvemRequerGoogle')}</span></span>
-    `;
-    criarBloco(descricaoBackupNuvem, seloGoogleNuvem);
-    criarBloco(criarItemAcao(t('nuvemEnviar'), 'cloud', mxmFirebaseEnviarBackupNuvem));
-    criarBloco(criarItemAcao(t('nuvemRestaurar'), 'cloud', mxmFirebaseRestaurarBackupNuvem));
+    descricaoBackupMudou.textContent = t('backupMudouDescricao');
+    criarBloco(descricaoBackupMudou);
+    criarBloco(criarItemAcao(t('backupMudouAcao'), 'shield', () => abrirPainelBackup()));
 
     // seção própria "Experimental" — separa o que ainda é beta do
     // resto das opções já estáveis, deixando claro que pode mudar/sumir.
@@ -22559,6 +27082,96 @@ browser.storage.onChanged.addListener((changes, area) => {
           renderPainelLista();
         })
       );
+
+      // (debug) força a exibição do popup de integração com o Payflow sem
+      // depender de detectar a outra extensão de verdade nem de nunca ter
+      // sido mostrado antes — só chama a função de exibição diretamente,
+      // sem tocar em nenhuma das flags de "já visto" (própria ou
+      // compartilhada), então não interfere no comportamento real depois.
+      criarBloco(
+        criarItemAcao(t('debugForcarTelaIntegracaoPayflow'), 'link2', () => {
+          mostrarPopupIntegracaoPayflow({ modoTeste: true });
+        })
+      );
+
+      // (debug) reabre só a tela de boas-vindas (splash inicial com o
+      // logo animado + "Bem-vindo(a) ao Echoform" + Pular/Aprender), sem
+      // precisar refazer o fluxo de boas-vindas inteiro (idioma → nome →
+      // foto/capa → tema) nem o tour de balões depois — útil pra ficar
+      // ajustando o visual do splash (fundo, blobs, halo etc.) sem
+      // "queimar" o onboarding de verdade a cada teste. Mesma lógica do
+      // botão do Payflow acima: chama a função direto, sem tocar em
+      // nenhuma flag de "já visto" — reabrir aqui não afeta o
+      // comportamento real (o splash continua não aparecendo de novo pra
+      // usuários que já passaram por ele). "Aprender"/"Pular" continuam
+      // funcionando normalmente dentro do splash de teste, só que o
+      // callback aoTerminar fica vazio (não faz sentido disparar o tour de
+      // balões por cima das próprias configurações).
+      criarBloco(
+        criarItemAcao(t('debugForcarSplashBoasVindas'), 'repeat', () => {
+          mostrarSplashPrimeiraMontagem(() => {});
+        })
+      );
+
+      // (debug) simulador de tamanho de lista — mesma filosofia do
+      // simulador de data acima (não-destrutivo): getLogs()/saveLogs()
+      // nunca são chamados por causa disso, só uma flag separada
+      // (STORAGE_DEBUG_SIMULACAO_LISTA_KEY) que renderPainelLista lê pra
+      // trocar a variável de exibição por um cenário fake. Serve pra
+      // testar rapidamente o estado vazio e o marcador "Fim da
+      // lista"/dicas de lista curta sem precisar apagar de verdade o
+      // histórico de quem está testando. Três botões (em vez de um
+      // switch liga/desliga) porque são 3 estados mutuamente exclusivos
+      // (real/vazia/uma) — o botão do modo ativo no momento fica
+      // destacado (mesmo estiloBotaoDebug(true) usado no simulador de
+      // data acima), os outros dois ficam no estilo neutro.
+      const descricaoSimuladorLista = document.createElement('div');
+      descricaoSimuladorLista.style.cssText =
+        'font-size:11.5px; color:var(--md-sys-color-outline); line-height:1.5; padding:0 10px;';
+      descricaoSimuladorLista.textContent = t('debugSimuladorListaDescricao');
+
+      const wrapSimuladorLista = document.createElement('div');
+      wrapSimuladorLista.style.cssText = 'display:flex; gap:8px; flex-wrap:wrap; padding:8px 10px 10px;';
+
+      const btnListaOff = document.createElement('button');
+      const btnListaVazia = document.createElement('button');
+      const btnListaUma = document.createElement('button');
+      btnListaOff.textContent = t('debugSimuladorListaOff');
+      btnListaVazia.textContent = t('debugSimuladorListaVazia');
+      btnListaUma.textContent = t('debugSimuladorListaUma');
+
+      function atualizarBotoesSimuladorLista() {
+        const modo = getModoSimulacaoLista();
+        btnListaOff.style.cssText = estiloBotaoDebug(modo === 'off');
+        btnListaVazia.style.cssText = estiloBotaoDebug(modo === 'vazia');
+        btnListaUma.style.cssText = estiloBotaoDebug(modo === 'uma');
+      }
+      atualizarBotoesSimuladorLista();
+
+      function aplicarModoSimulacaoLista(modo, toastMensagem) {
+        setModoSimulacaoLista(modo);
+        atualizarBotoesSimuladorLista();
+        renderPainelLista();
+        ajustarAlturaPainelLogAoVivo();
+        mostrarToastSimples(toastMensagem);
+        tocarSom('clique');
+      }
+
+      btnListaOff.addEventListener('click', () =>
+        aplicarModoSimulacaoLista('off', t('debugSimuladorListaDesativadoToast'))
+      );
+      btnListaVazia.addEventListener('click', () =>
+        aplicarModoSimulacaoLista('vazia', t('debugSimuladorListaAtivadoToast'))
+      );
+      btnListaUma.addEventListener('click', () =>
+        aplicarModoSimulacaoLista('uma', t('debugSimuladorListaAtivadoToast'))
+      );
+
+      wrapSimuladorLista.appendChild(btnListaOff);
+      wrapSimuladorLista.appendChild(btnListaVazia);
+      wrapSimuladorLista.appendChild(btnListaUma);
+
+      criarBloco(descricaoSimuladorLista, wrapSimuladorLista);
     }
 
     iniciarCartaoSecao(t('opcoesAjuda'));
@@ -22629,6 +27242,69 @@ browser.storage.onChanged.addListener((changes, area) => {
     abrirMenuBotaoBarra(e.clientX, e.clientY);
   });
 
+  // V3.5.48: o ícone "abrir página da música" saiu do grupo colado no
+  // "Enviar" e passou a morar ao lado do ícone nativo de informação da
+  // música (o "i" ao lado do título) — pedido do usuário achando o grupo
+  // perto do Enviar cheio demais. Função própria, chamada separadamente
+  // de criarBotaoToolbar, já que a âncora (ícone de info) é uma região
+  // bem diferente da página, não o mesmo wrapper do botão Enviar.
+  function posicionarBotaoAbrirPaginaJuntoAoInfo() {
+    const existente = document.getElementById('mxm-abrir-pagina-toolbar-btn');
+    const iconeInfo = encontrarIconeInfoMusica();
+
+    if (!iconeInfo || !iconeInfo.parentElement) {
+      // Sem o ícone de info na tela atual (ex: fora da página de
+      // edição) — remove qualquer botão que tenha sobrado de outra tela.
+      if (existente) existente.remove();
+      return;
+    }
+
+    // V3.5.49: o wrapper que envolve só o "i" (iconeInfo.parentElement)
+    // é um bloco simples, sem display:flex — inserir o botão DENTRO
+    // dele empilhava os dois verticalmente em vez de lado a lado. Quem
+    // é flex de verdade é o container-avô (agrupa capa + texto +
+    // wrapper do "i"), então o botão precisa entrar ali, como IRMÃO do
+    // wrapper do "i" — não um filho a mais dentro dele.
+    const wrapperInfo = iconeInfo.parentElement;
+    const containerFlex = wrapperInfo.parentElement;
+    if (!containerFlex) {
+      if (existente) existente.remove();
+      return;
+    }
+
+    const jaEstaNoLugarCerto =
+      existente && existente.isConnected && existente.previousElementSibling === wrapperInfo;
+    if (jaEstaNoLugarCerto) return;
+
+    if (existente) existente.remove();
+    const btnAbrirPagina = criarBotaoAbrirPaginaToolbar();
+    btnAbrirPagina.style.marginLeft = '2px';
+    // V3.5.50: o container-avô não centraliza os itens no eixo
+    // vertical (align-items diferente de "center") — a caixa clicável
+    // do botão (40x40, bem maior que o "i" nativo) ficava alinhada pelo
+    // topo, então visualmente sobrava mais embaixo que em cima e o
+    // ícone parecia "subido" em relação ao "i". alignSelf:center força
+    // só esse item a se centralizar na linha, independente do
+    // align-items herdado do pai.
+    btnAbrirPagina.style.alignSelf = 'center';
+    // V3.5.51: aqui, ao lado do "i" nativo, o destaque de hover/foco do
+    // "i" é um CÍRCULO (border-radius:50%) — os outros botões da
+    // extensão (Diff Check/Copiar letra/Log, perto do "Enviar") usam
+    // cantos quadrados (8px) de propósito, pra combinar com aquele
+    // grupo; só este aqui, isolado ao lado do "i", ganha o mesmo
+    // border-radius:50% do vizinho nativo em vez do padrão da função
+    // compartilhada.
+    btnAbrirPagina.style.borderRadius = '50%';
+    // reduzido de 40x40 (padrão do grupo perto do "Enviar") pra 32x32 —
+    // ao lado do "i" nativo (círculo bem mais compacto), a caixa padrão
+    // ficava grande demais mesmo depois de virar círculo.
+    btnAbrirPagina.style.width = '32px';
+    btnAbrirPagina.style.height = '32px';
+    btnAbrirPagina.style.minWidth = '32px';
+    btnAbrirPagina.style.minHeight = '32px';
+    containerFlex.insertBefore(btnAbrirPagina, wrapperInfo.nextElementSibling);
+  }
+
   function criarBotaoToolbar() {
     // aproveita esse mesmo tick periódico (já rodava a cada 500ms) pra
     // manter a missão conhecida atualizada sempre que o usuário estiver na
@@ -22636,6 +27312,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     atualizarMissaoConhecida();
 
     atualizarEstadoBotoesDependentesDeLetra();
+    posicionarBotaoAbrirPaginaJuntoAoInfo();
 
     const existente = document.getElementById('mxm-log-toolbar-btn');
     const diffExistente = document.getElementById('mxm-diffcheck-toolbar-btn');
@@ -22666,9 +27343,10 @@ browser.storage.onChanged.addListener((changes, area) => {
         if (existente) existente.remove();
         removerBotoesDeEdicao();
 
-        // Ordem visual: Diff Check, Copiar letra, Log, Enviar — o Log
-        // continua exatamente onde estava (colado no "Enviar"), os dois
-        // novos entram à esquerda dele.
+        // Ordem visual: Diff Check, Copiar letra, Log, Enviar — "Abrir
+        // página" não faz mais parte desse grupo (ver
+        // posicionarBotaoAbrirPaginaJuntoAoInfo). O Log continua
+        // exatamente onde estava (colado no "Enviar").
         const btnDiff = criarBotaoDiffCheckToolbar();
         btnDiff.style.marginRight = '4px';
         const btnCopiar = criarBotaoCopiarLetraToolbar();
@@ -22681,6 +27359,7 @@ browser.storage.onChanged.addListener((changes, area) => {
         wrapperEnviar.parentElement.insertBefore(btn, wrapperEnviar);
         atualizarBadge();
         atualizarIndicadorUpdateToolbar();
+        atualizarIndicadorMinimizadoToolbar();
         aplicarIndicadorModoManual();
         return;
       }
@@ -22701,6 +27380,7 @@ browser.storage.onChanged.addListener((changes, area) => {
         containerAbas.appendChild(wrapperBtn);
         atualizarBadge();
         atualizarIndicadorUpdateToolbar();
+        atualizarIndicadorMinimizadoToolbar();
         aplicarIndicadorModoManual();
       }
       return;
@@ -22718,10 +27398,8 @@ browser.storage.onChanged.addListener((changes, area) => {
   setInterval(criarBotaoToolbar, 500);
   criarBotaoToolbar();
 
-  // mensagem única de reinauguração — com um
-  // pequeno atraso pra entrar depois do primeiro respiro da página,
-  // igual ao delay já usado pra checagem de atualização logo abaixo.
-  setTimeout(abrirRelancamentoFirefox, 1500);
+  // mensagem única de reinauguração removida (popup comemorativo do
+  // relançamento no Firefox — não fazia mais sentido continuar exibindo).
 
   // checagem silenciosa de atualização, no máximo 1x por dia (ver
   // verificarAtualizacaoAutomaticamente). Roda com um pequeno atraso pra
@@ -22732,12 +27410,32 @@ browser.storage.onChanged.addListener((changes, area) => {
   // uma atualização pendente conhecida de uma checagem anterior (sem
   // esperar os 4s do primeiro check silencioso).
   atualizarIndicadorUpdateToolbar();
+  atualizarIndicadorMinimizadoToolbar();
 
   setTimeout(verificarViradaDeMes, 5000);
   setInterval(verificarViradaDeMes, 30 * 60 * 1000);
 
   setTimeout(verificarBackupAutomaticoPeriodico, 8000);
   setInterval(verificarBackupAutomaticoPeriodico, 6 * 60 * 60 * 1000);
+
+  setTimeout(mxmVerificarBackupNuvemAutomaticoPeriodico, 10000);
+  setInterval(mxmVerificarBackupNuvemAutomaticoPeriodico, 6 * 60 * 60 * 1000);
+
+  setTimeout(mxmVerificarBackupDriveAutomaticoPeriodico, 12000);
+  setInterval(mxmVerificarBackupDriveAutomaticoPeriodico, 6 * 60 * 60 * 1000);
+
+  // integração visual com o Payflow: anuncia a presença do Echoform assim
+  // que possível e fica de olho por até ~30s pelo marcador do Payflow
+  // (que pode carregar em outra ordem) — sem repetir depois de detectar
+  // ou de já ter mostrado o aviso antes (ver verificarIntegracaoPayflow).
+  anunciarPresencaEchoform();
+  if (!jaMostrouIntegracaoPayflow()) {
+    const integracaoPayflowInterval = setInterval(() => {
+      verificarIntegracaoPayflow();
+      if (jaMostrouIntegracaoPayflow()) clearInterval(integracaoPayflowInterval);
+    }, 1000);
+    setTimeout(() => clearInterval(integracaoPayflowInterval), 30000);
+  }
 
   // Limpeza silenciosa dos diffs compartilhados vencidos (substitui o TTL
   // nativo do Firestore — ver mxmLimparDiffsCompartilhadosExpirados).
@@ -22809,88 +27507,93 @@ browser.storage.onChanged.addListener((changes, area) => {
     return 'var(--md-sys-color-surface-container)';
   }
   // paletas M3 (light scheme, tons 40/90/10/100 etc.) de cada esquema de
-  // destaque — ver comentário acima sobre como foram geradas.
+  // destaque — ver comentário acima sobre como foram geradas. Cada
+  // entrada ganhou seu próprio `swatch` (= primary) porque a grade de
+  // bolinhas de "Esquema de destaque" nas Configurações lia direto de
+  // MXM_ESQUEMAS_DESTAQUE (a variante escura) sem checar o tema — a
+  // bolinha continuava mostrando o tom pensado pro fundo escuro mesmo
+  // com o tema claro ativo.
   const MXM_ESQUEMAS_DESTAQUE_CLARO = {
     roxo: {
-      primary: '#6750a4', onPrimary: '#ffffff', primaryContainer: '#e9ddff', onPrimaryContainer: '#22005d',
+      swatch: '#6750a4', primary: '#6750a4', onPrimary: '#ffffff', primaryContainer: '#e9ddff', onPrimaryContainer: '#22005d',
       secondary: '#625b71', onSecondary: '#ffffff', secondaryContainer: '#e8def8', onSecondaryContainer: '#1e192b',
       tertiary: '#7d5260', onTertiary: '#ffffff', tertiaryContainer: '#ffd9e3', onTertiaryContainer: '#31111d',
       inversePrimary: '#cfbcff',
     },
     azul: {
-      primary: '#3a5ca6', onPrimary: '#ffffff', primaryContainer: '#dae2ff', onPrimaryContainer: '#001946',
+      swatch: '#3a5ca6', primary: '#3a5ca6', onPrimary: '#ffffff', primaryContainer: '#dae2ff', onPrimaryContainer: '#001946',
       secondary: '#555f72', onSecondary: '#ffffff', secondaryContainer: '#d9e3f9', onSecondaryContainer: '#121c2c',
       tertiary: '#6d557c', onTertiary: '#ffffff', tertiaryContainer: '#f3daff', onTertiaryContainer: '#271235',
       inversePrimary: '#b1c5ff',
     },
     verde: {
-      primary: '#2b6b30', onPrimary: '#ffffff', primaryContainer: '#aef4a9', onPrimaryContainer: '#002105',
+      swatch: '#2b6b30', primary: '#2b6b30', onPrimary: '#ffffff', primaryContainer: '#aef4a9', onPrimaryContainer: '#002105',
       secondary: '#546251', onSecondary: '#ffffff', secondaryContainer: '#d8e7d1', onSecondaryContainer: '#121e11',
       tertiary: '#366570', onTertiary: '#ffffff', tertiaryContainer: '#baebf7', onTertiaryContainer: '#001f25',
       inversePrimary: '#93d790',
     },
     rosa: {
-      primary: '#a6335b', onPrimary: '#ffffff', primaryContainer: '#ffd9e0', onPrimaryContainer: '#3f001a',
+      swatch: '#a6335b', primary: '#a6335b', onPrimary: '#ffffff', primaryContainer: '#ffd9e0', onPrimaryContainer: '#3f001a',
       secondary: '#74565f', onSecondary: '#ffffff', secondaryContainer: '#ffd9e3', onSecondaryContainer: '#2b151c',
       tertiary: '#7a5737', onTertiary: '#ffffff', tertiaryContainer: '#ffdcc0', onTertiaryContainer: '#2d1600',
       inversePrimary: '#ffb1c4',
     },
     laranja: {
-      primary: '#8b5000', onPrimary: '#ffffff', primaryContainer: '#ffdcbe', onPrimaryContainer: '#2d1600',
+      swatch: '#8b5000', primary: '#8b5000', onPrimary: '#ffffff', primaryContainer: '#ffdcbe', onPrimaryContainer: '#2d1600',
       secondary: '#725a41', onSecondary: '#ffffff', secondaryContainer: '#fdddbd', onSecondaryContainer: '#281805',
       tertiary: '#59632f', onTertiary: '#ffffff', tertiaryContainer: '#dde9a7', onTertiaryContainer: '#181e00',
       inversePrimary: '#ffb871',
     },
     vermelho: {
-      primary: '#ba1a1a', onPrimary: '#ffffff', primaryContainer: '#ffdad5', onPrimaryContainer: '#410002',
+      swatch: '#ba1a1a', primary: '#ba1a1a', onPrimary: '#ffffff', primaryContainer: '#ffdad5', onPrimaryContainer: '#410002',
       secondary: '#775653', onSecondary: '#ffffff', secondaryContainer: '#ffdad6', onSecondaryContainer: '#2c1513',
       tertiary: '#725b27', onTertiary: '#ffffff', tertiaryContainer: '#ffdf9d', onTertiaryContainer: '#251a00',
       inversePrimary: '#ffb4ab',
     },
     ciano: {
-      primary: '#00696a', onPrimary: '#ffffff', primaryContainer: '#a0f0f1', onPrimaryContainer: '#002020',
+      swatch: '#00696a', primary: '#00696a', onPrimary: '#ffffff', primaryContainer: '#a0f0f1', onPrimaryContainer: '#002020',
       secondary: '#496362', onSecondary: '#ffffff', secondaryContainer: '#cce8e6', onSecondaryContainer: '#041f1f',
       tertiary: '#476080', onTertiary: '#ffffff', tertiaryContainer: '#d3e4ff', onTertiaryContainer: '#001c38',
       inversePrimary: '#84d4d4',
     },
     amarelo: {
-      primary: '#725c04', onPrimary: '#ffffff', primaryContainer: '#ffe081', onPrimaryContainer: '#231b00',
+      swatch: '#725c04', primary: '#725c04', onPrimary: '#ffffff', primaryContainer: '#ffe081', onPrimaryContainer: '#231b00',
       secondary: '#675f31', onSecondary: '#ffffff', secondaryContainer: '#efe3a9', onSecondaryContainer: '#201c00',
       tertiary: '#4c6542', onTertiary: '#ffffff', tertiaryContainer: '#cdebbe', onTertiaryContainer: '#0a2005',
       inversePrimary: '#e1c468',
     },
     coral: {
-      primary: '#9f3d4d', onPrimary: '#ffffff', primaryContainer: '#ffd9dc', onPrimaryContainer: '#400010',
+      swatch: '#9f3d4d', primary: '#9f3d4d', onPrimary: '#ffffff', primaryContainer: '#ffd9dc', onPrimaryContainer: '#400010',
       secondary: '#765659', onSecondary: '#ffffff', secondaryContainer: '#ffd9dc', onSecondaryContainer: '#2c1518',
       tertiary: '#785930', onTertiary: '#ffffff', tertiaryContainer: '#ffddb6', onTertiaryContainer: '#2a1800',
       inversePrimary: '#ffb2ba',
     },
     lima: {
-      primary: '#566500', onPrimary: '#ffffff', primaryContainer: '#d8ec7b', onPrimaryContainer: '#181e00',
+      swatch: '#566500', primary: '#566500', onPrimary: '#ffffff', primaryContainer: '#d8ec7b', onPrimaryContainer: '#181e00',
       secondary: '#5c6145', onSecondary: '#ffffff', secondaryContainer: '#e1e5c3', onSecondaryContainer: '#1a1d08',
       tertiary: '#3a665c', onTertiary: '#ffffff', tertiaryContainer: '#bdecdf', onTertiaryContainer: '#00201a',
       inversePrimary: '#bcd062',
     },
     esmeralda: {
-      primary: '#006c4a', onPrimary: '#ffffff', primaryContainer: '#8bf8c4', onPrimaryContainer: '#002114',
+      swatch: '#006c4a', primary: '#006c4a', onPrimary: '#ffffff', primaryContainer: '#8bf8c4', onPrimaryContainer: '#002114',
       secondary: '#4d6357', onSecondary: '#ffffff', secondaryContainer: '#cfe9d8', onSecondaryContainer: '#0a1f16',
       tertiary: '#3d6473', onTertiary: '#ffffff', tertiaryContainer: '#c0e9fb', onTertiaryContainer: '#001f29',
       inversePrimary: '#6edbaa',
     },
     indigo: {
-      primary: '#006685', onPrimary: '#ffffff', primaryContainer: '#bfe9ff', onPrimaryContainer: '#001f2a',
+      swatch: '#006685', primary: '#006685', onPrimary: '#ffffff', primaryContainer: '#bfe9ff', onPrimaryContainer: '#001f2a',
       secondary: '#4d616c', onSecondary: '#ffffff', secondaryContainer: '#d0e6f3', onSecondaryContainer: '#081e27',
       tertiary: '#5e5a7d', onTertiary: '#ffffff', tertiaryContainer: '#e4dfff', onTertiaryContainer: '#1a1836',
       inversePrimary: '#6dd2ff',
     },
     violeta: {
-      primary: '#4b57a9', onPrimary: '#ffffff', primaryContainer: '#dfe0ff', onPrimaryContainer: '#000d60',
+      swatch: '#4b57a9', primary: '#4b57a9', onPrimary: '#ffffff', primaryContainer: '#dfe0ff', onPrimaryContainer: '#000d60',
       secondary: '#5b5d72', onSecondary: '#ffffff', secondaryContainer: '#e0e1f9', onSecondaryContainer: '#181a2c',
       tertiary: '#77536c', onTertiary: '#ffffff', tertiaryContainer: '#ffd7f0', onTertiaryContainer: '#2d1127',
       inversePrimary: '#bcc3ff',
     },
     magenta: {
-      primary: '#88448c', onPrimary: '#ffffff', primaryContainer: '#ffd6fb', onPrimaryContainer: '#36003d',
+      swatch: '#88448c', primary: '#88448c', onPrimary: '#ffffff', primaryContainer: '#ffd6fb', onPrimaryContainer: '#36003d',
       secondary: '#6c586a', onSecondary: '#ffffff', secondaryContainer: '#f5dbf0', onSecondaryContainer: '#261625',
       tertiary: '#825248', onTertiary: '#ffffff', tertiaryContainer: '#ffdad3', onTertiaryContainer: '#33110b',
       inversePrimary: '#fbabfb',
@@ -22902,9 +27605,23 @@ browser.storage.onChanged.addListener((changes, area) => {
   // fica quase imperceptível perto do branco; sem isso os 4 esquemas
   // pareciam "o mesmo branco com um filtro por cima" no claro. O esquema
   // "preto" fica 100% acromático de propósito (preto/branco puros).
+  //
+  // Cada entrada também ganhou `swatch` (= surfaceVariant, não
+  // surfaceContainer como na variante escura — surfaceContainer no claro
+  // fica saturado demais perto do branco pra funcionar como bolinha de
+  // pré-visualização, surfaceVariant é o primeiro tom com croma visível
+  // o bastante pra diferenciar um esquema do outro num círculo pequeno).
+  // ESSE era o motivo real do "parece só um filtro no branco": a grade
+  // de bolinhas de "Esquema de fundo" nas Configurações usava
+  // MXM_ESQUEMAS_FUNDO[chave].swatch sem checar o tema — com o claro
+  // ativo, as bolinhas continuavam mostrando os tons quase-pretos
+  // (surfaceContainer escuro) de cada esquema, todas parecidas demais
+  // entre si pra dar pra distinguir. A cor de fato aplicada no painel já
+  // seguia o esquema escolhido corretamente; só a pré-visualização
+  // estava errada/travada no escuro.
   const MXM_ESQUEMAS_FUNDO_CLARO = {
     neutro: {
-      background: '#fdf7ff', onBackground: '#1c1b1f', surface: '#fdf7ff', onSurface: '#1c1b1f',
+      swatch: '#e8dff4', background: '#fdf7ff', onBackground: '#1c1b1f', surface: '#fdf7ff', onSurface: '#1c1b1f',
       surfaceVariant: '#e8dff4', onSurfaceVariant: '#49454e', outline: '#7a757f', outlineVariant: '#cbc3d6',
       inverseSurface: '#313033', inverseOnSurface: '#f5eef9',
       surfaceDim: '#ded8e1', surfaceBright: '#fdf7ff',
@@ -22912,7 +27629,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       surfaceContainerHigh: '#ece6f0', surfaceContainerHighest: '#e6e0ea',
     },
     quente: {
-      background: '#fff8f4', onBackground: '#211b13', surface: '#fff8f4', onSurface: '#211b13',
+      swatch: '#f6dfc3', background: '#fff8f4', onBackground: '#211b13', surface: '#fff8f4', onSurface: '#211b13',
       surfaceVariant: '#f6dfc3', onSurfaceVariant: '#4f453a', outline: '#817568', outlineVariant: '#d8c3ac',
       inverseSurface: '#362f27', inverseOnSurface: '#ffeedd',
       surfaceDim: '#ead7c3', surfaceBright: '#fff8f4',
@@ -22920,7 +27637,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       surfaceContainerHigh: '#fae5cf', surfaceContainerHighest: '#f3dfca',
     },
     frio: {
-      background: '#f9f9ff', onBackground: '#171b25', surface: '#f9f9ff', onSurface: '#171b25',
+      swatch: '#dbe1ff', background: '#f9f9ff', onBackground: '#171b25', surface: '#f9f9ff', onSurface: '#171b25',
       surfaceVariant: '#dbe1ff', onSurfaceVariant: '#414657', outline: '#727689', outlineVariant: '#bcc5e8',
       inverseSurface: '#2c303b', inverseOnSurface: '#edf0ff',
       surfaceDim: '#d1daf3', surfaceBright: '#f9f9ff',
@@ -22928,7 +27645,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       surfaceContainerHigh: '#e0e8ff', surfaceContainerHighest: '#d9e2fd',
     },
     verde: {
-      background: '#f2fdeb', onBackground: '#191d17', surface: '#f2fdeb', onSurface: '#191d17',
+      swatch: '#d4e8cd', background: '#f2fdeb', onBackground: '#191d17', surface: '#f2fdeb', onSurface: '#191d17',
       surfaceVariant: '#d4e8cd', onSurfaceVariant: '#41493e', outline: '#717a6d', outlineVariant: '#bbcbb4',
       inverseSurface: '#2d322b', inverseOnSurface: '#eaf4e3',
       surfaceDim: '#d4ddcd', surfaceBright: '#f2fdeb',
@@ -22936,7 +27653,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       surfaceContainerHigh: '#e1ebdb', surfaceContainerHighest: '#dce5d5',
     },
     rosa: {
-      background: '#fff8f8', onBackground: '#21191d', surface: '#fff8f8', onSurface: '#21191d',
+      swatch: '#ffd8e8', background: '#fff8f8', onBackground: '#21191d', surface: '#fff8f8', onSurface: '#21191d',
       surfaceVariant: '#ffd8e8', onSurfaceVariant: '#524249', outline: '#84727a', outlineVariant: '#dfbecb',
       inverseSurface: '#372e32', inverseOnSurface: '#ffecf2',
       surfaceDim: '#ebd4dc', surfaceBright: '#fff8f8',
@@ -22944,7 +27661,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       surfaceContainerHigh: '#fae2eb', surfaceContainerHighest: '#f4dce5',
     },
     azul: {
-      background: '#f4faff', onBackground: '#171c1f', surface: '#f4faff', onSurface: '#171c1f',
+      swatch: '#cee6f4', background: '#f4faff', onBackground: '#171c1f', surface: '#f4faff', onSurface: '#171c1f',
       surfaceVariant: '#cee6f4', onSurfaceVariant: '#3e484e', outline: '#6e797f', outlineVariant: '#b5c9d5',
       inverseSurface: '#2c3134', inverseOnSurface: '#e6f3fb',
       surfaceDim: '#d1dce3', surfaceBright: '#f4faff',
@@ -22952,7 +27669,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       surfaceContainerHigh: '#deeaf2', surfaceContainerHighest: '#d9e4ec',
     },
     roxo: {
-      background: '#fef7ff', onBackground: '#1d1a20', surface: '#fef7ff', onSurface: '#1d1a20',
+      swatch: '#ebddf9', background: '#fef7ff', onBackground: '#1d1a20', surface: '#fef7ff', onSurface: '#1d1a20',
       surfaceVariant: '#ebddf9', onSurfaceVariant: '#4a4550', outline: '#7b7481', outlineVariant: '#cec2da',
       inverseSurface: '#322f35', inverseOnSurface: '#f7edfe',
       surfaceDim: '#e0d7e5', surfaceBright: '#fef7ff',
@@ -22960,7 +27677,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       surfaceContainerHigh: '#eee5f5', surfaceContainerHighest: '#e9dfee',
     },
     preto: {
-      background: '#f9f9f9', onBackground: '#1b1b1b', surface: '#f9f9f9', onSurface: '#1b1b1b',
+      swatch: '#e2e2e2', background: '#f9f9f9', onBackground: '#1b1b1b', surface: '#f9f9f9', onSurface: '#1b1b1b',
       surfaceVariant: '#e2e2e2', onSurfaceVariant: '#474747', outline: '#777777', outlineVariant: '#c6c6c6',
       inverseSurface: '#303030', inverseOnSurface: '#f1f1f1',
       surfaceDim: '#dadada', surfaceBright: '#f9f9f9',
@@ -22968,7 +27685,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       surfaceContainerHigh: '#e8e8e8', surfaceContainerHighest: '#e2e2e2',
     },
     vinho: {
-      background: '#fff8f7', onBackground: '#22191a', surface: '#fff8f7', onSurface: '#22191a',
+      swatch: '#ffd9dd', background: '#fff8f7', onBackground: '#22191a', surface: '#fff8f7', onSurface: '#22191a',
       surfaceVariant: '#ffd9dd', onSurfaceVariant: '#554244', outline: '#877274', outlineVariant: '#e5bdc1',
       inverseSurface: '#382e2f', inverseOnSurface: '#ffeced',
       surfaceDim: '#eed4d6', surfaceBright: '#fff8f7',
@@ -22976,7 +27693,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       surfaceContainerHigh: '#ffe1e3', surfaceContainerHighest: '#f9dbde',
     },
     areia: {
-      background: '#fff8f5', onBackground: '#221a15', surface: '#fff8f5', onSurface: '#221a15',
+      swatch: '#ffdbc8', background: '#fff8f5', onBackground: '#221a15', surface: '#fff8f5', onSurface: '#221a15',
       surfaceVariant: '#ffdbc8', onSurfaceVariant: '#554339', outline: '#887368', outlineVariant: '#e5bfa9',
       inverseSurface: '#382e29', inverseOnSurface: '#ffede5',
       surfaceDim: '#efd5c7', surfaceBright: '#fff8f5',
@@ -22984,7 +27701,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       surfaceContainerHigh: '#ffe3d4', surfaceContainerHighest: '#faddce',
     },
     menta: {
-      background: '#ecfef3', onBackground: '#171d1a', surface: '#ecfef3', onSurface: '#171d1a',
+      swatch: '#c7ead9', background: '#ecfef3', onBackground: '#171d1a', surface: '#ecfef3', onSurface: '#171d1a',
       surfaceVariant: '#c7ead9', onSurfaceVariant: '#3d4943', outline: '#6d7a73', outlineVariant: '#b3ccbf',
       inverseSurface: '#2c322e', inverseOnSurface: '#e5f4eb',
       surfaceDim: '#d0ddd5', surfaceBright: '#ecfef3',
@@ -22992,7 +27709,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       surfaceContainerHigh: '#dcece2', surfaceContainerHighest: '#d7e6dd',
     },
     oceano: {
-      background: '#ebfdff', onBackground: '#161d1d', surface: '#ebfdff', onSurface: '#161d1d',
+      swatch: '#c5e9ed', background: '#ebfdff', onBackground: '#161d1d', surface: '#ebfdff', onSurface: '#161d1d',
       surfaceVariant: '#c5e9ed', onSurfaceVariant: '#3c494a', outline: '#6c797b', outlineVariant: '#b1cbce',
       inverseSurface: '#2b3232', inverseOnSurface: '#e4f4f5',
       surfaceDim: '#cfddde', surfaceBright: '#ebfdff',
@@ -23000,7 +27717,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       surfaceContainerHigh: '#dbebed', surfaceContainerHighest: '#d5e5e7',
     },
     ameixa: {
-      background: '#fff7fb', onBackground: '#1f1a1f', surface: '#fff7fb', onSurface: '#1f1a1f',
+      swatch: '#f4daf9', background: '#fff7fb', onBackground: '#1f1a1f', surface: '#fff7fb', onSurface: '#1f1a1f',
       surfaceVariant: '#f4daf9', onSurfaceVariant: '#4d444f', outline: '#7e7480', outlineVariant: '#d4c0d7',
       inverseSurface: '#342f34', inverseOnSurface: '#fcecfc',
       surfaceDim: '#e4d6e3', surfaceBright: '#fff7fb',
@@ -23014,6 +27731,25 @@ browser.storage.onChanged.addListener((changes, area) => {
       f: MXM_ESQUEMAS_FUNDO_CLARO[chaveFundo] || MXM_ESQUEMAS_FUNDO_CLARO.neutro,
     };
   }
+
+  // Papel "erro" M3 (tons 40/90/10/100, mesma família de vermelho do
+  // baseline oficial — é literalmente a mesma semente usada no esquema de
+  // destaque "vermelho" acima). Antes só existia a variante escura,
+  // hardcoded direto no :root de estiloTabsV3; o tema claro herdava esses
+  // mesmos tons pensados pra conviver com fundo escuro, em vez de ter seu
+  // próprio par claro — por isso os avisos/badges de erro no tema claro
+  // ficavam com um tom de vermelho pastel sobre grená em vez do vermelho
+  // escuro sobre branco que a documentação do M3 prevê pra esse esquema.
+  const MXM_ERRO = {
+    escuro: {
+      error: '#ffb4aa', onError: '#690003',
+      errorContainer: '#910809', onErrorContainer: '#ffdad5',
+    },
+    claro: {
+      error: '#ba1a1a', onError: '#ffffff',
+      errorContainer: '#ffdad5', onErrorContainer: '#410002',
+    },
+  };
 
   // atualiza o ícone de sol/lua no cabeçalho pra refletir o modo atual,
   // sempre que existir (o painel pode não estar aberto no momento).
@@ -23182,13 +27918,15 @@ browser.storage.onChanged.addListener((changes, area) => {
       surfaceContainerHigh: '#262b2e', surfaceContainerHighest: '#303538',
     },
     roxo: {
-      swatch: '#211e24',
-      background: '#151218', onBackground: '#e7e0e8', surface: '#151218', onSurface: '#e7e0e8',
-      surfaceVariant: '#4a4550', onSurfaceVariant: '#ccc3d2', outline: '#958e9b', outlineVariant: '#4a4550',
-      inverseSurface: '#e7e0e8', inverseOnSurface: '#322f35',
-      surfaceDim: '#151218', surfaceBright: '#3b383e',
-      surfaceContainerLowest: '#100d12', surfaceContainerLow: '#1d1a20', surfaceContainer: '#211e24',
-      surfaceContainerHigh: '#2c292f', surfaceContainerHighest: '#37333a',
+      // paleta alinhada às cores da logo do Echoform (tom violeta/índigo saturado,
+      // em vez do roxo quase neutro/acinzentado que havia antes).
+      swatch: '#1e162c',
+      background: '#100c18', onBackground: '#e9e4f2', surface: '#100c18', onSurface: '#e9e4f2',
+      surfaceVariant: '#433163', onSurfaceVariant: '#cdc1e1', outline: '#957dbf', outlineVariant: '#433163',
+      inverseSurface: '#e9e4f2', inverseOnSurface: '#2e2244',
+      surfaceDim: '#100c18', surfaceBright: '#382852',
+      surfaceContainerLowest: '#09070e', surfaceContainerLow: '#1a1326', surfaceContainer: '#1e162c',
+      surfaceContainerHigh: '#271d3a', surfaceContainerHighest: '#33254b',
     },
     preto: {
       swatch: '#0e0e10',
@@ -23269,13 +28007,14 @@ browser.storage.onChanged.addListener((changes, area) => {
   }
   function getEsquemaFundoAtual() {
     // mesma trava de padrão-até-responder do esquema de destaque.
-    if (!isTemaEscolhido()) return 'neutro';
+    // padrão agora é 'roxo', pra combinar com as cores da logo do Echoform.
+    if (!isTemaEscolhido()) return 'roxo';
     try {
       const salvo = localStorage.getItem(STORAGE_ESQUEMA_FUNDO_KEY);
-      return MXM_ESQUEMAS_FUNDO[salvo] ? salvo : 'neutro';
+      return MXM_ESQUEMAS_FUNDO[salvo] ? salvo : 'roxo';
     } catch (e) {
       console.error('[MXM Log de Envios] Falha ao ler esquema de fundo, usando padrão:', e);
-      return 'neutro';
+      return 'roxo';
     }
   }
   function setEsquemaFundoAtual(chave) {
@@ -23290,12 +28029,14 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   function montarCssEsquemaCor(chaveDestaque, chaveFundo) {
     let d = MXM_ESQUEMAS_DESTAQUE[chaveDestaque] || MXM_ESQUEMAS_DESTAQUE.roxo;
-    let f = MXM_ESQUEMAS_FUNDO[chaveFundo] || MXM_ESQUEMAS_FUNDO.neutro;
-    if (isTemaClaroAtivo()) {
+    let f = MXM_ESQUEMAS_FUNDO[chaveFundo] || MXM_ESQUEMAS_FUNDO.roxo;
+    const claroAtivo = isTemaClaroAtivo();
+    if (claroAtivo) {
       const convertido = converterParaTemaClaro(chaveDestaque, chaveFundo);
       d = convertido.d;
       f = convertido.f;
     }
+    const erro = claroAtivo ? MXM_ERRO.claro : MXM_ERRO.escuro;
     return `
       :root {
         --md-sys-color-primary: ${d.primary};
@@ -23310,7 +28051,12 @@ browser.storage.onChanged.addListener((changes, area) => {
         --md-sys-color-on-tertiary: ${d.onTertiary};
         --md-sys-color-tertiary-container: ${d.tertiaryContainer};
         --md-sys-color-on-tertiary-container: ${d.onTertiaryContainer};
+        --md-sys-color-error: ${erro.error};
+        --md-sys-color-on-error: ${erro.onError};
+        --md-sys-color-error-container: ${erro.errorContainer};
+        --md-sys-color-on-error-container: ${erro.onErrorContainer};
         --md-sys-color-inverse-primary: ${d.inversePrimary};
+        --md-sys-color-surface-tint: ${d.primary};
         --md-sys-color-background: ${f.background};
         --md-sys-color-on-background: ${f.onBackground};
         --md-sys-color-surface: ${f.surface};
@@ -23394,6 +28140,15 @@ browser.storage.onChanged.addListener((changes, area) => {
       --md-sys-color-surface-container: #201f22;
       --md-sys-color-surface-container-high: #2b292d;
       --md-sys-color-surface-container-highest: #363438;
+      /* Papel "surface tint" do M3: a cor usada pra comunicar elevação
+         tingindo a superfície, em vez de (ou junto com) sombra — sempre a
+         mesma cor/tom do "primary" do esquema atual (ver
+         DynamicColor.surfaceTint no material-color-utilities). Os painéis
+         já usam os níveis discretos de surface-container pra isso; este
+         token + as 5 variáveis de tingimento abaixo ficam disponíveis pra
+         qualquer elemento que precise do efeito contínuo do Monet em vez
+         do degrade em degraus dos surface-container. */
+      --md-sys-color-surface-tint: #cfbcff;
 
       /* ---- Elevação (M3) ---- */
       --md-elevation-1: 0 1px 2px 0 rgba(0,0,0,.3), 0 1px 3px 1px rgba(0,0,0,.15);
@@ -23401,6 +28156,18 @@ browser.storage.onChanged.addListener((changes, area) => {
       --md-elevation-3: 0 4px 8px 3px rgba(0,0,0,.15), 0 1px 3px 0 rgba(0,0,0,.3);
       --md-elevation-4: 0 6px 10px 4px rgba(0,0,0,.15), 0 2px 3px 0 rgba(0,0,0,.3);
       --md-elevation-5: 0 8px 12px 6px rgba(0,0,0,.15), 0 4px 4px 0 rgba(0,0,0,.3);
+
+      /* Elevação por tingimento (M3): mesmas opacidades oficiais da tabela
+         "surface tint elevation" (0%/5%/8%/11%/12%/14% do surface-tint
+         sobre o surface) — sempre acompanham o surface-tint e o surface
+         atuais via color-mix, então adaptam sozinhas a troca de
+         tema/esquema sem precisar ser redefinidas em cada override. */
+      --md-elevation-tint-0: var(--md-sys-color-surface);
+      --md-elevation-tint-1: color-mix(in srgb, var(--md-sys-color-surface-tint) 5%, var(--md-sys-color-surface));
+      --md-elevation-tint-2: color-mix(in srgb, var(--md-sys-color-surface-tint) 8%, var(--md-sys-color-surface));
+      --md-elevation-tint-3: color-mix(in srgb, var(--md-sys-color-surface-tint) 11%, var(--md-sys-color-surface));
+      --md-elevation-tint-4: color-mix(in srgb, var(--md-sys-color-surface-tint) 12%, var(--md-sys-color-surface));
+      --md-elevation-tint-5: color-mix(in srgb, var(--md-sys-color-surface-tint) 14%, var(--md-sys-color-surface));
 
       /* ---- Escala de forma (M3) ---- */
       --md-shape-xs: 4px;
@@ -23446,14 +28213,62 @@ browser.storage.onChanged.addListener((changes, area) => {
       transform: scale(0.98);
     }
 
+    /* Os cards clicáveis do carrossel do resumo (hoje/recorde, mês,
+       dia equivalente, cronômetro) usam essa classe em vez do
+       cursor:pointer inline de propósito: o "state layer" genérico
+       acima usa filter+transform, e aplicar QUALQUER filter ou
+       transform num elemento cria uma nova camada de composição
+       enquadrada na caixa do próprio elemento — isso recorta (clipa)
+       qualquer conteúdo de um filho que sangre pra fora da caixa via
+       box-shadow/overflow:visible, mesmo sem nenhum overflow:hidden
+       envolvido. Era isso que cortava o brilho do blob orgânico
+       "hoje" ao passar o mouse ou clicar (V3.4.70/70.1 corrigiram
+       causas parecidas, mas essa é a causa real do corte ao clicar).
+       Aqui o feedback de hover/pressed vira uma camada de cor de
+       fundo (mesmo padrão já usado em .mxm-log-row/.mxm-log-menu-linha),
+       que não afeta como os filhos são compostos. */
+    .mxm-resumo-card-clicavel {
+      cursor: pointer;
+      -webkit-user-select: none;
+      user-select: none;
+      border-radius: var(--md-shape-lg);
+      transition: background-color .15s ease;
+    }
+    .mxm-resumo-card-clicavel:hover {
+      filter: none !important;
+      transform: none !important;
+      background: color-mix(in srgb, var(--md-sys-color-on-surface) 5%, transparent);
+    }
+    .mxm-resumo-card-clicavel:active {
+      filter: none !important;
+      transform: none !important;
+      background: color-mix(in srgb, var(--md-sys-color-on-surface) 9%, transparent);
+    }
+
     #mxm-log-lista {
-      padding: 0 10px 6px 10px;
+      /* V3.4.63: espaço reservado no fim da lista, pra última entrada
+         não ficar colada embaixo do FAB (botão flutuante "≡" — ver
+         #mxm-log-fab-container). V3.4.79: a tentativa da v3.4.78 de
+         "empurrar" a última linha pra cima do FAB (padding maior +
+         scroll-margin-bottom em .mxm-log-row-ultima) foi REVERTIDA —
+         usuário confirmou que o scroll continuava travado no topo
+         mesmo depois dela, então aquilo nunca foi a causa raiz; pior,
+         scroll-margin-bottom pode interagir mal com scroll/composição
+         em alguns navegadores e virou suspeito de piorar o travamento
+         relatado. Abordagem nova: em vez de mexer no espaço/scroll da
+         lista, o PRÓPRIO FAB agora recua (ver #mxm-log-fab-container e
+         o listener de scroll em aoRolarLista) quando o usuário chega
+         perto do fim — ele nunca mais fica na frente da última linha,
+         sem precisar reservar nenhum espaço extra nem forçar parada de
+         scroll. Padding voltou ao valor original da v3.4.63.
+       */
+      padding: 0 10px 78px 10px;
     }
     .mxm-log-row {
       transition: background-color .15s ease;
     }
     .mxm-log-row:hover {
-      background: var(--md-sys-color-surface-container) !important;
+      background: var(--md-sys-color-surface-container-high) !important;
     }
     .mxm-log-row-action {
       display: flex;
@@ -23464,16 +28279,16 @@ browser.storage.onChanged.addListener((changes, area) => {
     .mxm-log-row-action:hover {
       background: var(--md-sys-color-surface-container-highest);
     }
-    .mxm-log-del {
+    .mxm-log-menu-linha {
       color: var(--md-sys-color-outline);
       background: var(--md-sys-color-surface-container-high);
     }
-    .mxm-log-del:hover {
-      background: color-mix(in srgb, var(--md-sys-color-error) 16%, transparent) !important;
-      color: var(--md-sys-color-error) !important;
+    .mxm-log-menu-linha:hover {
+      background: var(--md-sys-color-surface-container-highest) !important;
+      color: var(--md-sys-color-on-surface) !important;
     }
-    .mxm-log-del:active {
-      background: color-mix(in srgb, var(--md-sys-color-error) 28%, transparent) !important;
+    .mxm-log-menu-linha:active {
+      background: color-mix(in srgb, var(--md-sys-color-primary) 20%, var(--md-sys-color-surface-container-highest)) !important;
     }
 
     .mxm-log-data-header {
@@ -23541,7 +28356,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       background: radial-gradient(
         circle at bottom right,
         transparent calc(var(--md-shape-md) - 0.5px),
-        var(--md-sys-color-surface) calc(var(--md-shape-md) + 0.5px)
+        var(--md-sys-color-surface-container-low) calc(var(--md-shape-md) + 0.5px)
       );
     }
     .mxm-log-header-notch-r {
@@ -23549,7 +28364,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       background: radial-gradient(
         circle at bottom left,
         transparent calc(var(--md-shape-md) - 0.5px),
-        var(--md-sys-color-surface) calc(var(--md-shape-md) + 0.5px)
+        var(--md-sys-color-surface-container-low) calc(var(--md-shape-md) + 0.5px)
       );
     }
 
@@ -23585,10 +28400,12 @@ browser.storage.onChanged.addListener((changes, area) => {
       transition: background-color 5000s ease-in-out 0s;
     }
     #mxm-log-busca-wrap:hover {
-      background: color-mix(in srgb, var(--md-sys-color-on-surface) 4%, var(--md-sys-color-surface-container-high)) !important;
+      background: color-mix(in srgb, var(--md-sys-color-on-surface) 4%, color-mix(in srgb, var(--md-sys-color-surface-container-highest) 70%, transparent)) !important;
+      border-color: color-mix(in srgb, var(--md-sys-color-outline) 36%, transparent) !important;
     }
     #mxm-log-busca-wrap.mxm-log-busca-focada {
-      background: color-mix(in srgb, var(--md-sys-color-primary) 10%, var(--md-sys-color-surface-container-high)) !important;
+      background: color-mix(in srgb, var(--md-sys-color-primary) 10%, var(--md-sys-color-surface-container-highest)) !important;
+      border-color: color-mix(in srgb, var(--md-sys-color-primary) 45%, transparent) !important;
       box-shadow: var(--md-elevation-1) !important;
     }
     #mxm-log-busca-wrap.mxm-log-busca-focada > span {
@@ -23602,6 +28419,17 @@ browser.storage.onChanged.addListener((changes, area) => {
     }
     .mxm-log-close-btn:active {
       background-color: color-mix(in srgb, var(--md-sys-color-error) 30%, transparent) !important;
+    }
+    /* PoC preview Apple Music — hover na capa da lista principal do log
+       (ver mxm-log-capa-preview / ligarCapasPreviewAppleMusic). */
+    .mxm-log-capa-preview:hover .mxm-log-capa-preview-hover {
+      opacity: 1 !important;
+    }
+    .mxm-log-capa-preview[data-preview-tocando="1"] .mxm-log-capa-preview-hover {
+      opacity: 1 !important;
+    }
+    .mxm-log-capa-preview[data-preview-tocando="1"] .mxm-log-capa-preview-anel {
+      opacity: 1 !important;
     }
     /* Botão "copiar esta letra" (colunas da visão "Ver como digitada" do Diff Check/Diff manual/Diffs salvos) */
     .mxm-diff-copiar-lado-btn:hover {
@@ -23653,10 +28481,39 @@ browser.storage.onChanged.addListener((changes, area) => {
       background: color-mix(in srgb, var(--md-sys-color-primary) 20%, transparent);
     }
 
+    /* V3.4.66: setas de anterior/próxima do carrossel do resumo
+       (Hoje/Recorde, mês, dia equivalente, cronômetro do ciclo) — antes
+       flutuavam por cima do conteúdo dos cartões (cobrindo texto nos
+       slides mais estreitos); agora moram na barrinha de controle
+       abaixo do slide, lado a lado com os pontinhos e o pino, então não
+       precisam mais de fundo/sombra pra se destacar de um fundo colorido
+       por baixo — mesmo espírito visual do botão de pino ao lado. */
+    .mxm-resumo-seta-btn {
+      background: transparent;
+      color: var(--md-sys-color-outline);
+      opacity: .7;
+      transition: opacity .15s ease, background-color .15s ease, color .15s ease, transform .1s ease;
+    }
+    .mxm-resumo-seta-btn:hover {
+      opacity: 1;
+      color: var(--md-sys-color-on-surface);
+      background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+    }
+    .mxm-resumo-seta-btn:active {
+      transform: scale(0.9);
+    }
+
     #mxm-log-ordenar-btn {
       transition: background-color .15s ease, color .15s ease;
     }
     #mxm-log-ordenar-btn:hover {
+      background-color: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent) !important;
+      color: var(--md-sys-color-primary) !important;
+    }
+    #mxm-log-add-vazio-btn {
+      transition: background-color .15s ease, color .15s ease;
+    }
+    #mxm-log-add-vazio-btn:hover {
       background-color: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent) !important;
       color: var(--md-sys-color-primary) !important;
     }
@@ -23693,6 +28550,21 @@ browser.storage.onChanged.addListener((changes, area) => {
     }
     .mxm-icone-pop {
       animation: mxm-icone-pop .42s cubic-bezier(.34, 1.56, .64, 1);
+      transform-origin: center;
+    }
+
+    /* Mesmo "pop" de entrada, mas sem o giro (rotate) do keyframe acima.
+       Usado em ícones sem simetria radial — como o triângulo de alerta —
+       onde girar durante a animação faz a forma parecer torta/desalinhada
+       por uma fração de segundo (ainda mais perceptível em capturas de
+       tela feitas nesse instante). Mantém o mesmo "bounce" de escala. */
+    @keyframes mxm-icone-pop-reto {
+      0% { transform: scale(.4); opacity: 0; }
+      60% { transform: scale(1.15); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .mxm-icone-pop-reto {
+      animation: mxm-icone-pop-reto .42s cubic-bezier(.34, 1.56, .64, 1);
       transform-origin: center;
     }
 
@@ -23752,12 +28624,65 @@ browser.storage.onChanged.addListener((changes, area) => {
       animation: mxm-slide-conteudo-entra .32s cubic-bezier(.22, 1, .36, 1);
     }
 
+    /* V3.5.10.1: variantes com direção (avançar/voltar), pra dar aquela
+       sensação de "story deslizando pro lado" igual Instagram/Spotify, em
+       vez de todo slide sempre entrar do mesmo jeito (de baixo pra cima)
+       não importa se o usuário foi pra frente ou voltou. Usadas em vez de
+       mxm-slide-conteudo-entra quando há uma direção definida (ver
+       renderizar/irPara) — a versão sem direção continua existindo pro
+       primeiro slide (capa), que não tem "de onde veio". */
+    @keyframes mxm-slide-entra-direita {
+      from { opacity: 0; transform: translateX(26px) scale(.98); }
+      to { opacity: 1; transform: translateX(0) scale(1); }
+    }
+    @keyframes mxm-slide-entra-esquerda {
+      from { opacity: 0; transform: translateX(-26px) scale(.98); }
+      to { opacity: 1; transform: translateX(0) scale(1); }
+    }
+    .mxm-slide-entra-direita {
+      animation: mxm-slide-entra-direita .34s cubic-bezier(.22, 1, .36, 1);
+    }
+    .mxm-slide-entra-esquerda {
+      animation: mxm-slide-entra-esquerda .34s cubic-bezier(.22, 1, .36, 1);
+    }
+
+    /* leve "afunda e solta" ao pressionar os controles do carrossel
+       (prev/next/Começar/bolinhas) — dá um retorno tátil imediato ao
+       clique, no mesmo espírito do resto do stories (halo, pop de ícone
+       etc.), sem precisar de nenhum JS extra além da própria classe
+       :active do CSS. */
+    #mxm-log-resumo-slides-prev:active,
+    #mxm-log-resumo-slides-next:active,
+    #mxm-log-resumo-slides-comecar:active {
+      transform: scale(.92);
+    }
+    #mxm-log-resumo-slides-prev,
+    #mxm-log-resumo-slides-next,
+    #mxm-log-resumo-slides-comecar {
+      transition: transform .12s ease;
+    }
+    .mxm-slide-dot:hover .mxm-slide-dot-fill {
+      filter: brightness(1.25);
+    }
+
     @keyframes mxm-slide-recap-entra {
       from { opacity: 0; transform: translateX(-12px); }
       to { opacity: 1; transform: translateX(0); }
     }
     .mxm-slide-recap-entra {
       animation: mxm-slide-recap-entra .38s cubic-bezier(.22, 1, .36, 1) both;
+    }
+
+    /* mesma ideia de mxm-slide-recap-entra (cascata com animation-delay
+       definido inline por quem usa), só que com deslize vertical em vez
+       de lateral — pra texto centralizado (ex: rótulo + título da capa do
+       resumo), onde entrar de lado ficaria estranho. */
+    @keyframes mxm-slide-texto-entra-cima {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .mxm-slide-texto-entra-cima {
+      animation: mxm-slide-texto-entra-cima .38s cubic-bezier(.22, 1, .36, 1) both;
     }
 
     .mxm-slide-sparkles-fundo {
@@ -24141,6 +29066,93 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   const estiloScrollbar = document.createElement('style');
   estiloScrollbar.textContent = `
+    /* V3.5.1: animação do logo das Configurações reescrita em cima de um
+       <svg> (ver montagem do HTML em identidade.innerHTML) em vez de divs
+       com border-radius:50%. Motivo: um <svg viewBox="0 0 100 100"> nunca
+       deixa a escala X ficar diferente da escala Y — mesmo que o zoom da
+       página arredonde a caixa de 34x34px pra, digamos, 34x35px, o
+       preserveAspectRatio padrão ("xMidYMid meet") preserva a proporção
+       interna 1:1 do viewBox, então os anéis continuam perfeitamente
+       redondos (antes, com width:1em/height:1em, cada eixo podia
+       arredondar pra um pixel de tela diferente em certos níveis de zoom,
+       deixando o círculo ligeiramente ovalado/torto).
+       Escala e opacidade também foram separadas em duas animações
+       (mxmLogoEcoAnelEscala / mxmLogoEcoAnelOpacidade) com curvas de
+       easing próprias — a escala usa a curva M3 "emphasized-decelerate"
+       (mesma de antes), enquanto a opacidade usa um ease-out dedicado com
+       um degrau intermediário (32%), evitando o efeito "liga/desliga"
+       de ir direto de 0.75 pra 0 numa curva pensada pra transform, não
+       pra opacidade — o resultado é um fade mais gradual/suave. */
+    @keyframes mxmLogoEcoAnelEscala {
+      0% { transform: scale(0.35); }
+      100% { transform: scale(2.4); }
+    }
+    /* halo radial atrás da logo na tela de boas-vindas (splash de
+       primeira montagem) — pulso lento e sutil, só pra dar uma sensação
+       de "vivo" na tela enquanto o usuário lê o texto/decide entre
+       Aprender e Pular, sem competir com o pulso dos anéis "eco". */
+    @keyframes mxmSplashHaloPulso {
+      0%, 100% { transform: scale(1); opacity: 0.85; }
+      50% { transform: scale(1.12); opacity: 1; }
+    }
+    #mxm-log-splash-pular:hover {
+      background-color: var(--md-sys-color-surface-container-highest) !important;
+    }
+    #mxm-log-splash-aprender:hover {
+      filter: brightness(1.08);
+    }
+    @keyframes mxmLogoEcoAnelOpacidade {
+      0% { opacity: 0; }
+      12% { opacity: 0.75; }
+      32% { opacity: 0.55; }
+      100% { opacity: 0; }
+    }
+    @keyframes mxmLogoEcoNucleo {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(0.88); }
+    }
+    .mxm-echo-logo-svg { overflow: visible; }
+    .mxm-echo-logo-svg .mxm-echo-anel-base {
+      /* anel estático de fundo, só pra ecoar a silhueta da logo oficial
+         (anel externo fixo por trás dos anéis pulsantes) — não anima. */
+      fill: none;
+      stroke: var(--md-sys-color-on-primary-container);
+      stroke-width: 2;
+      opacity: 0.18;
+    }
+    .mxm-echo-logo-svg .mxm-echo-anel {
+      fill: none;
+      stroke: var(--md-sys-color-on-primary-container);
+      stroke-width: 5;
+      opacity: 0;
+      transform-box: fill-box;
+      transform-origin: center;
+      transform: scale(0.35);
+      animation:
+        mxmLogoEcoAnelEscala 4.8s cubic-bezier(0.2, 0, 0, 1) infinite,
+        mxmLogoEcoAnelOpacidade 4.8s ease-out infinite;
+      will-change: transform, opacity;
+    }
+    /* ordem real dos filhos no svg: 1=anel-base, 2/3/4=os três .mxm-echo-anel, 5=núcleo —
+       por isso o escalonamento usa nth-child(3)/(4) (não (2)/(3)) pra acertar o 2º e 3º anel. */
+    .mxm-echo-logo-svg .mxm-echo-anel:nth-child(3) { animation-delay: 1.6s; }
+    .mxm-echo-logo-svg .mxm-echo-anel:nth-child(4) { animation-delay: 3.2s; }
+    .mxm-echo-logo-svg .mxm-echo-nucleo {
+      fill: var(--md-sys-color-on-primary-container);
+      /* leve brilho ao redor do núcleo, ecoando o glow suave do centro na
+         logo oficial (ícone da extensão) */
+      filter: drop-shadow(0 0 1.5px var(--md-sys-color-on-primary-container))
+        drop-shadow(0 0 3px color-mix(in srgb, var(--md-sys-color-on-primary-container) 55%, transparent));
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: mxmLogoEcoNucleo 4.8s ease-in-out infinite;
+      will-change: transform;
+    }
+    /* dá uma dica ao compositor pra a "forma" (blob que ondula atrás do
+       logo) animar num processo separado do circuito principal — reduz a
+       chance do clip-path pesado disputar frame com o pulso dos anéis
+       acima e a animação como um todo ficar menos smooth. */
+    #mxm-log-config-logo-forma { will-change: clip-path; }
     [id^="mxm-log"] {
       scrollbar-width: thin;
       scrollbar-color: transparent transparent;
@@ -24378,6 +29390,14 @@ browser.storage.onChanged.addListener((changes, area) => {
     { chave: STORAGE_AUTO_UPDATE_NOTIFICACAO_KEY, tipo: 'gm' },
     { chave: STORAGE_NOTIF_DICAS_ATIVAS_KEY, tipo: 'gm' },
     { chave: STORAGE_BACKUP_AUTOMATICO_ATIVO_KEY, tipo: 'local' },
+    // mesma lógica: se não for salva no backup, restaurar em outro
+    // navegador/computador voltaria pro padrão desligado mesmo pra quem
+    // já tinha ativado o envio automático pra nuvem.
+    { chave: STORAGE_BACKUP_NUVEM_AUTOMATICO_ATIVO_KEY, tipo: 'local' },
+    // frequência escolhida (diário/semanal/mensal) pro envio automático
+    // pra nuvem — mesmo motivo do item acima: sem isso, restaurar em
+    // outro navegador voltaria pro padrão 'diario'.
+    { chave: STORAGE_FREQUENCIA_BACKUP_NUVEM_KEY, tipo: 'local' },
     { chave: STORAGE_CONQUISTAS_KEY, tipo: 'local' },
     // a própria preferência (ligado/desligado) também é
     // persistida, senão restaurar um backup em outro navegador voltaria
@@ -24400,7 +29420,7 @@ browser.storage.onChanged.addListener((changes, area) => {
 
   // ---------- backup na nuvem (Firebase) ----------
   const MXM_FIREBASE_CONFIG = {
-    apiKey: '(USE A SUA)',
+    apiKey: 'AIzaSyA9rYLJXJ12jewWPQJEW9BQXQwhxGz7ap8',
     projectId: 'musixmatch-logs',
   };
 
@@ -24769,6 +29789,89 @@ browser.storage.onChanged.addListener((changes, area) => {
     }
   }
 
+  // Versão silenciosa de mxmFirebaseEnviarBackupNuvem pro backup
+  // automático periódico: nunca abre popup de login (se não houver sessão
+  // salva ainda, simplesmente desiste sem incomodar) e não mostra toast de
+  // sucesso — só um aviso discreto no console em caso de falha. Sugestão
+  // do Kreobio: sincronizar sozinho entre PC e notebook, sem depender de
+  // lembrar de clicar em "Enviar para a nuvem" nos dois.
+  async function mxmFirebaseEnviarBackupNuvemSilencioso() {
+    const refreshToken = GM_getValue(STORAGE_FIREBASE_REFRESH_TOKEN_KEY, null);
+    if (!refreshToken) return false; // nunca logou com Google — nada a fazer aqui
+
+    try {
+      const { idToken, uid } = await mxmFirebaseGarantirAuth();
+      const conteudo = JSON.stringify(coletarBackupParaNuvem());
+      const partes = dividirEmPartesUtf8Seguro(conteudo, LIMITE_PARTE_NUVEM_BYTES);
+      const partesAntigas = await mxmContarPartesExistentes(idToken, uid);
+
+      const writes = partes.map((parte, i) => ({
+        update: {
+          name: mxmDocParteNuvem(uid, i),
+          fields: { dados: { stringValue: parte }, indice: { integerValue: String(i) } },
+        },
+      }));
+      for (let i = partes.length; i < partesAntigas; i++) {
+        writes.push({ delete: mxmDocParteNuvem(uid, i) });
+      }
+      writes.push({
+        update: {
+          name: mxmDocIndiceNuvem(uid),
+          fields: {
+            formato: { stringValue: 'mxm-log-envios-backup-v1' },
+            versaoScript: { stringValue: getVersaoInstalada() || '' },
+            atualizadoEm: { timestampValue: mxmAgora().toISOString() },
+            totalPartes: { integerValue: String(partes.length) },
+          },
+        },
+      });
+
+      const resposta = await fetch(
+        `https://firestore.googleapis.com/v1/projects/${MXM_FIREBASE_CONFIG.projectId}/databases/(default)/documents:commit`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+          body: JSON.stringify({ writes }),
+        }
+      );
+      if (!resposta.ok) {
+        const erroJson = await resposta.json().catch(() => null);
+        throw new Error((erroJson && erroJson.error && erroJson.error.message) || `HTTP ${resposta.status}`);
+      }
+      GM_setValue(STORAGE_ULTIMO_BACKUP_NUVEM_KEY, mxmAgoraMs());
+      atualizarBadgeNotificacoes();
+      verificarNovasConquistas();
+      return true;
+    } catch (erro) {
+      console.warn('[Log de Envios] Falha no backup automático na nuvem.', erro);
+      return false;
+    }
+  }
+
+  // Intervalo mínimo (ms) entre envios automáticos pra nuvem, por
+  // frequência escolhida pelo usuário (ver get/setFrequenciaBackupNuvemAutomatico).
+  // Cada valor tem ~20% de folga sobre o período "cheio" pra não perder o
+  // agendamento por causa de o navegador ficar fechado por algumas horas
+  // — mesma lógica de folga usada em INTERVALO_BACKUP_AUTOMATICO_MS (backup em disco).
+  const INTERVALOS_BACKUP_NUVEM_MS = {
+    diario: 20 * 60 * 60 * 1000, // ~20h
+    semanal: 6 * 24 * 60 * 60 * 1000, // ~6 dias
+    mensal: 26 * 24 * 60 * 60 * 1000, // ~26 dias
+  };
+
+  // Roda junto com verificarBackupAutomaticoPeriodico: só age se a opção
+  // estiver ligada e já tiver passado tempo suficiente desde o último
+  // envio automático, conforme a frequência escolhida (diária/semanal/mensal).
+  function mxmVerificarBackupNuvemAutomaticoPeriodico() {
+    if (!isBackupNuvemAutomaticoAtivo()) return;
+    const ultimo = GM_getValue(STORAGE_ULTIMO_BACKUP_NUVEM_AUTOMATICO_KEY, 0);
+    const intervalo = INTERVALOS_BACKUP_NUVEM_MS[getFrequenciaBackupNuvemAutomatico()];
+    if (mxmAgoraMs() - ultimo < intervalo) return;
+    mxmFirebaseEnviarBackupNuvemSilencioso().then((sucesso) => {
+      if (sucesso) GM_setValue(STORAGE_ULTIMO_BACKUP_NUVEM_AUTOMATICO_KEY, mxmAgoraMs());
+    });
+  }
+
   async function mxmFirebaseEnviarBackupNuvem() {
     try {
       const { idToken, uid } = await mxmFirebaseGarantirAuth();
@@ -24909,6 +30012,779 @@ browser.storage.onChanged.addListener((changes, area) => {
     }
   }
 
+  // ---------- backup no Google Drive (destino separado do Firestore) ----------
+  // Ver docs/backup-google-drive.md pra contexto completo das decisões.
+  // Usa o mesmo objeto de backup "enxuto" do Firestore (coletarBackupParaNuvem)
+  // e a mesma tela de revisão (compararBackupComAtual/abrirRevisaoBackup) —
+  // só a camada de transporte (auth + chamadas HTTP) é nova, porque a API
+  // do Drive é bem diferente da do Firestore (arquivo inteiro numa
+  // chamada só, sem sharding — ver seção 1 do doc).
+
+  const MXM_DRIVE_NOME_ARQUIVO = 'mxm-backup-nuvem.json';
+  const MXM_DRIVE_NOME_PASTA = 'Echoform Backups';
+
+  // Cache em memória do access_token do Drive — não precisa persistir
+  // entre recarregamentos, porque agora (v3.5.55+) temos um refresh_token
+  // de verdade salvo (STORAGE_GOOGLE_DRIVE_REFRESH_TOKEN_KEY), igual ao
+  // mxmFirebaseIdTokenCache do Firestore: o access_token em si vive só em
+  // memória e é renovado via refresh_token sempre que expira.
+  let mxmDriveAccessTokenCache = null; // { accessToken, expiraEm }
+
+  // Pede ao background script pra abrir o popup de login (authorization
+  // code + PKCE — ver fazerLoginGoogleDrive em background.js). Só chamado
+  // na primeira vez (sem refresh_token salvo ainda) ou se o refresh_token
+  // salvo tiver sido revogado de verdade (ver mxmDriveGarantirAuth) — por
+  // isso sempre interativo: não existe mais uma variante "silenciosa"
+  // deste login (a renovação sem popup agora é via refresh_token, ver
+  // mxmRenovarAccessTokenGoogleDrive).
+  function mxmSolicitarLoginGoogleDrive() {
+    return browser.runtime.sendMessage({ type: 'mxm-log-google-drive-signin' }).then((resposta) => {
+      if (!resposta || !resposta.ok) {
+        throw new Error((resposta && resposta.erro) || 'Falha ao fazer login com Google (Drive).');
+      }
+      return resposta;
+    });
+  }
+
+  // Pede ao background script pra trocar o refresh_token salvo por um
+  // access_token novo — chamada de API direta (oauth2.googleapis.com),
+  // sem popup nenhum, sem depender de prompt=none/sessão do navegador.
+  function mxmRenovarAccessTokenGoogleDrive(refreshToken) {
+    return browser.runtime.sendMessage({ type: 'mxm-log-google-drive-refresh', refreshToken }).then((resposta) => {
+      if (!resposta || !resposta.ok) {
+        throw new Error((resposta && resposta.erro) || 'Falha ao renovar sessão do Drive.');
+      }
+      return resposta;
+    });
+  }
+
+  // Garante um access_token válido do Drive: renova via refresh_token
+  // salvo (sem popup) sempre que possível — mesmo princípio de
+  // mxmFirebaseGarantirAuth pro Firestore. Só abre popup visível quando
+  // não há refresh_token salvo ainda (primeiro uso) ou quando ele foi
+  // revogado de verdade (ex.: usuário removeu o acesso da extensão na
+  // conta Google — não confundir com o access_token de 1h vencer, isso o
+  // refresh resolve sozinho) — e mesmo assim só quando `silencioso` for
+  // false/omitido, ou seja, em resposta a um clique explícito do usuário
+  // (botão "Enviar"/"Restaurar"). Chamadas silenciosas (backup automático
+  // periódico) nunca abrem popup: se não der pra renovar, propagam o erro
+  // pra quem chamou desistir quietamente (ver mxmDriveEnviarBackupBase).
+  async function mxmDriveGarantirAuth(silencioso) {
+    if (mxmDriveAccessTokenCache && mxmDriveAccessTokenCache.expiraEm > mxmAgoraMs() + 30000) {
+      return mxmDriveAccessTokenCache;
+    }
+
+    const refreshToken = GM_getValue(STORAGE_GOOGLE_DRIVE_REFRESH_TOKEN_KEY, null);
+    if (refreshToken) {
+      try {
+        const { accessToken, expiresIn } = await mxmRenovarAccessTokenGoogleDrive(refreshToken);
+        mxmDriveAccessTokenCache = { accessToken, expiraEm: mxmAgoraMs() + expiresIn * 1000 };
+        return mxmDriveAccessTokenCache;
+      } catch (erro) {
+        console.warn('[Log de Envios] Falha ao renovar sessão do Drive, refresh_token pode ter sido revogado.', erro);
+        if (silencioso) throw erro;
+      }
+    } else if (silencioso) {
+      // Nunca logou no Drive ainda — não faz sentido abrir popup vindo de
+      // um fluxo que prometeu ser silencioso.
+      throw new Error('Drive: sem sessão salva, login silencioso não é possível.');
+    }
+
+    // Primeira vez, ou refresh_token revogado: pede login com popup.
+    const { accessToken, expiresIn, refreshToken: novoRefreshToken } = await mxmSolicitarLoginGoogleDrive();
+    if (novoRefreshToken) GM_setValue(STORAGE_GOOGLE_DRIVE_REFRESH_TOKEN_KEY, novoRefreshToken);
+    mxmDriveAccessTokenCache = { accessToken, expiraEm: mxmAgoraMs() + expiresIn * 1000 };
+    return mxmDriveAccessTokenCache;
+  }
+
+  // Acha (ou cria) a pasta "Echoform Backups" na raiz do Drive do usuário.
+  // Guarda o id em GM_setValue pra não precisar procurar de novo a cada
+  // envio — só refaz a busca se o id salvo não existir mais (ex: usuário
+  // apagou a pasta manualmente).
+  async function mxmDriveGarantirPasta(accessToken) {
+    const idSalvo = GM_getValue(STORAGE_GOOGLE_DRIVE_FOLDER_ID_KEY, null);
+    if (idSalvo) {
+      const resposta = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${idSalvo}?fields=id,trashed`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (resposta.ok) {
+        const dados = await resposta.json();
+        if (!dados.trashed) return idSalvo;
+      }
+      // id salvo não existe mais ou foi pra lixeira — procura/cria de novo.
+    }
+
+    const consulta = encodeURIComponent(
+      `name='${MXM_DRIVE_NOME_PASTA}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
+    );
+    const respostaBusca = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${consulta}&fields=files(id)`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (respostaBusca.ok) {
+      const dados = await respostaBusca.json();
+      if (dados.files && dados.files.length > 0) {
+        GM_setValue(STORAGE_GOOGLE_DRIVE_FOLDER_ID_KEY, dados.files[0].id);
+        return dados.files[0].id;
+      }
+    }
+
+    const respostaCriar = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ name: MXM_DRIVE_NOME_PASTA, mimeType: 'application/vnd.google-apps.folder' }),
+    });
+    if (!respostaCriar.ok) {
+      const erroJson = await respostaCriar.json().catch(() => null);
+      throw new Error((erroJson && erroJson.error && erroJson.error.message) || `HTTP ${respostaCriar.status}`);
+    }
+    const criado = await respostaCriar.json();
+    GM_setValue(STORAGE_GOOGLE_DRIVE_FOLDER_ID_KEY, criado.id);
+    return criado.id;
+  }
+
+  // Acha o arquivo de backup já existente dentro da pasta (pra
+  // sobrescrever em vez de duplicar — ver decisão #2 do doc). Usa o id
+  // salvo primeiro; se não existir mais, procura pelo nome dentro da pasta.
+  async function mxmDriveGarantirArquivoId(accessToken, pastaId) {
+    const idSalvo = GM_getValue(STORAGE_GOOGLE_DRIVE_FILE_ID_KEY, null);
+    if (idSalvo) {
+      const resposta = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${idSalvo}?fields=id,trashed`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (resposta.ok) {
+        const dados = await resposta.json();
+        if (!dados.trashed) return idSalvo;
+      }
+      GM_setValue(STORAGE_GOOGLE_DRIVE_FILE_ID_KEY, null);
+    }
+
+    const consulta = encodeURIComponent(
+      `name='${MXM_DRIVE_NOME_ARQUIVO}' and '${pastaId}' in parents and trashed=false`
+    );
+    const respostaBusca = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${consulta}&fields=files(id)`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (respostaBusca.ok) {
+      const dados = await respostaBusca.json();
+      if (dados.files && dados.files.length > 0) {
+        GM_setValue(STORAGE_GOOGLE_DRIVE_FILE_ID_KEY, dados.files[0].id);
+        return dados.files[0].id;
+      }
+    }
+    return null; // não existe ainda — mxmDriveEnviarBackup faz um files.create
+  }
+
+  // Envia (cria ou sobrescreve) o backup no Drive, dentro da pasta
+  // "Echoform Backups". Upload multipart (metadata + conteúdo numa
+  // chamada só) — o arquivo é pequeno (texto), não precisa de upload
+  // resumable. `silencioso`, quando true, nunca abre popup de login e não
+  // mostra toast (usado pelo backup automático periódico).
+  async function mxmDriveEnviarBackupBase(silencioso) {
+    if (silencioso && !GM_getValue(STORAGE_GOOGLE_DRIVE_REFRESH_TOKEN_KEY, null)) {
+      return false; // nunca logou no Drive — nada a fazer aqui, sem popup
+    }
+
+    const { accessToken } = await mxmDriveGarantirAuth(silencioso);
+    const pastaId = await mxmDriveGarantirPasta(accessToken);
+    const arquivoId = await mxmDriveGarantirArquivoId(accessToken, pastaId);
+    const conteudo = JSON.stringify(coletarBackupParaNuvem());
+
+    const metadata = arquivoId
+      ? { name: MXM_DRIVE_NOME_ARQUIVO } // ao atualizar, não reenvia "parents"
+      : { name: MXM_DRIVE_NOME_ARQUIVO, parents: [pastaId] };
+
+    const boundary = 'mxm_log_drive_boundary_' + Math.random().toString(36).slice(2);
+    const corpo =
+      `--${boundary}\r\n` +
+      `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+      `${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\n` +
+      `Content-Type: application/json\r\n\r\n` +
+      `${conteudo}\r\n` +
+      `--${boundary}--`;
+
+    const url = arquivoId
+      ? `https://www.googleapis.com/upload/drive/v3/files/${arquivoId}?uploadType=multipart`
+      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+
+    const resposta = await fetch(url, {
+      method: arquivoId ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': `multipart/related; boundary=${boundary}`, Authorization: `Bearer ${accessToken}` },
+      body: corpo,
+    });
+    if (!resposta.ok) {
+      const erroJson = await resposta.json().catch(() => null);
+      throw new Error((erroJson && erroJson.error && erroJson.error.message) || `HTTP ${resposta.status}`);
+    }
+    const dados = await resposta.json();
+    if (dados.id) GM_setValue(STORAGE_GOOGLE_DRIVE_FILE_ID_KEY, dados.id);
+    GM_setValue(STORAGE_ULTIMO_BACKUP_DRIVE_KEY, mxmAgoraMs());
+    return true;
+  }
+
+  async function mxmDriveEnviarBackup() {
+    try {
+      await mxmDriveEnviarBackupBase(false);
+      atualizarBadgeNotificacoes();
+      mostrarToastSimples(t('nuvemEnvioSucesso'), 'sucesso');
+      verificarNovasConquistas();
+    } catch (erro) {
+      console.warn('[Log de Envios] Falha ao enviar backup pro Drive.', erro);
+      mostrarToastSimples(t('nuvemEnvioErro'), 'erro');
+    }
+  }
+
+  // Versão silenciosa pro backup automático periódico — mesmo espírito de
+  // mxmFirebaseEnviarBackupNuvemSilencioso.
+  async function mxmDriveEnviarBackupSilencioso() {
+    try {
+      return await mxmDriveEnviarBackupBase(true);
+    } catch (erro) {
+      console.warn('[Log de Envios] Falha no backup automático no Drive.', erro);
+      return false;
+    }
+  }
+
+  // Mesmos intervalos de frequência usados pelo Firestore (ver
+  // INTERVALOS_BACKUP_NUVEM_MS) — reaproveitados de propósito, não há
+  // motivo pra folga diferente entre os dois destinos.
+  function mxmVerificarBackupDriveAutomaticoPeriodico() {
+    if (!isBackupDriveAutomaticoAtivo()) return;
+    const ultimo = GM_getValue(STORAGE_ULTIMO_BACKUP_DRIVE_AUTOMATICO_KEY, 0);
+    const intervalo = INTERVALOS_BACKUP_NUVEM_MS[getFrequenciaBackupDriveAutomatico()];
+    if (mxmAgoraMs() - ultimo < intervalo) return;
+    mxmDriveEnviarBackupSilencioso().then((sucesso) => {
+      if (sucesso) GM_setValue(STORAGE_ULTIMO_BACKUP_DRIVE_AUTOMATICO_KEY, mxmAgoraMs());
+    });
+  }
+
+  // Busca o backup salvo no Drive e abre a MESMA tela de revisão usada
+  // pelo Firestore e pela importação de arquivo — nada é sobrescrito sem
+  // o usuário ver o diff e confirmar antes.
+  async function mxmDriveRestaurarBackup() {
+    try {
+      const { accessToken } = await mxmDriveGarantirAuth();
+      const pastaId = await mxmDriveGarantirPasta(accessToken);
+      const arquivoId = await mxmDriveGarantirArquivoId(accessToken, pastaId);
+      if (!arquivoId) {
+        mostrarToastSimples(t('nuvemNenhumBackup'));
+        return;
+      }
+
+      const resposta = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${arquivoId}?alt=media`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (!resposta.ok) {
+        const erroJson = await resposta.json().catch(() => null);
+        throw new Error((erroJson && erroJson.error && erroJson.error.message) || `HTTP ${resposta.status}`);
+      }
+      const conteudo = await resposta.text();
+
+      let backup;
+      try {
+        backup = JSON.parse(conteudo);
+      } catch (e) {
+        backup = null;
+      }
+      if (!backup || backup.formato !== 'mxm-log-envios-backup-v1' || typeof backup.log !== 'object') {
+        mostrarToastSimples(t('backupArquivoInvalido'));
+        return;
+      }
+      const comparacao = compararBackupComAtual(backup);
+      abrirRevisaoBackup(backup, comparacao);
+    } catch (erro) {
+      console.warn('[Log de Envios] Falha ao buscar backup no Drive.', erro);
+      mostrarToastSimples(t('nuvemRestaurarErro'), 'erro');
+    }
+  }
+
+  // ---------- painel "Backup e Restauração" (Ferramentas úteis) ----------
+  // Reúne, num único lugar, os 4 formatos de backup que antes viviam
+  // espalhados (Configurações → Backup, menu do FAB): backup completo em
+  // arquivo .json, backup automático em disco, backup na nuvem (Google) e
+  // log simples em .txt — além da "zona de risco" (limpar tudo). Segue o
+  // mesmo padrão visual/estrutural de abrirPainelCiclos (overlay
+  // arrastável e redimensionável, cabeçalho com ícone + título + fechar).
+  function abrirPainelBackup() {
+    const overlayExistente = document.getElementById('mxm-log-backup-overlay');
+    if (overlayExistente) {
+      trazerParaFrente(overlayExistente);
+      return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'mxm-log-backup-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      background: 'transparent',
+      pointerEvents: 'none',
+      zIndex: 1000001,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    });
+
+    const tamanhoSalvoBackup = getTamanhoPainelSalvo(STORAGE_TAMANHO_PAINEL_BACKUP_KEY);
+    const larguraPainelBackup = (tamanhoSalvoBackup && tamanhoSalvoBackup.largura) || 480;
+    const alturaPainelBackup = (tamanhoSalvoBackup && tamanhoSalvoBackup.altura) || 680;
+
+    overlay.innerHTML = `
+      <div id="mxm-log-backup-painel" style="background:var(--md-sys-color-surface-container-low); color:var(--md-sys-color-on-surface); width:${larguraPainelBackup}px; height:${alturaPainelBackup}px; max-width:92vw; max-height:88vh; border-radius:var(--md-shape-xl); box-shadow:var(--md-elevation-3); display:flex; flex-direction:column; font-family:sans-serif; overflow:hidden; pointer-events:auto; position:relative;">
+        <div id="mxm-log-backup-header" style="display:flex; align-items:center; justify-content:space-between; padding:14px 16px;">
+          <div style="display:flex; align-items:center; gap:8px; font-size:15px; font-weight:600;"><span class="mxm-icone-pop" style="display:flex;">${icone(
+            'shield',
+            16
+          )}</span>${t('backupRestauracaoTitulo')}</div>
+          <div id="mxm-log-backup-fechar" class="mxm-log-close-btn" style="cursor:pointer; color:var(--md-sys-color-outline); font-size:18px; display:flex; padding:9px; border-radius:50%; transition:background-color .15s ease, color .15s ease;">${icone(
+            'x',
+            16
+          )}</div>
+        </div>
+        <div id="mxm-log-backup-conteudo" style="overflow-y:auto; padding:16px; flex:1;"></div>
+        ${htmlResizeHandle('mxm-log-backup-resize-handle')}
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    animarEntradaCartao(document.getElementById('mxm-log-backup-painel'));
+    renderPainelBackup();
+    tornarArrastavel(
+      document.getElementById('mxm-log-backup-painel'),
+      document.getElementById('mxm-log-backup-header'),
+      overlay
+    );
+    tornarRedimensionavel(
+      document.getElementById('mxm-log-backup-painel'),
+      document.getElementById('mxm-log-backup-resize-handle'),
+      STORAGE_TAMANHO_PAINEL_BACKUP_KEY
+    );
+    ativarHoverResizeHandle('mxm-log-backup-resize-handle');
+    trazerParaFrente(overlay);
+
+    document.getElementById('mxm-log-backup-fechar').addEventListener('click', () => {
+      tocarSom('fechar');
+      fecharOverlayAnimado(overlay);
+    });
+  }
+
+  // Cartão de seção reutilizável dentro do painel de backup — cabeçalho
+  // (ícone + título) opcionalmente com uma descrição abaixo, e uma área
+  // pra conteúdo customizado (botões, switches, status). Mais simples que
+  // criarBloco/criarItemAcao (que vivem presos ao escopo de
+  // abrirPainelConfiguracoes) mas com a mesma linguagem visual de cartão.
+  function cartaoSecaoBackup({ icone: nomeIcone, iconeHtml, titulo, descricao, corIcone }) {
+    return `
+      <div style="background:var(--md-sys-color-surface-container); border:1px solid var(--md-sys-color-outline-variant); border-radius:var(--md-shape-lg); padding:14px; margin-bottom:12px;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:${descricao ? '4px' : '10px'};">
+          <span style="display:flex; color:${corIcone || 'var(--md-sys-color-primary)'};">${iconeHtml || icone(nomeIcone, 15)}</span>
+          <span style="font-size:13px; font-weight:700;">${titulo}</span>
+        </div>
+        ${
+          descricao
+            ? `<div style="font-size:11px; line-height:1.5; color:var(--md-sys-color-outline); margin-bottom:10px;">${descricao}</div>`
+            : ''
+        }
+        <div class="mxm-backup-secao-corpo"></div>
+      </div>
+    `;
+  }
+
+  // Mini switch liga/desliga com o mesmo visual do switch usado em
+  // Configurações (criarItemSwitch) — pill com bolinha deslizante — mas
+  // como HTML puro (o painel de backup monta tudo via innerHTML, então
+  // não dá pra reaproveitar o elemento DOM que criarItemSwitch retorna,
+  // que é local ao escopo de abrirPainelConfiguracoes).
+  function htmlSwitchBackup(id, ligado) {
+    return `
+      <button id="${id}" type="button" style="
+        width:32px; height:18px; border-radius:999px; border:none; cursor:pointer; padding:0; flex-shrink:0; position:relative;
+        background:${ligado ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline-variant)'};
+      "><span style="position:absolute; top:2px; left:${
+        ligado ? '16px' : '2px'
+      }; width:14px; height:14px; border-radius:50%; background:${
+      ligado ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-on-surface)'
+    }; transition:left .15s;"></span></button>
+    `;
+  }
+
+  // Botão de ação padrão usado dentro das seções do painel de backup
+  // (visual consistente com os outros botões de ação da extensão).
+  function botaoAcaoBackup(id, nomeIcone, texto, variante) {
+    const primario = variante === 'primary';
+    return `
+      <button id="${id}" type="button" style="
+        display:flex; align-items:center; justify-content:center; gap:7px; width:100%;
+        padding:9px 12px; border-radius:var(--md-shape-lg); font-size:12.5px; font-weight:600;
+        cursor:pointer; margin-top:8px;
+        border: 1px solid ${primario ? 'transparent' : 'var(--md-sys-color-outline-variant)'};
+        background: ${primario ? 'var(--md-sys-color-primary)' : 'transparent'};
+        color: ${primario ? 'var(--md-sys-color-on-primary)' : 'var(--md-sys-color-on-surface-variant)'};
+      ">${icone(nomeIcone, 13)}<span>${texto}</span></button>
+    `;
+  }
+
+  function renderPainelBackup() {
+    const painel = document.getElementById('mxm-log-backup-conteudo');
+    if (!painel) return;
+
+    const totalMusicas = Object.keys(getLogs()).length;
+    const totalDiffs = getDiffsSalvos().length;
+    const totalResumos = Object.keys(getResumosMensais() || {}).length;
+
+    const automaticoAtivo = isBackupAutomaticoAtivo();
+    const nuvemAtiva = isBackupNuvemAutomaticoAtivo();
+    const frequenciaAtual = getFrequenciaBackupNuvemAutomatico();
+    const ultimoBackupAutomaticoMs = GM_getValue(STORAGE_ULTIMO_BACKUP_AUTOMATICO_KEY, null);
+    const ultimoBackupNuvemMs = GM_getValue(STORAGE_ULTIMO_BACKUP_NUVEM_KEY, null);
+
+    const FREQUENCIAS_UI_BACKUP = [
+      { chave: 'diario', label: t('nuvemFrequenciaDiaria') },
+      { chave: 'semanal', label: t('nuvemFrequenciaSemanal') },
+      { chave: 'mensal', label: t('nuvemFrequenciaMensal') },
+    ];
+
+    // Cabeçalho "área segura" — resumo visual e tranquilizador do que
+    // está protegido, pra reforçar que o painel é sobre cuidar dos dados
+    // do usuário, não sobre configuração técnica.
+    const areaSeguraHtml = `
+      <div style="position:relative; overflow:hidden; border-radius:var(--md-shape-xl); padding:16px; margin-bottom:14px; background:color-mix(in srgb, var(--md-sys-color-primary) 10%, var(--md-sys-color-surface-container-low)); border:1px solid color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent);">
+        <div style="display:flex; align-items:flex-start; gap:10px;">
+          <div class="mxm-icone-pop" style="flex-shrink:0; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent); color:var(--md-sys-color-primary);">${icone(
+            'shield',
+            18
+          )}</div>
+          <div style="min-width:0;">
+            <div style="font-size:13.5px; font-weight:700; margin-bottom:2px;">${t('backupAreaSeguraTitulo')}</div>
+            <div style="font-size:11px; line-height:1.5; color:var(--md-sys-color-on-surface-variant);">${t(
+              'backupAreaSeguraDescricao'
+            )}</div>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:12px;">
+          ${[
+            { valor: totalMusicas, label: t('backupResumoMusicasProtegidas') },
+            { valor: totalDiffs, label: t('backupResumoDiffsProtegidos') },
+            { valor: totalResumos, label: t('backupResumoResumosProtegidos') },
+          ]
+            .map(
+              (item) => `
+            <div style="flex:1; min-width:0; text-align:center; background:var(--md-sys-color-surface-container-low); border-radius:var(--md-shape-md); padding:8px 4px;">
+              <div style="font-size:16px; font-weight:800; color:var(--md-sys-color-primary); font-variant-numeric:tabular-nums;">${
+                item.valor
+              }</div>
+              <div style="font-size:9.5px; color:var(--md-sys-color-outline); line-height:1.3; margin-top:1px;">${
+                item.label
+              }</div>
+            </div>
+          `
+            )
+            .join('')}
+        </div>
+      </div>
+    `;
+
+    // ---- seção: backup completo (arquivo .json) ----
+    const secaoArquivoHtml = `
+      <div id="mxm-backup-secao-arquivo">
+        ${cartaoSecaoBackup({
+          icone: 'fileText',
+          titulo: t('backupSecaoArquivoCompleto'),
+          descricao: t('backupSecaoArquivoCompletoDescricao'),
+        })}
+      </div>
+    `;
+
+    // ---- seção: backup automático em disco ----
+    const secaoDiscoHtml = `
+      <div id="mxm-backup-secao-disco">
+        ${cartaoSecaoBackup({
+          icone: 'download',
+          titulo: t('backupSecaoDisco'),
+          descricao: t('backupAutomaticoDescricao'),
+        })}
+      </div>
+    `;
+
+    // ---- seção: backup na nuvem (Google) ----
+    const secaoNuvemHtml = `
+      <div id="mxm-backup-secao-nuvem">
+        ${cartaoSecaoBackup({
+          icone: 'cloud',
+          titulo: t('backupSecaoNuvem'),
+          descricao: t('nuvemDescricao'),
+        })}
+      </div>
+    `;
+
+    // ---- seção: backup no Google Drive ----
+    const secaoDriveHtml = `
+      <div id="mxm-backup-secao-drive">
+        ${cartaoSecaoBackup({
+          iconeHtml: iconeGoogleDrive(15),
+          titulo: t('backupSecaoDrive'),
+          descricao: t('backupSecaoDriveDescricao'),
+        })}
+      </div>
+    `;
+
+    // ---- seção: log em texto simples ----
+    const secaoTextoHtml = `
+      <div id="mxm-backup-secao-texto">
+        ${cartaoSecaoBackup({
+          icone: 'fileText',
+          titulo: t('backupSecaoTextoSimples'),
+          descricao: t('backupSecaoTextoSimplesDescricao'),
+        })}
+      </div>
+    `;
+
+    // ---- zona de risco ----
+    const secaoZonaRiscoHtml = `
+      <div id="mxm-backup-secao-risco">
+        ${cartaoSecaoBackup({
+          icone: 'trash',
+          titulo: t('backupZonaRiscoTitulo'),
+          corIcone: '#f2a5a5',
+        })}
+      </div>
+    `;
+
+    painel.innerHTML =
+      areaSeguraHtml +
+      secaoArquivoHtml +
+      secaoDiscoHtml +
+      secaoNuvemHtml +
+      secaoDriveHtml +
+      secaoTextoHtml +
+      secaoZonaRiscoHtml;
+
+    // ---- popula o corpo de cada seção (evita reconstruir strings gigantes
+    // com onclick inline; os listeners são plugados logo abaixo) ----
+
+    // arquivo completo (.json)
+    const corpoArquivo = painel.querySelector('#mxm-backup-secao-arquivo .mxm-backup-secao-corpo');
+    corpoArquivo.innerHTML =
+      botaoAcaoBackup('mxm-backup-btn-exportar-json', 'download', t('backupAutomaticoFazerAgora'), 'primary') +
+      botaoAcaoBackup('mxm-backup-btn-importar-json', 'upload', t('backupAutomaticoRestaurar'));
+    document.getElementById('mxm-backup-btn-exportar-json').addEventListener('click', () => {
+      tocarSom('clique');
+      exportarBackupCompleto();
+      mostrarToastSimples(t('backupAutomaticoSucesso'));
+    });
+    document.getElementById('mxm-backup-btn-importar-json').addEventListener('click', () => {
+      tocarSom('clique');
+      abrirSeletorArquivoBackup();
+    });
+
+    // backup automático em disco
+    const corpoDisco = painel.querySelector('#mxm-backup-secao-disco .mxm-backup-secao-corpo');
+    function renderCorpoDisco() {
+      const ativo = isBackupAutomaticoAtivo();
+      const ultimo = GM_getValue(STORAGE_ULTIMO_BACKUP_AUTOMATICO_KEY, null);
+      corpoDisco.innerHTML = `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+          <span style="font-size:12px; font-weight:600;">${t('backupAutomaticoAtivar')}</span>
+          ${htmlSwitchBackup('mxm-backup-switch-disco', ativo)}
+        </div>
+        <div style="display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--md-sys-color-outline); margin-top:8px;">
+          ${icone('check', 11, 'var(--md-sys-color-outline)')}<span>${
+        ultimo
+          ? preencherTemplate(t('nuvemUltimoBackup'), { data: new Date(ultimo).toLocaleString('pt-BR') })
+          : t('nuvemUltimoBackupNunca')
+      }</span>
+        </div>
+        ${botaoAcaoBackup('mxm-backup-btn-disco-agora', 'shield', t('backupAutomaticoFazerAgora'))}
+      `;
+      document.getElementById('mxm-backup-switch-disco').addEventListener('click', () => {
+        tocarSom('clique');
+        setBackupAutomaticoAtivo(!isBackupAutomaticoAtivo());
+        renderCorpoDisco();
+      });
+      document.getElementById('mxm-backup-btn-disco-agora').addEventListener('click', () => {
+        tocarSom('clique');
+        solicitarBackupAutomatico('manual').then(() => renderCorpoDisco());
+      });
+    }
+    renderCorpoDisco();
+
+    // backup na nuvem (Google)
+    const corpoNuvem = painel.querySelector('#mxm-backup-secao-nuvem .mxm-backup-secao-corpo');
+    function renderCorpoNuvem() {
+      const ativo = isBackupNuvemAutomaticoAtivo();
+      const atual = getFrequenciaBackupNuvemAutomatico();
+      corpoNuvem.innerHTML = `
+        <div style="display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; background:var(--md-sys-color-surface-container-high); font-size:10.5px; color:var(--md-sys-color-on-surface-variant); margin-bottom:8px;">${iconeGoogle(
+          12
+        )}<span>${t('nuvemRequerGoogle')}</span></div>
+        <div style="display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--md-sys-color-outline); margin-bottom:8px;">
+          ${icone('check', 11, 'var(--md-sys-color-outline)')}<span>${
+        ultimoBackupNuvemMs
+          ? preencherTemplate(t('nuvemUltimoBackup'), { data: new Date(ultimoBackupNuvemMs).toLocaleString('pt-BR') })
+          : t('nuvemUltimoBackupNunca')
+      }</span>
+        </div>
+        <div style="display:flex; gap:8px;">
+          ${botaoAcaoBackup('mxm-backup-btn-nuvem-enviar', 'cloud', t('nuvemEnviar'), 'primary')}
+          ${botaoAcaoBackup('mxm-backup-btn-nuvem-restaurar', 'cloud', t('nuvemRestaurar'))}
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:12px; padding-top:10px; border-top:1px solid var(--md-sys-color-outline-variant);">
+          <span style="font-size:12px; font-weight:600;">${t('backupNuvemAutomaticoAtivar')}</span>
+          ${htmlSwitchBackup('mxm-backup-switch-nuvem', ativo)}
+        </div>
+        <div style="font-size:10.5px; line-height:1.5; color:var(--md-sys-color-outline); margin-top:4px;">${t(
+          'backupNuvemAutomaticoDescricao'
+        )}</div>
+        <div id="mxm-backup-nuvem-frequencia" style="display:flex; gap:6px; margin-top:8px; opacity:${
+          ativo ? '1' : '0.5'
+        };">
+          ${FREQUENCIAS_UI_BACKUP.map((f) => {
+            const selecionada = f.chave === atual;
+            return `<button type="button" class="mxm-backup-freq-pill" data-freq="${f.chave}" ${
+              ativo ? '' : 'disabled'
+            } style="
+              flex:1; padding:7px 8px; font-size:11px; border-radius:999px;
+              cursor:${ativo ? 'pointer' : 'not-allowed'};
+              border:1px solid ${selecionada ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline-variant)'};
+              background:${selecionada ? 'color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent)' : 'transparent'};
+              color:${selecionada ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)'};
+              font-weight:${selecionada ? '700' : '400'};
+            ">${f.label}</button>`;
+          }).join('')}
+        </div>
+      `;
+      document.getElementById('mxm-backup-btn-nuvem-enviar').addEventListener('click', () => {
+        tocarSom('clique');
+        mxmFirebaseEnviarBackupNuvem().then(() => renderCorpoNuvem());
+      });
+      document.getElementById('mxm-backup-btn-nuvem-restaurar').addEventListener('click', () => {
+        tocarSom('clique');
+        mxmFirebaseRestaurarBackupNuvem();
+      });
+      document.getElementById('mxm-backup-switch-nuvem').addEventListener('click', () => {
+        tocarSom('clique');
+        setBackupNuvemAutomaticoAtivo(!isBackupNuvemAutomaticoAtivo());
+        renderCorpoNuvem();
+      });
+      corpoNuvem.querySelectorAll('.mxm-backup-freq-pill').forEach((pill) => {
+        pill.addEventListener('click', () => {
+          if (!isBackupNuvemAutomaticoAtivo()) return;
+          tocarSom('clique');
+          setFrequenciaBackupNuvemAutomatico(pill.dataset.freq);
+          renderCorpoNuvem();
+        });
+      });
+    }
+    renderCorpoNuvem();
+
+    // backup no Google Drive
+    const corpoDrive = painel.querySelector('#mxm-backup-secao-drive .mxm-backup-secao-corpo');
+    function renderCorpoDrive() {
+      const ativo = isBackupDriveAutomaticoAtivo();
+      const atual = getFrequenciaBackupDriveAutomatico();
+      const ultimoBackupDriveMs = GM_getValue(STORAGE_ULTIMO_BACKUP_DRIVE_KEY, null);
+      corpoDrive.innerHTML = `
+        <div style="display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; background:var(--md-sys-color-surface-container-high); font-size:10.5px; color:var(--md-sys-color-on-surface-variant); margin-bottom:8px;">${iconeGoogle(
+          12
+        )}<span>${t('driveRequerGoogle')}</span></div>
+        <div style="display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--md-sys-color-outline); margin-bottom:8px;">
+          ${icone('check', 11, 'var(--md-sys-color-outline)')}<span>${
+        ultimoBackupDriveMs
+          ? preencherTemplate(t('nuvemUltimoBackup'), { data: new Date(ultimoBackupDriveMs).toLocaleString('pt-BR') })
+          : t('nuvemUltimoBackupNunca')
+      }</span>
+        </div>
+        <div style="display:flex; gap:8px;">
+          ${botaoAcaoBackup('mxm-backup-btn-drive-enviar', 'cloud', t('driveEnviar'), 'primary')}
+          ${botaoAcaoBackup('mxm-backup-btn-drive-restaurar', 'cloud', t('driveRestaurar'))}
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:12px; padding-top:10px; border-top:1px solid var(--md-sys-color-outline-variant);">
+          <span style="font-size:12px; font-weight:600;">${t('backupDriveAutomaticoAtivar')}</span>
+          ${htmlSwitchBackup('mxm-backup-switch-drive', ativo)}
+        </div>
+        <div style="font-size:10.5px; line-height:1.5; color:var(--md-sys-color-outline); margin-top:4px;">${t(
+          'backupDriveAutomaticoDescricao'
+        )}</div>
+        <div id="mxm-backup-drive-frequencia" style="display:flex; gap:6px; margin-top:8px; opacity:${
+          ativo ? '1' : '0.5'
+        };">
+          ${FREQUENCIAS_UI_BACKUP.map((f) => {
+            const selecionada = f.chave === atual;
+            return `<button type="button" class="mxm-backup-drive-freq-pill" data-freq="${f.chave}" ${
+              ativo ? '' : 'disabled'
+            } style="
+              flex:1; padding:7px 8px; font-size:11px; border-radius:999px;
+              cursor:${ativo ? 'pointer' : 'not-allowed'};
+              border:1px solid ${selecionada ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline-variant)'};
+              background:${selecionada ? 'color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent)' : 'transparent'};
+              color:${selecionada ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)'};
+              font-weight:${selecionada ? '700' : '400'};
+            ">${f.label}</button>`;
+          }).join('')}
+        </div>
+      `;
+      document.getElementById('mxm-backup-btn-drive-enviar').addEventListener('click', () => {
+        tocarSom('clique');
+        mxmDriveEnviarBackup().then(() => renderCorpoDrive());
+      });
+      document.getElementById('mxm-backup-btn-drive-restaurar').addEventListener('click', () => {
+        tocarSom('clique');
+        mxmDriveRestaurarBackup();
+      });
+      document.getElementById('mxm-backup-switch-drive').addEventListener('click', () => {
+        tocarSom('clique');
+        setBackupDriveAutomaticoAtivo(!isBackupDriveAutomaticoAtivo());
+        renderCorpoDrive();
+      });
+      corpoDrive.querySelectorAll('.mxm-backup-drive-freq-pill').forEach((pill) => {
+        pill.addEventListener('click', () => {
+          if (!isBackupDriveAutomaticoAtivo()) return;
+          tocarSom('clique');
+          setFrequenciaBackupDriveAutomatico(pill.dataset.freq);
+          renderCorpoDrive();
+        });
+      });
+    }
+    renderCorpoDrive();
+
+    // log em texto simples (.txt)
+    const corpoTexto = painel.querySelector('#mxm-backup-secao-texto .mxm-backup-secao-corpo');
+    corpoTexto.innerHTML =
+      botaoAcaoBackup('mxm-backup-btn-exportar-txt', 'download', t('exportarTxt')) +
+      botaoAcaoBackup('mxm-backup-btn-importar-txt', 'upload', t('importarTxt'));
+    document.getElementById('mxm-backup-btn-exportar-txt').addEventListener('click', () => {
+      tocarSom('clique');
+      exportarTxt();
+    });
+    document.getElementById('mxm-backup-btn-importar-txt').addEventListener('click', () => {
+      tocarSom('clique');
+      let inputTxt = document.getElementById('mxm-log-backup-import-txt-input');
+      if (!inputTxt) {
+        inputTxt = document.createElement('input');
+        inputTxt.id = 'mxm-log-backup-import-txt-input';
+        inputTxt.type = 'file';
+        inputTxt.accept = '.txt,text/plain';
+        inputTxt.style.display = 'none';
+        document.body.appendChild(inputTxt);
+        inputTxt.addEventListener('change', importarTxt);
+      }
+      inputTxt.click();
+    });
+
+    // zona de risco
+    const corpoRisco = painel.querySelector('#mxm-backup-secao-risco .mxm-backup-secao-corpo');
+    corpoRisco.innerHTML = botaoAcaoBackup('mxm-backup-btn-limpar-tudo', 'trash', t('limparTudo'));
+    document.getElementById('mxm-backup-btn-limpar-tudo').addEventListener('click', () => {
+      tocarSom('clique');
+      confirmarLimparTudo();
+    });
+  }
+
   function coletarBackupCompleto() {
     const configuracoes = {};
     BACKUP_CONFIG_CHAVES.forEach((entrada) => {
@@ -24995,7 +30871,13 @@ browser.storage.onChanged.addListener((changes, area) => {
     const letrasAlteradas = [];
 
     Object.entries(backup.log || {}).forEach(([key, entradaBackup]) => {
-      const existente = logAtual[key];
+      // Usa a função padrão de deduplicação em vez de checar só a chave
+      // literal — assim uma música que já existe no log ATUAL sob uma
+      // chave diferente da usada no backup (ex.: um lado com ID e o
+      // outro sem, caso comum ao juntar o log de outro dispositivo) é
+      // reconhecida como a mesma música em vez de contada como nova.
+      const chaveExistente = encontrarChaveLogDuplicado(logAtual, entradaBackup) || (logAtual[key] ? key : null);
+      const existente = chaveExistente ? logAtual[chaveExistente] : null;
       if (!existente) {
         novosRegistros.push(entradaBackup);
         return;
@@ -25004,7 +30886,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       const letraNova = entradaBackup.letra || '';
       if (letraAntiga.trim() !== letraNova.trim() && (letraAntiga.trim() || letraNova.trim())) {
         letrasAlteradas.push({
-          key,
+          key: chaveExistente,
           titulo: entradaBackup.titulo || existente.titulo,
           artista: entradaBackup.artista || existente.artista,
           letraAntiga,
@@ -25031,14 +30913,27 @@ browser.storage.onChanged.addListener((changes, area) => {
   function aplicarBackupCompleto(backup) {
     const logAtual = getLogs();
     Object.entries(backup.log || {}).forEach(([key, entradaBackup]) => {
-      const existente = logAtual[key];
-      logAtual[key] = {
-        ...entradaBackup,
-        imagemUrl: entradaBackup.imagemUrl || (existente && existente.imagemUrl) || null,
-        tentativas: existente
-          ? Math.max(existente.tentativas || 1, entradaBackup.tentativas || 1)
-          : entradaBackup.tentativas || 1,
-      };
+      // Deduplicação padrão: acha se essa música já existe no log atual,
+      // mesmo que sob uma chave diferente (ver encontrarChaveLogDuplicado).
+      // Isso é o que torna seguro usar "Importar backup completo" pra
+      // juntar o log de outro dispositivo/instância sem duplicar músicas
+      // que já foram registradas nos dois lados.
+      const chaveExistente = encontrarChaveLogDuplicado(logAtual, entradaBackup);
+
+      if (!chaveExistente) {
+        // música realmente nova pro log atual
+        logAtual[key] = { ...entradaBackup, tentativas: entradaBackup.tentativas || 1 };
+        return;
+      }
+
+      const existente = logAtual[chaveExistente];
+      const mesmaChaveTextual = chaveExistente === key;
+      const registroMesclado = mesclarRegistrosDuplicados(existente, entradaBackup, { mesmaChaveTextual });
+      const chaveFinal = escolherChaveFinalDuplicata(chaveExistente, key, registroMesclado);
+
+      if (chaveFinal !== chaveExistente) delete logAtual[chaveExistente];
+      if (chaveFinal !== key) delete logAtual[key]; // key pode já não existir; inofensivo
+      logAtual[chaveFinal] = registroMesclado;
     });
     saveLogs(logAtual);
 
@@ -25395,7 +31290,7 @@ browser.storage.onChanged.addListener((changes, area) => {
           e.missao ? ` | ${t('missaoLabel')}: ${e.missao}` : ''
         }${e.tentativas > 1 ? ` (${t('tentativasLabel')}: ${e.tentativas})` : ''}${
           e.tipo === 'instrumental' ? ` [${t('instrumentalTag')}]` : ''
-        }${e.origem === 'manual' ? ` [${t('manualTag')}]` : ''}`
+        }${(e.origem === 'manual' || e.origem === 'manual-vazio') ? ` [${t('manualTag')}]` : ''}`
     );
     const conteudo = linhas.join('\n');
 
@@ -25518,12 +31413,28 @@ browser.storage.onChanged.addListener((changes, area) => {
         const key = entrada.commontrackId
           ? `id:${entrada.commontrackId}`
           : normalizeKey(entrada.titulo, entrada.artista);
-        const existente = logs[key];
-        logs[key] = {
-          ...entrada,
-          imagemUrl: (existente && existente.imagemUrl) || entrada.imagemUrl || null,
-          tentativas: existente ? Math.max(existente.tentativas || 1, entrada.tentativas || 1) : entrada.tentativas,
-        };
+
+        // Deduplicação padrão: mesmo critério usado ao importar um backup
+        // completo, pra um .txt exportado de outro dispositivo/instância
+        // não criar uma segunda entrada pra uma música que já está no log
+        // atual sob uma chave diferente (ex.: com ID de um lado, sem do outro).
+        const chaveExistente = encontrarChaveLogDuplicado(logs, entrada);
+
+        if (!chaveExistente) {
+          logs[key] = { ...entrada, tentativas: entrada.tentativas || 1 };
+          importados++;
+          return;
+        }
+
+        const existente = logs[chaveExistente];
+        const registroMesclado = mesclarRegistrosDuplicados(existente, entrada, {
+          mesmaChaveTextual: chaveExistente === key,
+        });
+        const chaveFinal = escolherChaveFinalDuplicata(chaveExistente, key, registroMesclado);
+
+        if (chaveFinal !== chaveExistente) delete logs[chaveExistente];
+        if (chaveFinal !== key) delete logs[key];
+        logs[chaveFinal] = registroMesclado;
         importados++;
       });
 
