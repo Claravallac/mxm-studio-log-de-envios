@@ -5,7 +5,10 @@
   "private": true,
   "scripts": {
     "check": "node --check background.js && node --check content.js && node --check injected.js && node --check locales/pt.js && node --check locales/en.js && node --check locales/el.js && node --check locales/id.js && node scripts/validate-manifest.js",
-    "pack": "node scripts/pack-chrome.js"
+    "pack": "node scripts/pack.js",
+    "pack:chrome": "node scripts/pack-chrome.js",
+    "pack:firefox": "node scripts/pack-firefox.js",
+    "build": "npm run check && npm run pack"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.308"
