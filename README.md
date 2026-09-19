@@ -1,56 +1,86 @@
-# Echoform - Log de Envios
+# Echoform
 
-Extensão de navegador (Firefox, Manifest V3) para o **Musixmatch Curators Studio**, que adiciona um painel de log/acompanhamento de envios e várias ferramentas de apoio ao trabalho de curadoria de letras.
+Extensão de navegador para **Firefox** e **Chrome** que registra data/hora de
+cada envio no MXM Studio (curators.musixmatch.com), com painel de log, aba
+Reward (USD + BRL), Diff Check, temas do Tabs V3, backup em `.json`, disco,
+nuvem (Firestore) e Google Drive. Interface em PT, EN, EL e ID.
 
-> ⚠️ Projeto não oficial e não afiliado à Musixmatch. Feito pra uso pessoal e compartilhado por conveniência de quem também usa o Curators Studio.
+Este repositório é o código-fonte do port: um único código
+(`content.js`, `background.js`, `injected.js`) gera os dois pacotes.
 
-## Funcionalidades
+## Estrutura
 
-- **Log de Envios**: registra data/hora de cada envio, missão associada (inclusive manual), duração da faixa, com painel de resumo (foto do curator, atividade por dia/mês) e busca/filtro na lista.
-- **Aba Reward**: soma total ganho, com conversão USD → BRL usando cotação ao vivo.
-- **Diff Check**: comparador de versões de letra com visual inspirado no [diffchecker.com](https://www.diffchecker.com) (diff por caractere, alinhamento de linhas, cores fixas de alto contraste), incluindo Diff manual e Diffs salvos.
-- **Compartilhar diff por link**: gera um link autocontido (sem servidor/banco de dados) que abre o diff em qualquer navegador, com encurtamento automático via [is.gd](https://is.gd).
-- Captura opcional da letra da faixa.
-- Temas do Tabs V3 (beta).
-- Backup completo em `.json` (importar/exportar) e backup opcional na nuvem via Firebase (login com conta Google).
-- Tela de boas-vindas com termos de uso e tour inicial.
-- Interface em Português, Inglês e Grego.
+| Caminho | O que é |
+|---|---|
+| `content.js`, `background.js`, `injected.js` | código da extensão, idêntico nos dois navegadores |
+| `i18n/pt.js`, `en.js`, `el.js`, `id.js` | textos da interface, um arquivo por idioma |
+| `chrome-compat.js` | shim `browser = chrome`, só no pacote Chrome |
+| `manifest.base.json` | manifest comum; o build gera os dois finais (a **versão** vive só aqui) |
+| `build.js` | build único (Firefox + Chrome); o cabeçalho traz o mapa de diferenças entre os navegadores |
+| `icons/`, `sounds/` | assets |
+| `secrets.local.example.json` | modelo do arquivo de segredo local (o real fica fora do git) |
+| `docs/NOTAS-DO-PORT.md` | notas de estado do projeto (IDs, status das lojas, decisões) |
 
-## Instalação
+## Requisitos
 
-### Via Firefox Add-ons (recomendado)
-[Instalar via addons.mozilla.org](https://addons.mozilla.org/pt-BR/firefox/addon/mxm-studio-log/)
+Node.js 18 ou superior (o build usa `structuredClone`; testado no Node 22).
+Sem dependências npm.
 
-### Manual (modo desenvolvedor)
-1. Baixe ou clone este repositório.
-2. Abra `about:debugging#/runtime/this-firefox` no Firefox.
-3. Clique em **Carregar extensão temporária...** e selecione o arquivo `manifest.json` desta pasta.
-
-> Requer Firefox 140+ (ou Firefox para Android 142+).
-
-## Estrutura do projeto
+## Build
 
 ```
-manifest.json     # Configuração da extensão (Manifest V3)
-background.js     # Service worker: atualização, login Google/Firebase, menus
-content.js        # Lógica principal (painel de log, Diff Check, etc.)
-injected.js        # Script injetado na página pra capturar dados internos do Studio
-icons/             # Ícones da extensão
-sounds/            # Efeitos sonoros (erro, atualização, resumo de música)
+node build.js                 # gera dist/echoform-firefox-vX.zip e dist/echoform-chrome-vX.zip
+node build.js --dev           # Chrome com "key" fixa (ID estável p/ testar OAuth; precisa de chrome-dev-key.json)
+node build.js --sem-segredo   # pacote de TESTE sem o client_secret (login Google/Drive não funciona)
 ```
 
-## Backup na nuvem (Firebase)
+O build também valida os dicionários de idioma: derruba a execução se faltar
+arquivo, se as chaves divergirem de `pt.js`, se houver erro de sintaxe ou se o
+manifest carregar um idioma depois do `content.js`.
 
-O recurso opcional de backup na nuvem usa Firebase Authentication (login com Google) e Firestore, associado ao projeto `musixmatch-logs`. A `apiKey` do Firebase Web presente no código **não é um segredo** — esse tipo de chave só identifica o projeto; a segurança de verdade vem das Regras do Firestore, que restringem cada usuário a ler/escrever apenas os próprios dados. Ver [`SECURITY.md`](./SECURITY.md) para mais detalhes.
+### Segredo do Google OAuth
 
-## Compartilhar diff por link (nota para quem for contribuir)
+O client OAuth do tipo "Aplicativo da Web" exige um `client_secret`. Ele **não
+está neste repositório**: `background.js` traz só o marcador
+`__ECHOFORM_GOOGLE_CLIENT_SECRET__` e o build o substitui ao montar os
+pacotes. Informe o valor de uma destas formas:
 
-O recurso de "Compartilhar link" do Diff Check depende de uma páginazinha estática publicada via GitHub Pages (repositório separado, ex. `mxm-diff-viewer`) que só lê o fragmento da URL e renderiza o HTML do diff. Se for publicar seu próprio fork com esse recurso ativo, troque a constante `MXM_DIFF_VIEWER_URL_BASE` em `content.js` pela URL da sua própria página publicada.
+1. copie `secrets.local.example.json` para `secrets.local.json` (ignorado pelo
+   git) e preencha `googleClientSecret`; ou
+2. defina a variável de ambiente `ECHOFORM_GOOGLE_CLIENT_SECRET`.
 
-## Contribuindo
+Sem o valor o build falha, pra não gerar um pacote com login quebrado.
+Com `--sem-segredo` ele gera um pacote de teste com o sufixo `-sem-segredo`
+no nome do arquivo.
 
-Issues e PRs são bem-vindos. Antes de abrir um PR grande, abra uma issue descrevendo a mudança proposta.
+## Como adicionar um idioma
+
+1. Copie `i18n/en.js` para `i18n/xx.js`, troque `.en =` por `.xx =` e
+   traduza os VALORES (nunca renomeie as chaves — o build exige as
+   mesmas 773 chaves de `pt.js`).
+2. Inclua `'xx'` em `I18N_IDIOMAS` no `build.js`.
+3. Inclua `"i18n/xx.js"` no `manifest.base.json` (antes de `content.js`).
+4. Inclua `{ codigo: 'xx', rotulo: 'XX', nome: '...' }` em
+   `IDIOMAS_DISPONIVEIS` no `content.js` e adicione o idioma em
+   `MESES_ABREV` e `DIAS_SEMANA_ABREV` (continuam no `content.js`).
+5. ATENÇÃO — o build NÃO detecta esta parte: o `content.js` tem lógica de
+   idioma escrita à mão (`if (idioma === 'en') ... else if (idioma ===
+   'el') ... else <português>`). Um idioma novo cai no ramo padrão
+   (português) se você não tratá-lo. Procure por `idioma === 'el'` e
+   `FRASES_BRINCADEIRA_INSTRUMENTAL` e cubra: `formatarContagemDias`,
+   `formatarDiasEstiloSite` (dias/horas/minutos), `escolherNotasAtualizacao`
+   (chaves de nota por idioma) e `FRASES_BRINCADEIRA_INSTRUMENTAL` (sem
+   frases próprias, o `id` usa as do inglês).
+6. `node build.js` — ele derruba o build se faltar arquivo, se as chaves
+   divergirem de `pt.js`, se o arquivo tiver erro de sintaxe ou se o
+   manifest carregar o idioma depois do `content.js`.
+
+## Versão
+
+Altere só o campo `version` de `manifest.base.json`; `node build.js`
+propaga pros dois pacotes (o `content.js` lê a versão do próprio manifest).
+Lojas exigem número MAIOR que o já publicado.
 
 ## Licença
 
-[MIT](./LICENSE)
+MIT, conforme declarado no cabeçalho do `content.js`.
