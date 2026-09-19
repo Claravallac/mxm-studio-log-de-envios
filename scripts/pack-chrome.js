@@ -34,6 +34,7 @@ const filesToInclude = [
   'background.js',
   'content.js',
   'injected.js',
+  'locales',
   'icons',
   'sounds',
   'LICENSE',

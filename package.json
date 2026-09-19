@@ -4,7 +4,7 @@
   "description": "Echoform - Musixmatch Studio Submission Log and Tools Extension",
   "private": true,
   "scripts": {
-    "check": "node --check background.js && node --check content.js && node --check injected.js && node scripts/validate-manifest.js",
+    "check": "node --check background.js && node --check content.js && node --check injected.js && node --check locales/pt.js && node --check locales/en.js && node --check locales/el.js && node --check locales/id.js && node scripts/validate-manifest.js",
     "pack": "node scripts/pack-chrome.js"
   },
   "devDependencies": {

@@ -57,6 +57,10 @@
         "https://curators-beta.musixmatch.com/*"
       ],
       "js": [
+        "locales/pt.js",
+        "locales/en.js",
+        "locales/el.js",
+        "locales/id.js",
         "content.js"
       ],
       "run_at": "document_start"
