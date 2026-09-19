@@ -1,54 +1,71 @@
 # Echoform - Log de Envios
 
-Extensão de navegador (Firefox, Manifest V3) para o **Musixmatch Curators Studio**, que adiciona um painel de log/acompanhamento de envios e várias ferramentas de apoio ao trabalho de curadoria de letras.
+Extensão de navegador (Google Chrome & Mozilla Firefox, Manifest V3) para o **Musixmatch Curators Studio**, que adiciona um painel de log/acompanhamento de envios e várias ferramentas de apoio ao trabalho de curadoria de letras.
 
 > ⚠️ Projeto não oficial e não afiliado à Musixmatch. Feito pra uso pessoal e compartilhado por conveniência de quem também usa o Curators Studio.
 
 ## Funcionalidades
 
 - **Log de Envios**: registra data/hora de cada envio, missão associada (inclusive manual), duração da faixa, com painel de resumo (foto do curator, atividade por dia/mês) e busca/filtro na lista.
-- **Aba Reward**: soma total ganho, com conversão USD → BRL usando cotação ao vivo.
+- **Aba Reward**: soma total ganho, com conversão de moedas (USD, BRL, IDR, EUR, GBP, etc.) usando cotação ao vivo.
 - **Diff Check**: comparador de versões de letra com visual inspirado no [diffchecker.com](https://www.diffchecker.com) (diff por caractere, alinhamento de linhas, cores fixas de alto contraste), incluindo Diff manual e Diffs salvos.
 - **Compartilhar diff por link**: gera um link autocontido (sem servidor/banco de dados) que abre o diff em qualquer navegador, com encurtamento automático via [is.gd](https://is.gd).
 - Captura opcional da letra da faixa.
 - Temas do Tabs V3 (beta).
 - Backup completo em `.json` (importar/exportar) e backup opcional na nuvem via Firebase (login com conta Google).
 - Tela de boas-vindas com termos de uso e tour inicial.
-- Interface em Português, Inglês, Grego e Bahasa Indonesia (PT/EN/EL/ID).
+- Interface multilíngue com dicionários modulares: Português, Inglês, Grego e Bahasa Indonesia (PT/EN/EL/ID).
 
-## Instalação e Testes
+## Instalação e Testes Locais
 
-### Google Chrome (Modo Desenvolvedor)
-1. Clone ou baixe este repositório (branch `chrome-support`).
+### Google Chrome & Chromium (Modo Desenvolvedor)
+1. Clone ou baixe este repositório.
 2. Abra o Chrome e acesse `chrome://extensions`.
 3. Ative o interruptor **Modo do desenvolvedor** (canto superior direito).
 4. Clique em **Carregar sem compactação** (*Load unpacked*).
 5. Selecione a pasta raiz deste projeto.
 
-### Firefox (Modo Desenvolvedor)
+### Mozilla Firefox (Modo Desenvolvedor)
 1. Abra `about:debugging#/runtime/this-firefox` no Firefox.
-2. Clique em **Carregar extensão temporária...** e selecione o arquivo `manifest.json` desta pasta.
+2. Clique em **Carregar extensão temporária...** (*Load Temporary Add-on...*).
+3. Selecione o arquivo `manifest.json` da pasta raiz deste projeto.
 
-### Build para o Chrome Web Store
-Para gerar o arquivo `.zip` pronto para publicação no [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole):
+## Build & Empacotamento para Publicação
+
+O projeto conta com scripts automatizados para validar e empacotar a extensão para Chrome e Firefox:
+
 ```bash
-# Validar sintaxe e integridade do manifest
+# Validar sintaxe JS e conformidade do manifest.json
 npm run check
 
-# Gerar arquivo zip na pasta dist/
+# Empacotar para AMBOS os navegadores (Chrome e Firefox)
 npm run pack
+# ou: npm run build
+
+# Empacotar somente para o Google Chrome (Chrome Web Store)
+npm run pack:chrome
+
+# Empacotar somente para o Mozilla Firefox (AMO / .xpi)
+npm run pack:firefox
 ```
-O pacote será gerado em `dist/echoform-chrome-v3.5.62.zip`.
+
+Os artefatos prontos para publicação são gerados na pasta `dist/`:
+- 📦 `dist/echoform-chrome-v3.5.65.zip` — Para upload no [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole).
+- 🦊 `dist/echoform-firefox-v3.5.65.xpi` — Para instalação direta ou distribuição no Firefox.
+- 🦊 `dist/echoform-firefox-v3.5.65.zip` — Para envio no [Mozilla Developer Hub (AMO)](https://addons.mozilla.org/developers/).
 
 ## Estrutura do projeto
 
 ```
-manifest.json     # Configuração da extensão (Manifest V3)
-background.js     # Service worker: atualização, login Google/Firebase, menus
-content.js        # Lógica principal (painel de log, Diff Check, etc.)
-injected.js        # Script injetado na página pra capturar dados internos do Studio
-icons/             # Ícones da extensão
-sounds/            # Efeitos sonoros (erro, atualização, resumo de música)
+manifest.json     # Configuração da extensão (Manifest V3 compatível com Chrome e Firefox)
+background.js     # Background script / Service worker (atualizações, login Google, menus)
+content.js        # Lógica principal da interface (painel de log, Diff Check, etc.)
+injected.js       # Script injetado na página pra capturar dados internos do Studio
+locales/          # Dicionários de idiomas modulares (pt.js, en.js, el.js, id.js)
+icons/            # Ícones da extensão
+sounds/           # Efeitos sonoros (erro, atualização, resumo de música)
+scripts/          # Scripts de validação e empacotamento (pack, validate)
+dist/             # Arquivos de saída empacotados (.zip e .xpi)
 ```
 
 ## Backup na nuvem (Firebase)
