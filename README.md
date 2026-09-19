@@ -14,19 +14,31 @@ Extensão de navegador (Firefox, Manifest V3) para o **Musixmatch Curators Studi
 - Temas do Tabs V3 (beta).
 - Backup completo em `.json` (importar/exportar) e backup opcional na nuvem via Firebase (login com conta Google).
 - Tela de boas-vindas com termos de uso e tour inicial.
-- Interface em Português, Inglês e Grego.
+- Interface em Português, Inglês, Grego e Bahasa Indonesia (PT/EN/EL/ID).
 
-## Instalação
+## Instalação e Testes
 
-### Via Firefox Add-ons (recomendado)
-[Instalar via addons.mozilla.org](https://addons.mozilla.org/pt-BR/firefox/addon/mxm-studio-log/)
+### Google Chrome (Modo Desenvolvedor)
+1. Clone ou baixe este repositório (branch `chrome-support`).
+2. Abra o Chrome e acesse `chrome://extensions`.
+3. Ative o interruptor **Modo do desenvolvedor** (canto superior direito).
+4. Clique em **Carregar sem compactação** (*Load unpacked*).
+5. Selecione a pasta raiz deste projeto.
 
-### Manual (modo desenvolvedor)
-1. Baixe ou clone este repositório.
-2. Abra `about:debugging#/runtime/this-firefox` no Firefox.
-3. Clique em **Carregar extensão temporária...** e selecione o arquivo `manifest.json` desta pasta.
+### Firefox (Modo Desenvolvedor)
+1. Abra `about:debugging#/runtime/this-firefox` no Firefox.
+2. Clique em **Carregar extensão temporária...** e selecione o arquivo `manifest.json` desta pasta.
 
-> Requer Firefox 140+ (ou Firefox para Android 142+).
+### Build para o Chrome Web Store
+Para gerar o arquivo `.zip` pronto para publicação no [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole):
+```bash
+# Validar sintaxe e integridade do manifest
+npm run check
+
+# Gerar arquivo zip na pasta dist/
+npm run pack
+```
+O pacote será gerado em `dist/echoform-chrome-v3.5.62.zip`.
 
 ## Estrutura do projeto
 

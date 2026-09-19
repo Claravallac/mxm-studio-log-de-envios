@@ -1,0 +1,13 @@
+{
+  "name": "echoform",
+  "version": "3.5.65",
+  "description": "Echoform - Musixmatch Studio Submission Log and Tools Extension",
+  "private": true,
+  "scripts": {
+    "check": "node --check background.js && node --check content.js && node --check injected.js && node scripts/validate-manifest.js",
+    "pack": "node scripts/pack-chrome.js"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.308"
+  }
+}
