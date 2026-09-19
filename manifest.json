@@ -1,21 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Echoform",
-  "version": "3.5.62",
-  "description": "Registra data/hora de cada envio no MXM Studio, com miss\u00e3o (inclusive manual), dura\u00e7\u00e3o da faixa, painel de log (foto do curator, atividade por dia/m\u00eas, link direto pra p\u00e1gina da m\u00fasica), aba Reward (USD+BRL), Diff Check, captura opcional da letra, temas do Tabs V3 (beta), backup completo em .json, backup autom\u00e1tico em disco, na nuvem (Firestore) e no Google Drive, importar/exportar, tela de boas-vindas com termos de uso e tour inicial. PT/EN/EL.",
+  "version": "3.5.65",
+  "description": "Registra envios no MXM Studio com missões, duração, estatísticas, recompensas, Diff Check e backup automático. PT/EN/EL/ID.",
   "author": "nero",
   "browser_specific_settings": {
     "gecko": {
       "id": "mxm-studio-log-envios@nero",
-      "strict_min_version": "140.0",
-      "data_collection_permissions": {
-        "required": [
-          "none"
-        ]
-      }
-    },
-    "gecko_android": {
-      "strict_min_version": "142.0"
+      "strict_min_version": "121.0"
     }
   },
   "icons": {
@@ -34,13 +26,11 @@
     }
   },
   "background": {
-    "scripts": [
-      "background.js"
-    ]
+    "service_worker": "background.js"
   },
   "permissions": [
     "storage",
-    "menus",
+    "contextMenus",
     "downloads",
     "identity",
     "notifications"
@@ -55,6 +45,7 @@
     "https://securetoken.googleapis.com/*",
     "https://firestore.googleapis.com/*",
     "https://www.googleapis.com/*",
+    "https://oauth2.googleapis.com/*",
     "https://is.gd/*",
     "https://itunes.apple.com/*",
     "https://api.deezer.com/*"
@@ -66,6 +57,10 @@
         "https://curators-beta.musixmatch.com/*"
       ],
       "js": [
+        "locales/pt.js",
+        "locales/en.js",
+        "locales/el.js",
+        "locales/id.js",
         "content.js"
       ],
       "run_at": "document_start"
