@@ -4,6 +4,12 @@
   "version": "3.5.65",
   "description": "Registra envios no MXM Studio com missões, duração, estatísticas, recompensas, Diff Check e backup automático. PT/EN/EL/ID.",
   "author": "nero",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "mxm-studio-log-envios@nero",
+      "strict_min_version": "121.0"
+    }
+  },
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
